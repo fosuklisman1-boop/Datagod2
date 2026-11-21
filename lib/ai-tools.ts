@@ -7,7 +7,6 @@ import { buyerPriceRole } from "@/lib/ussd/price-role"
 import type { WaShopSession } from "@/lib/whatsapp-bot/shop-types"
 import { dialerRateRole } from "@/lib/sub-agents/dealer-rates"
 import { RoleReadError } from "@/lib/roles/repo"
-import { resolveBulkStatusIds } from "@/lib/ai-drafts/bulk-status-ids"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -88,17 +87,102 @@ const getOrderHistoryTool: Anthropic.Tool = {
   },
 }
 
-const placeWalletOrderTool: Anthropic.Tool = {
-  name: "place_wallet_order",
-  description: "Place a data bundle order using the user's wallet balance. ALWAYS confirm the package and recipient phone number with the user before calling this.",
+const prepareWalletOrderTool: Anthropic.Tool = {
+  name: "prepare_wallet_order",
+  description: "Prepare a data bundle order paid from the user's wallet. This does NOT place the order: it creates a confirm card showing the verified price, recipient and balance, and the user taps Confirm on the card to buy. Pass the optional schedule to set the same order up as a recurring or timed order that the user approves once on the card. If this refuses, explain the reason to the user.",
   input_schema: {
     type: "object" as const,
     properties: {
       network: { type: "string", description: "Network name exactly as returned by get_available_packages e.g. MTN, Telecel, AT" },
       size: { type: "string", description: "Package size exactly as returned by get_available_packages e.g. 1, 2, 5, 10" },
       phone_number: { type: "string", description: "Recipient phone number for the data bundle" },
+      schedule: {
+        type: "object",
+        description: "Optional: make this a scheduled order instead of an immediate one.",
+        properties: {
+          type: { type: "string", enum: ["once", "hourly", "daily", "weekly"], description: "How often the order runs." },
+          run_at_time: { type: "string", description: "HH:MM in GMT+0, required for daily and weekly." },
+          run_on_days: { type: "array", items: { type: "number" }, description: "Days to run, 0=Sun … 6=Sat. Required for weekly." },
+          run_at_timestamp: { type: "string", description: "ISO datetime in GMT+0, required for once." },
+        },
+        required: ["type"],
+      },
     },
     required: ["network", "size", "phone_number"],
+  },
+}
+
+// ─── Admin draft tools: each creates a confirm card; nothing executes until the admin taps Confirm ─────────────────
+
+const prepareWalletAdjustmentTool: Anthropic.Tool = {
+  name: "prepare_wallet_adjustment",
+  description: "Admin only: prepare a manual credit or debit of a user's wallet. This does NOT change the wallet: it creates a confirm card and the admin taps Confirm. A debit that would take the balance below 0 is refused.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      user_id: { type: "string", description: "The user ID whose wallet to adjust" },
+      amount: { type: "number", description: "Amount in GHS (positive number)" },
+      type: { type: "string", enum: ["credit", "debit"], description: "credit to add funds, debit to remove funds" },
+      reason: { type: "string", description: "Why the balance is being adjusted (5-500 characters); recorded in the wallet ledger and the admin audit log" },
+    },
+    required: ["user_id", "amount", "type", "reason"],
+  },
+}
+
+const prepareWithdrawalActionTool: Anthropic.Tool = {
+  name: "prepare_withdrawal_action",
+  description: "Admin only: prepare approving, rejecting or completing one or many withdrawals. This does NOT act on them: it creates ONE confirm card showing the count and total, and the admin taps Confirm. For several withdrawals pass all ids in withdrawal_ids in a single call. 'approve' triggers the Moolre payout per withdrawal on confirm; 'reject' requires a reason.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      action: { type: "string", enum: ["approve", "reject", "complete"], description: "approve: approve and pay out. reject: decline (needs reason). complete: mark as paid." },
+      withdrawal_ids: { type: "array", items: { type: "string" }, description: "IDs of the withdrawals (from list_withdrawals). Use one call for all of them." },
+      withdrawal_id: { type: "string", description: "A single withdrawal ID, when acting on just one." },
+      reason: { type: "string", description: "Required for reject — why the withdrawal is declined." },
+    },
+    required: ["action"],
+  },
+}
+
+const prepareUserSuspensionTool: Anthropic.Tool = {
+  name: "prepare_user_suspension",
+  description: "Admin only: prepare suspending or unsuspending a user account. This does NOT change the account: it creates a confirm card and the admin taps Confirm.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      user_id: { type: "string", description: "The user ID to suspend or unsuspend" },
+      suspend: { type: "boolean", description: "true to suspend, false to unsuspend" },
+    },
+    required: ["user_id", "suspend"],
+  },
+}
+
+const prepareRoleChangeTool: Anthropic.Tool = {
+  name: "prepare_role_change",
+  description: "Admin only: prepare changing a user's role. This does NOT change the role: it creates a confirm card and the admin taps Confirm. Valid roles: user, dealer, sub_agent, admin (and custom roles where enabled).",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      user_id: { type: "string", description: "The user ID to update" },
+      role: { type: "string", description: "New role to assign: user, dealer, sub_agent, admin" },
+    },
+    required: ["user_id", "role"],
+  },
+}
+
+const prepareBulkStatusUpdateTool: Anthropic.Tool = {
+  name: "prepare_bulk_status_update",
+  description: "Admin only: prepare a status update for ALL orders matching the filters. This does NOT update them: it resolves the exact matching orders now, creates a confirm card with the count per table, and the admin taps Confirm. At least one filter is required. Use this instead of calling update_order_status one by one.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      status: { type: "string", enum: ["pending", "processing", "completed", "failed"], description: "The new status to set on all matched orders" },
+      filter_status: { type: "string", enum: ["pending", "processing", "completed", "failed"], description: "Only orders currently in this status" },
+      filter_network: { type: "string", description: "Only orders for this network e.g. MTN" },
+      date_from: { type: "string", description: "Only orders created after this ISO timestamp e.g. 2026-05-21T00:00:00" },
+      date_to: { type: "string", description: "Only orders created before this ISO timestamp e.g. 2026-05-21T16:00:00" },
+    },
+    required: ["status"],
   },
 }
 
@@ -114,7 +198,7 @@ const getAllOrdersTool: Anthropic.Tool = {
       phone: { type: "string", description: "Filter by customer phone number" },
       date_from: { type: "string", description: "ISO timestamp start e.g. 2026-05-21T00:00:00" },
       date_to: { type: "string", description: "ISO timestamp end e.g. 2026-05-21T16:00:00" },
-      limit: { type: "number", description: "Max results per table (default 10). If the response has truncated:true, the actual matching total is higher — pass the same filters to bulk_update_order_status to act on all of them." },
+      limit: { type: "number", description: "Max results per table (default 10). If the response has truncated:true, the actual matching total is higher — pass the same filters to prepare_bulk_status_update to act on all of them." },
     },
     required: [],
   },
@@ -130,22 +214,6 @@ const updateOrderStatusTool: Anthropic.Tool = {
       status: { type: "string", enum: ["pending", "processing", "completed", "failed"], description: "New status to set" },
     },
     required: ["order_id", "status"],
-  },
-}
-
-const bulkUpdateOrderStatusTool: Anthropic.Tool = {
-  name: "bulk_update_order_status",
-  description: "Admin only: update the status of ALL orders matching the given filters in one operation. Use this instead of calling update_order_status one-by-one. Always confirm scope with the user before calling.",
-  input_schema: {
-    type: "object" as const,
-    properties: {
-      status: { type: "string", enum: ["pending", "processing", "completed", "failed"], description: "The new status to set on all matched orders" },
-      filter_status: { type: "string", enum: ["pending", "processing", "completed", "failed"], description: "Only update orders currently in this status" },
-      filter_network: { type: "string", description: "Only update orders for this network e.g. MTN" },
-      date_from: { type: "string", description: "Only update orders created after this ISO timestamp e.g. 2026-05-21T00:00:00" },
-      date_to: { type: "string", description: "Only update orders created before this ISO timestamp e.g. 2026-05-21T16:00:00" },
-    },
-    required: ["status"],
   },
 }
 
@@ -275,48 +343,6 @@ const listUsersTool: Anthropic.Tool = {
   },
 }
 
-const suspendUserTool: Anthropic.Tool = {
-  name: "suspend_user",
-  description: "Admin only: suspend or unsuspend a user account. Always confirm user details before acting.",
-  input_schema: {
-    type: "object" as const,
-    properties: {
-      user_id: { type: "string", description: "The user ID to suspend or unsuspend" },
-      action: { type: "string", enum: ["suspend", "unsuspend"] },
-      reason: { type: "string", description: "Reason for suspension (required for suspend)" },
-    },
-    required: ["user_id", "action"],
-  },
-}
-
-const updateUserRoleTool: Anthropic.Tool = {
-  name: "update_user_role",
-  description: "Admin only: change a user's role. Valid roles: user, admin, sub_agent, dealer. Sub-agents cannot be promoted to dealer.",
-  input_schema: {
-    type: "object" as const,
-    properties: {
-      user_id: { type: "string", description: "The user ID to update" },
-      role: { type: "string", enum: ["user", "dealer", "sub_agent", "admin"], description: "New role to assign" },
-    },
-    required: ["user_id", "role"],
-  },
-}
-
-const adjustWalletBalanceTool: Anthropic.Tool = {
-  name: "adjust_wallet_balance",
-  description: "Admin only: manually credit or debit a user's wallet balance, with a reason. Always confirm amount, direction, reason and user before calling. A debit that would take the balance below 0 is refused. Not available to scheduled tasks or the WhatsApp bot (it needs a signed-in admin).",
-  input_schema: {
-    type: "object" as const,
-    properties: {
-      user_id: { type: "string", description: "The user ID whose wallet to adjust" },
-      amount: { type: "number", description: "Amount in GHS (positive number)" },
-      type: { type: "string", enum: ["credit", "debit"], description: "credit to add funds, debit to remove funds" },
-      reason: { type: "string", description: "Why the balance is being adjusted (5-500 characters); recorded in the wallet ledger and the admin audit log" },
-    },
-    required: ["user_id", "amount", "type", "reason"],
-  },
-}
-
 // ─── Admin: shop management ──────────────────────────────────────────────────
 
 const listShopsTool: Anthropic.Tool = {
@@ -360,21 +386,6 @@ const listWithdrawalsTool: Anthropic.Tool = {
       limit: { type: "number", description: "Max results (default 20)" },
     },
     required: [],
-  },
-}
-
-const manageWithdrawalTool: Anthropic.Tool = {
-  name: "manage_withdrawal",
-  description: "Admin only: get details of, approve, reject, or complete withdrawals. For a single withdrawal use withdrawal_id. For bulk approve/reject/complete pass withdrawal_ids (array of IDs) — the server processes all in one call without needing multiple tool invocations. Always list withdrawals first so the admin can confirm the scope before acting. Action guide: 'reject' requires reason; 'approve' triggers automatic Moolre payout per withdrawal.",
-  input_schema: {
-    type: "object" as const,
-    properties: {
-      action: { type: "string", enum: ["get", "approve", "reject", "complete"], description: "get: fetch full details (single only). approve: approve and trigger payout. reject: decline (requires reason). complete: mark as paid." },
-      withdrawal_id: { type: "string", description: "Single withdrawal ID. Use for 'get' or when acting on one withdrawal." },
-      withdrawal_ids: { type: "array", items: { type: "string" }, description: "Array of withdrawal IDs for bulk approve/reject/complete. Use this instead of calling the tool once per ID — the server processes all of them." },
-      reason: { type: "string", description: "Required for reject action — explain why the withdrawal is being declined." },
-    },
-    required: ["action"],
   },
 }
 
@@ -759,7 +770,7 @@ const showActionButtonsTool: Anthropic.Tool = {
 
 const manageScheduledTaskTool: Anthropic.Tool = {
   name: "manage_scheduled_task",
-  description: "Admin only: create, list, get, delete, or toggle scheduled AI tasks. A scheduled task stores a prompt that the AI cron engine runs automatically at the configured time — the stored prompt is sent to the AI exactly as written. Action guide: 'create' needs name, prompt, schedule_type (and run_at_time HH:MM UTC for daily/weekly, run_on_days [0-6] for weekly, run_at_timestamp ISO for once). 'toggle' needs task_id + is_active. 'delete' needs task_id.",
+  description: "Admin only: create, list, get, delete, or toggle scheduled AI tasks. A scheduled task stores a prompt that the AI cron engine runs automatically at the configured time — the stored prompt is sent to the AI exactly as written. Action guide: 'create' needs name, prompt, schedule_type (and run_at_time HH:MM UTC for daily/weekly, run_on_days [0-6] for weekly, run_at_timestamp ISO for once). 'toggle' needs task_id + is_active. 'delete' needs task_id. Scheduled tasks cannot place orders or perform admin actions on their own. For a recurring data order use prepare_wallet_order with schedule; admin tasks can only prepare cards for you to confirm.",
   input_schema: {
     type: "object" as const,
     properties: {
@@ -782,14 +793,14 @@ const manageScheduledTaskTool: Anthropic.Tool = {
 
 const scheduleTaskTool: Anthropic.Tool = {
   name: "schedule_task",
-  description: "Dashboard: create, list, or delete your own scheduled AI tasks. A scheduled task runs a stored prompt through the AI automatically at the configured time — the result is delivered to you via your configured channels. Action guide: 'create' needs name, prompt, schedule_type. 'delete' needs task_id.",
+  description: "Dashboard: create, list, or delete your own scheduled AI tasks. A scheduled task runs a stored prompt through the AI automatically at the configured time — the result is delivered to you via your configured channels. Action guide: 'create' needs name, prompt, schedule_type. 'delete' needs task_id. Scheduled tasks cannot place orders or perform admin actions on their own. For a recurring data order use prepare_wallet_order with schedule; admin tasks can only prepare cards for you to confirm.",
   input_schema: {
     type: "object" as const,
     properties: {
       action: { type: "string", enum: ["create", "list", "delete"], description: "create: schedule a new task. list: view your scheduled tasks. delete: remove a task (needs task_id)." },
       task_id: { type: "string", description: "Task UUID. Required for delete." },
       name: { type: "string", description: "Short name for the task. Required for create." },
-      prompt: { type: "string", description: "The instruction the AI will execute each time this task runs (e.g. 'Buy 5GB MTN for 0241234567'). Required for create." },
+      prompt: { type: "string", description: "The instruction the AI will execute each time this task runs. Use it for reminders and reports, never for purchases (scheduled tasks cannot buy). Required for create." },
       schedule_type: { type: "string", enum: ["once", "hourly", "daily", "weekly"], description: "How often the task runs. Required for create." },
       run_at_time: { type: "string", description: "HH:MM in UTC — required for daily and weekly." },
       run_on_days: { type: "array", items: { type: "number" }, description: "Days to run — 0=Sun … 6=Sat. Required for weekly." },
@@ -1066,7 +1077,7 @@ export function aiTools(context: AIChatContext, storefrontServices?: StorefrontS
     getWalletTransactionsTool,
     getOrderHistoryTool,
     getMySalesTool,
-    placeWalletOrderTool,
+    prepareWalletOrderTool,
     getSubscriptionTool,
     getSubscriptionPlansTool,
     getMyShopTool,
@@ -1106,20 +1117,20 @@ export function aiTools(context: AIChatContext, storefrontServices?: StorefrontS
     getAvailablePackagesTool,
     getAllOrdersTool,
     updateOrderStatusTool,
-    bulkUpdateOrderStatusTool,
+    prepareBulkStatusUpdateTool,
     retryFailedOrderTool,
     // Users
     listUsersTool,
     getUserInfoTool,
-    suspendUserTool,
-    updateUserRoleTool,
-    adjustWalletBalanceTool,
+    prepareUserSuspensionTool,
+    prepareRoleChangeTool,
+    prepareWalletAdjustmentTool,
     // Shops
     listShopsTool,
     manageShopTool,
     // Withdrawals
     listWithdrawalsTool,
-    manageWithdrawalTool,
+    prepareWithdrawalActionTool,
     // USSD shops
     manageUssdShopTool,
     // Packages
@@ -1187,6 +1198,10 @@ export interface ToolContext {
   // Prefer this over a model-supplied `phone` arg so complaint/handoff records key
   // on the same number the inbound media/messages arrive under.
   phone?: string
+  // Dashboard + admin chat: the validated chat-session uuid (drafts in one session supersede each other).
+  conversationKey?: string
+  // Background (cron) runs: admin drafts live 12 h instead of 5 min.
+  background?: boolean
 }
 
 // Admin-only tool names. These either mutate platform state or read data via the
@@ -1195,9 +1210,9 @@ export interface ToolContext {
 // admin toolset to a non-admin, and the direct service-role read tools never hit
 // an HTTP auth check. Every one of these is gated on ctx.userRole === "admin" below.
 const ADMIN_ONLY_TOOLS = new Set<string>([
-  "get_all_orders", "update_order_status", "bulk_update_order_status", "retry_failed_order",
-  "list_users", "get_user_info", "suspend_user", "update_user_role", "adjust_wallet_balance",
-  "list_shops", "manage_shop", "list_withdrawals", "manage_withdrawal",
+  "get_all_orders", "update_order_status", "prepare_bulk_status_update", "retry_failed_order",
+  "list_users", "get_user_info", "prepare_user_suspension", "prepare_role_change", "prepare_wallet_adjustment",
+  "list_shops", "manage_shop", "list_withdrawals", "prepare_withdrawal_action",
   "manage_ussd_shop", "manage_packages", "manage_blacklist", "bulk_blacklist",
   "list_pending_fulfillment", "manual_fulfill_order", "bulk_manual_fulfill",
   "sync_fulfillment_status", "retry_blacklisted_order",
@@ -1460,45 +1475,69 @@ export async function executeToolCall(
         return sanitize({ orders: data.orders, total: data.pagination?.total })
       }
 
-      case "place_wallet_order": {
+      // ── Draft tools: build a pending confirm card, execute nothing (lib/ai-drafts). The user and role come from the
+      // verified server context (the chat route reads users.role); the model only supplies the order details.
+      case "prepare_wallet_order": {
         if (!ctx.userId) {
-          return { error: "A matched Datagod account is required before placing wallet orders from WhatsApp." }
+          return { refused: true, code: "sign_in_required", message: "A signed-in Datagod account is required to prepare an order." }
         }
-
-        // Look up the real package ID by network + size — never trust Claude to carry a UUID
-        const { data: pkg, error: pkgErr } = await supabaseAdmin
-          .from("packages")
-          .select("id, size, price, dealer_price")
-          .ilike("network", String(input.network))
-          .eq("size", String(input.size))
-          .eq("is_available", true)
-          .maybeSingle()
-
-        if (pkgErr || !pkg) {
-          return { error: `Package not found: ${input.network} ${input.size}GB. Please call get_available_packages to see what is available.` }
-        }
-
-        const res = await fetch(`${ctx.baseUrl}/api/orders/purchase`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${ctx.jwtToken}`,
+        const { prepareWalletOrder } = await import("@/lib/ai-drafts/prepare-wallet-order")
+        const sched = input.schedule as Record<string, unknown> | undefined
+        return sanitize(await prepareWalletOrder(
+          supabaseAdmin,
+          { userId: ctx.userId, userRole: ctx.userRole ?? "user", conversationKey: ctx.conversationKey ?? null },
+          {
+            network: String(input.network ?? ""),
+            size: String(input.size ?? ""),
+            phone_number: String(input.phone_number ?? ""),
+            ...(sched && typeof sched === "object" ? {
+              schedule: {
+                type: String(sched.type ?? ""),
+                ...(sched.run_at_time != null ? { runAtTime: String(sched.run_at_time) } : {}),
+                ...(Array.isArray(sched.run_on_days) ? { runOnDays: (sched.run_on_days as unknown[]).map(Number) } : {}),
+                ...(sched.run_at_timestamp != null ? { runAtTimestamp: String(sched.run_at_timestamp) } : {}),
+              },
+            } : {}),
           },
-          body: JSON.stringify({
-            packageId: pkg.id,
-            phoneNumber: input.phone_number,
-            network: input.network,
-            // Required when jwtToken is CRON_SECRET — purchase route reads userId from body
-            ...(ctx.userId ? { userId: ctx.userId } : {}),
-          }),
-        })
-        const data = await res.json()
-        return sanitize({
-          success: res.ok,
-          message: data.message ?? data.error,
-          order_code: data.order?.order_code,
-          new_balance: data.newBalance,
-        })
+        ))
+      }
+
+      case "prepare_wallet_adjustment":
+      case "prepare_withdrawal_action":
+      case "prepare_user_suspension":
+      case "prepare_role_change":
+      case "prepare_bulk_status_update": {
+        // Admin-only (gated above). The builders re-derive everything from the DB and execute nothing.
+        if (!ctx.userId) {
+          return { refused: true, code: "admin_required", message: "A signed-in admin is required to prepare this action." }
+        }
+        const admin = await import("@/lib/ai-drafts/prepare-admin")
+        const actx = { adminId: ctx.userId, conversationKey: ctx.conversationKey ?? null, background: ctx.background }
+        if (name === "prepare_wallet_adjustment") {
+          return sanitize(await admin.prepareWalletAdjustment(supabaseAdmin, actx, {
+            user_id: String(input.user_id ?? ""), type: String(input.type ?? ""), amount: Number(input.amount), reason: String(input.reason ?? ""),
+          }))
+        }
+        if (name === "prepare_withdrawal_action") {
+          const ids = Array.isArray(input.withdrawal_ids) && input.withdrawal_ids.length > 0
+            ? (input.withdrawal_ids as unknown[]).map(String)
+            : input.withdrawal_id ? [String(input.withdrawal_id)] : []
+          return sanitize(await admin.prepareWithdrawalAction(supabaseAdmin, actx, {
+            action: String(input.action ?? ""), withdrawal_ids: ids,
+            ...(input.reason != null ? { reason: String(input.reason) } : {}),
+          }))
+        }
+        if (name === "prepare_user_suspension") {
+          return sanitize(await admin.prepareUserSuspension(supabaseAdmin, actx, { user_id: String(input.user_id ?? ""), suspend: input.suspend === true }))
+        }
+        if (name === "prepare_role_change") {
+          return sanitize(await admin.prepareRoleChange(supabaseAdmin, actx, { user_id: String(input.user_id ?? ""), role: String(input.role ?? "") }))
+        }
+        const filters: Record<string, string> = {}
+        for (const k of ["filter_status", "filter_network", "date_from", "date_to"] as const) {
+          if (input[k]) filters[k] = String(input[k])
+        }
+        return sanitize(await admin.prepareBulkStatusUpdate(supabaseAdmin, actx, { status: String(input.status ?? ""), filters }))
       }
 
       case "start_ordering_bot": {
@@ -2254,7 +2293,7 @@ export async function executeToolCall(
         return sanitize({
           count: combined.length,
           truncated,
-          note: truncated ? "Results are capped — the true total matching orders may be higher. Use bulk_update_order_status with the same filters to act on all of them, or narrow filters for an accurate count." : undefined,
+          note: truncated ? "Results are capped — the true total matching orders may be higher. Use prepare_bulk_status_update with the same filters to act on all of them, or narrow filters for an accurate count." : undefined,
           orders: combined,
         })
       }
@@ -2270,48 +2309,6 @@ export async function executeToolCall(
         const data = await res.json()
         if (!res.ok) return { success: false, error: data.error ?? "Update failed" }
         return { success: true }
-      }
-
-      case "bulk_update_order_status": {
-        if (!input.filter_status && !input.filter_network && !input.date_from && !input.date_to) {
-          return { error: "At least one filter is required for bulk update to prevent accidental mass changes." }
-        }
-
-        const newStatus = (input.status ?? input.new_status) as string
-        // Collect matching IDs from all five order tables (lib/ai-drafts/bulk-status-ids.ts)
-        let idsByTable
-        try {
-          idsByTable = await resolveBulkStatusIds(
-            supabaseAdmin as any,
-            {
-              filter_status: input.filter_status as string | undefined,
-              filter_network: input.filter_network as string | undefined,
-              date_from: input.date_from as string | undefined,
-              date_to: input.date_to as string | undefined,
-            },
-            newStatus,
-          )
-        } catch (e) {
-          return { error: e instanceof Error ? e.message : "Failed to look up orders" }
-        }
-
-        const allIds = [
-          ...idsByTable.orders, ...idsByTable.shop_orders, ...idsByTable.ussd_orders,
-          ...idsByTable.ussd_shop_orders, ...idsByTable.api_orders,
-        ]
-
-        if (allIds.length === 0) return { success: true, count: 0, message: "No matching orders found." }
-
-        // Pass all IDs to the bulk-update endpoint — it handles notifications,
-        // profit crediting, and MTN tracking for every order type.
-        const res = await fetch(`${ctx.baseUrl}/api/admin/orders/bulk-update-status`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
-          body: JSON.stringify({ orderIds: allIds, status: newStatus }),
-        })
-        const data = await res.json()
-        if (!res.ok) return { error: data.error ?? "Bulk update failed" }
-        return { success: true, count: allIds.length, message: `${allIds.length} orders updated to "${newStatus}".` }
       }
 
       case "retry_failed_order": {
@@ -2501,58 +2498,6 @@ export async function executeToolCall(
         })))
       }
 
-      case "suspend_user": {
-        const res = await fetch(`${ctx.baseUrl}/api/admin/users/suspend`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
-          body: JSON.stringify({ userId: input.user_id, action: input.action, reason: input.reason }),
-        })
-        const data = await res.json()
-        return { success: res.ok, message: data.message ?? data.error }
-      }
-
-      case "update_user_role": {
-        const res = await fetch(`${ctx.baseUrl}/api/admin/users/update-role`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
-          body: JSON.stringify({ userId: input.user_id, role: input.role }),
-        })
-        const data = await res.json()
-        return { success: res.ok, message: data.message ?? data.error, new_role: data.newRole, ...(data.note ? { note: data.note } : {}) }
-      }
-
-      case "adjust_wallet_balance": {
-        // Wallet adjustments are attributed to the acting admin (audit log), so the scheduled-task / WhatsApp
-        // bot path, which authenticates with CRON_SECRET and has no admin, is refused by the API. Say so plainly.
-        const NEEDS_ADMIN = "Wallet adjustments need a signed-in admin. Scheduled tasks and the WhatsApp bot cannot adjust wallets; ask an admin to do it from the admin users page or the admin AI chat."
-        if (process.env.CRON_SECRET && ctx.jwtToken === process.env.CRON_SECRET) {
-          return { success: false, error: NEEDS_ADMIN }
-        }
-        const userId = encodeURIComponent(String(input.user_id ?? ""))
-        // Read the live balance and send it as expectedBalance: if this call is retried after it already
-        // applied, the balance no longer matches and the server refuses instead of adjusting twice.
-        const balRes = await fetch(`${ctx.baseUrl}/api/admin/users/${userId}/transactions?page=1&pageSize=1`, {
-          headers: { Authorization: `Bearer ${ctx.jwtToken}` },
-        })
-        const bal = await balRes.json().catch(() => null)
-        if (balRes.status === 403) return { success: false, error: NEEDS_ADMIN }
-        if (!balRes.ok) return { success: false, error: bal?.error ?? "Could not read the wallet balance" }
-        if (!bal?.wallet) return { success: false, error: "This user has no wallet" }
-        const expectedBalance = Number(bal.wallet.balance)
-
-        const res = await fetch(`${ctx.baseUrl}/api/admin/update-balance`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
-          body: JSON.stringify({ userId: input.user_id, amount: input.amount, type: input.type, reason: input.reason, expectedBalance }),
-        })
-        const data = await res.json().catch(() => null)
-        if (res.status === 403 && /admin session required/i.test(String(data?.error ?? ""))) {
-          return { success: false, error: NEEDS_ADMIN }
-        }
-        if (!res.ok) return sanitize({ success: false, error: data?.error ?? "Failed to adjust the wallet" })
-        return sanitize({ success: true, balance_before: data?.data?.balanceBefore ?? expectedBalance, new_balance: data?.balance ?? data?.data?.balance })
-      }
-
       case "list_shops": {
         const status = (input.status as string) ?? "all"
         const search = (input.search as string | undefined) ?? ""
@@ -2624,64 +2569,6 @@ export async function executeToolCall(
           bank: w.bank_name,
           account: w.account_number,
         })))
-      }
-
-      case "manage_withdrawal": {
-        const action = input.action as string
-
-        if (action === "get") {
-          if (!input.withdrawal_id) return { error: "withdrawal_id is required for get" }
-          const { data, error } = await supabaseAdmin
-            .from("withdrawal_requests")
-            .select("id, shop_id, amount, status, bank_name, account_number, account_name, created_at, updated_at, rejection_reason")
-            .eq("id", input.withdrawal_id as string)
-            .maybeSingle()
-          if (error || !data) return { error: "Withdrawal not found" }
-          return sanitize(data)
-        }
-
-        const endpoints: Record<string, string> = {
-          approve: `${ctx.baseUrl}/api/admin/withdrawals/approve`,
-          reject: `${ctx.baseUrl}/api/admin/withdrawals/reject`,
-          complete: `${ctx.baseUrl}/api/admin/withdrawals/complete`,
-        }
-        const url = endpoints[action]
-        if (!url) return { error: `Invalid action: ${action}. Use get, approve, reject, or complete.` }
-
-        // Bulk mode — process all IDs sequentially, collect results
-        const bulkIds = Array.isArray(input.withdrawal_ids) && (input.withdrawal_ids as string[]).length > 0
-          ? (input.withdrawal_ids as string[])
-          : input.withdrawal_id ? [input.withdrawal_id as string] : null
-        if (!bulkIds) return { error: "withdrawal_id or withdrawal_ids is required" }
-
-        const results: Array<{ id: string; success: boolean; message: string }> = []
-        for (const id of bulkIds) {
-          try {
-            const res = await fetch(url, {
-              method: "POST",
-              headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
-              body: JSON.stringify({ withdrawalId: id, reason: input.reason }),
-            })
-            const data = await res.json()
-            results.push({ id, success: res.ok, message: data.message ?? data.error ?? (res.ok ? "OK" : "Failed") })
-          } catch {
-            results.push({ id, success: false, message: "Request error" })
-          }
-        }
-
-        if (results.length === 1) {
-          return { success: results[0].success, action, message: results[0].message }
-        }
-        const succeeded = results.filter(r => r.success).length
-        const failures = results.filter(r => !r.success)
-        return {
-          action,
-          total: results.length,
-          succeeded,
-          failed_count: failures.length,
-          ...(failures.length > 0 ? { failures } : {}),
-          message: `${succeeded} of ${results.length} ${action}d successfully${failures.length > 0 ? ` — ${failures.length} failed` : ""}`,
-        }
       }
 
       case "manage_packages": {

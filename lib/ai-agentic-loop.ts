@@ -14,6 +14,10 @@ export interface AgenticToolCtx {
   // (file_complaint, request_human_handoff, start_ordering_bot) don't depend on
   // the model passing the number in the right format.
   phone?: string
+  /** Chat session uuid (dashboard + admin): drafts in the same session supersede each other. */
+  conversationKey?: string
+  /** Set by background (cron) runs: drafts live 12 h. */
+  background?: boolean
 }
 
 export interface RunAgenticLoopParams {
@@ -96,6 +100,14 @@ export async function runAgenticLoop({
         if (tc.name === "show_action_buttons") {
           const r = result as Record<string, unknown>
           emit({ type: "action_buttons", buttons: r.buttons ?? [] })
+        }
+
+        // A prepare_* tool that created a draft: the widget renders a confirm card from this event.
+        if (tc.name.startsWith("prepare_")) {
+          const r = result as Record<string, unknown> | null
+          if (r && typeof r.draft_id === "string") {
+            emit({ type: "draft_card", draft_id: r.draft_id, display: r.display, expires_at: r.expires_at, warnings: r.warnings ?? [] })
+          }
         }
 
         const resultStr = JSON.stringify(result)

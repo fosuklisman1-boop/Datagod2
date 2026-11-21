@@ -64,19 +64,19 @@ function computeNextRun(task: {
 // ─── System prompts for cron execution ───────────────────────────────────────
 
 function buildCronSystemPrompt(context: AIChatContext, today: string): string {
-  const reminderRule = `IMPORTANT: If the prompt starts with "REMINDER ONLY", call the notify_self tool with the reminder text as the message — do NOT call place_wallet_order or any purchase tool. Call notify_self first, then stop.`
+  const reminderRule = `IMPORTANT: If the prompt starts with "REMINDER ONLY", call the notify_self tool with the reminder text as the message — do NOT call any prepare_* tool or any purchase tool. Call notify_self first, then stop.`
 
   if (context === "admin") {
     return `You are the Datagod admin AI running a scheduled automated task. Today is ${today} (GMT+0).
 Execute the task in the prompt directly and efficiently. Report what you did and the outcome in 1-3 sentences.
 ORDER TABLES: orders (dealer wallet), shop_orders (Paystack), ussd_orders, ussd_shop_orders, api_orders.
-For bulk status updates use bulk_update_order_status. For withdrawals use manage_withdrawal with withdrawal_ids array.
-Do not ask for confirmation — this is automated execution. Act on exactly what the prompt says.
+You cannot change order statuses, wallets, withdrawals, roles or suspensions yourself; scheduled tasks can only report what needs doing.
+Do not ask for confirmation — this is automated execution. Act on exactly what the prompt says, using the read and report tools you have.
 ${reminderRule}`
   }
   return `You are the Datagod AI running a scheduled task for a user. Today is ${today} (GMT+0).
-Execute the task in the prompt directly. Always call get_wallet_balance before placing any order.
-If the wallet balance is insufficient, do not place the order — report the shortfall in your response.
+Execute the task in the prompt directly. You cannot place orders yourself; scheduled tasks cannot buy anything on their own.
+If the task asks for a purchase, do not attempt it — report that it needs the user's confirmation.
 Report what happened in 1-2 sentences. Do not ask for confirmation — this is automated execution.
 ${reminderRule}`
 }
