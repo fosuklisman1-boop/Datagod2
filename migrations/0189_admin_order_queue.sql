@@ -99,8 +99,17 @@ AS $fn$
              coalesce(t.external_message, t.api_response_payload ->> 'message') AS full_message,
              count(*) OVER ()                       AS attempt_count,
              bool_or(t.status = 'reversed') OVER () AS has_reversal
-        FROM public.mtn_fulfillment_tracking t
-       WHERE coalesce(t.order_id::text, t.shop_order_id::text, t.api_order_id::text) = v.id
+        FROM (
+               -- index-friendly form of coalesce(order_id, shop_order_id, api_order_id) = v.id (same precedence; casts on the v.id side only)
+               SELECT t.id, t.provider, t.status, t.mtn_order_id, t.created_at, t.external_message, t.api_response_payload FROM public.mtn_fulfillment_tracking t
+                WHERE t.order_id = v.id
+               UNION ALL
+               SELECT t.id, t.provider, t.status, t.mtn_order_id, t.created_at, t.external_message, t.api_response_payload FROM public.mtn_fulfillment_tracking t
+                WHERE t.order_id IS NULL AND t.shop_order_id = (CASE WHEN v.id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN v.id::uuid END)
+               UNION ALL
+               SELECT t.id, t.provider, t.status, t.mtn_order_id, t.created_at, t.external_message, t.api_response_payload FROM public.mtn_fulfillment_tracking t
+                WHERE t.order_id IS NULL AND t.shop_order_id IS NULL AND t.api_order_id = (CASE WHEN v.id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN v.id::uuid END)
+             ) t
        ORDER BY t.created_at DESC, t.id DESC
        LIMIT 1
     ) la ON true
@@ -115,6 +124,7 @@ AS $fn$
          OR v.payment_reference::text  ILIKE '%' || replace(replace(replace(p_search, '\', '\\'), '%', '\%'), '_', '\_') || '%'
          OR v.customer_email::text     ILIKE '%' || replace(replace(replace(p_search, '\', '\\'), '%', '\%'), '_', '\_') || '%'
          OR v.store_name::text         ILIKE '%' || replace(replace(replace(p_search, '\', '\\'), '%', '\%'), '_', '\_') || '%'))
+      -- note: an order can appear in both held and stuck (processing + UNKNOWN_ id + old attempt)
       -- cheap row-level pre-filter per view (the attempt-dependent part is applied below)
       AND CASE p_view
             WHEN 'needs_action' THEN v.status::text IN ('pending', 'reversed')
@@ -191,8 +201,17 @@ AS $fn$
     LEFT JOIN LATERAL (
       SELECT t.id, t.provider, t.status, t.mtn_order_id, t.created_at,
              coalesce(t.external_message, t.api_response_payload ->> 'message') AS full_message
-        FROM public.mtn_fulfillment_tracking t
-       WHERE coalesce(t.order_id::text, t.shop_order_id::text, t.api_order_id::text) = v.id
+        FROM (
+               -- index-friendly form of coalesce(order_id, shop_order_id, api_order_id) = v.id (same precedence; casts on the v.id side only)
+               SELECT t.id, t.provider, t.status, t.mtn_order_id, t.created_at, t.external_message, t.api_response_payload FROM public.mtn_fulfillment_tracking t
+                WHERE t.order_id = v.id
+               UNION ALL
+               SELECT t.id, t.provider, t.status, t.mtn_order_id, t.created_at, t.external_message, t.api_response_payload FROM public.mtn_fulfillment_tracking t
+                WHERE t.order_id IS NULL AND t.shop_order_id = (CASE WHEN v.id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN v.id::uuid END)
+               UNION ALL
+               SELECT t.id, t.provider, t.status, t.mtn_order_id, t.created_at, t.external_message, t.api_response_payload FROM public.mtn_fulfillment_tracking t
+                WHERE t.order_id IS NULL AND t.shop_order_id IS NULL AND t.api_order_id = (CASE WHEN v.id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN v.id::uuid END)
+             ) t
        ORDER BY t.created_at DESC, t.id DESC
        LIMIT 1
     ) la ON true
@@ -250,6 +269,7 @@ AS $fn$
    ) AS x(view, n)
 $fn$;
 
+-- SECURITY INVOKER is deliberate: EXECUTE is service_role-only (REVOKE/GRANT below), so no definer elevation is needed.
 -- Service-role only: these read orders, phones and customer emails across every account.
 REVOKE ALL ON FUNCTION public.admin_order_queue(text, text[], text[], text[], timestamptz, timestamptz, text, text, text, int, int) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.admin_order_queue_counts(text[], text[], timestamptz, timestamptz, text, text, text) FROM PUBLIC, anon, authenticated;

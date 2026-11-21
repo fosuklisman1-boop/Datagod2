@@ -70,6 +70,9 @@ const TABLES = `
   CREATE TABLE mtn_fulfillment_tracking (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), shop_order_id uuid, mtn_order_id text,
     api_response_payload jsonb, status varchar, external_message text, created_at timestamp DEFAULT now(), order_id varchar,
     provider varchar, api_order_id uuid);
+  CREATE INDEX idx_mtn_fulfillment_order_id ON mtn_fulfillment_tracking (order_id);
+  CREATE INDEX idx_mtn_fulfillment_shop_order_id ON mtn_fulfillment_tracking (shop_order_id);
+  CREATE INDEX idx_mtn_fulfillment_api_order_id ON mtn_fulfillment_tracking (api_order_id);
 `
 
 async function makeDb(): Promise<any> {
@@ -248,6 +251,63 @@ describe.skipIf(!PGliteCtor)("0189 in PGlite", () => {
     const byId = Object.fromEntries(rows.map((r) => [r.id, r]))
     expect(byId[shop]).toMatchObject({ last_provider: "apex", type: "shop", store_name: "Ab_Shop 100%", shop_owner_email: "owner@example.com", customer_email: "c@example.com" })
     expect(byId[api]).toMatchObject({ last_provider: "hubnet", type: "api", shop_owner_email: "owner@example.com" })
+  }, 60_000)
+
+  it("latest-attempt probe: parity by order_id, shop_order_id only, api_order_id only, and order_id precedence", async () => {
+    const db = await makeDb()
+    const owner = uid(500)
+    const shopRow = uid(501)
+    await db.query(`INSERT INTO user_shops (id, user_id, shop_name) VALUES ($1, $2, 'S')`, [shopRow, owner])
+    const shop = uid(502)
+    const api = uid(503)
+    const bulk = uid(504)
+    await db.query(
+      `INSERT INTO shop_orders (id, shop_id, customer_phone, network, volume_gb, total_price, order_status, payment_status, created_at)
+       VALUES ($1, $2, '0244000001', 'mtn', 1, 9, 'pending', 'completed', now())`, [shop, shopRow])
+    await db.query(`INSERT INTO api_orders (id, user_id, network, volume_gb, price, recipient_phone, status) VALUES ($1, $2, 'mtn', 1, 8, '0244000002', 'pending')`, [api, owner])
+    await db.query(`INSERT INTO orders (id, network, size, price, status, phone_number, created_at) VALUES ($1, 'mtn', '1', 5, 'pending', '0244000003', now())`, [bulk])
+    const at = (h: number) => `now() - interval '${h} hours'`
+    // shop_order_id only: two attempts, newest is reversed
+    await db.query(`INSERT INTO mtn_fulfillment_tracking (shop_order_id, status, provider, created_at) VALUES ($1,'failed','a',${at(3)}), ($1,'reversed','b',${at(1)})`, [shop])
+    // api_order_id only: one attempt
+    await db.query(`INSERT INTO mtn_fulfillment_tracking (api_order_id, status, provider, created_at) VALUES ($1,'pending','c',${at(1)})`, [api])
+    // order_id set AND shop_order_id set to a different (shop) order: coalesce precedence = order_id wins, so the shop order must NOT see it
+    await db.query(`INSERT INTO mtn_fulfillment_tracking (order_id, shop_order_id, status, provider, created_at) VALUES ($1,$2,'pending','d',${at(1)})`, [bulk, shop])
+    const byId = Object.fromEntries((await list(db, "needs_action")).map((r) => [r.id, r]))
+    expect(byId[shop]).toMatchObject({ last_provider: "b", attempt_count: 2, has_reversal: true })
+    expect(byId[api]).toMatchObject({ last_provider: "c", attempt_count: 1, has_reversal: false })
+    expect(byId[bulk]).toMatchObject({ last_provider: "d", attempt_count: 1 })
+  }, 60_000)
+
+  it("a non-uuid view id does not raise", async () => {
+    const db = await makeDb()
+    // varchar columns in the real view can in principle hold non-uuid text; force one through the ussd branch's text id
+    await db.exec(`DROP VIEW combined_orders_view`)
+    await db.exec(`CREATE VIEW combined_orders_view AS SELECT 'not-a-uuid'::text AS id, now() AS created_at, '0500000000'::text AS phone_number,
+      1::numeric AS price, 'MTN'::text AS network, 'pending'::text AS status, 'completed'::text AS payment_status, 'x'::text AS payment_reference,
+      '1'::text AS volume_gb, 'bulk'::text AS type, NULL::text AS customer_email, NULL::text AS store_name, NULL::uuid AS shop_owner_id,
+      NULL::text AS shop_owner_email`)
+    await db.query(`INSERT INTO mtn_fulfillment_tracking (order_id, status, provider) VALUES ('not-a-uuid', 'pending', 'z')`)
+    const rows = await list(db, "needs_action")
+    expect(rows).toHaveLength(1)
+    expect(rows[0].last_provider).toBe("z")
+    expect((await counts(db)).needs_action).toBe(1)
+  }, 60_000)
+
+  it("the probe is index-friendly: the plan scans mtn_fulfillment_tracking by index, not sequentially", async () => {
+    const db = await makeDb()
+    await db.exec(`INSERT INTO mtn_fulfillment_tracking (order_id, status, provider)
+                   SELECT gen_random_uuid()::text, 'failed', 'p' FROM generate_series(1, 5000)`)
+    await db.exec(`INSERT INTO orders (id, network, size, price, status, phone_number, created_at)
+                   SELECT gen_random_uuid(), 'mtn', '1', 1, 'pending', '0500000000', now() FROM generate_series(1, 20)`)
+    await db.exec(`ANALYZE`)
+    // EXPLAIN of a LANGUAGE sql function is opaque, so take the exact probe text out of the migration and plan it for one outer row.
+    const probe = migration().match(/FROM \(\n\s+-- index-friendly[\s\S]*?\) t\n/)?.[0]
+    expect(probe).toBeTruthy()
+    const body = (await db.query(`EXPLAIN SELECT 1 FROM combined_orders_view v LEFT JOIN LATERAL (SELECT t.id ${probe} LIMIT 1) la ON true WHERE v.id = '${uid(1)}'`)).rows
+      .map((r: any) => r["QUERY PLAN"]).join(" | ")
+    expect(body).toMatch(/Index (Only )?Scan|Bitmap/)
+    expect(body).not.toMatch(/Seq Scan on mtn_fulfillment_tracking/)
   }, 60_000)
 
   it("search treats LIKE and list punctuation literally; a 'a,b)' search runs and matches only that literal", async () => {
