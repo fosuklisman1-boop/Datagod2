@@ -22,6 +22,7 @@ import { getProviderOptionsForNetwork } from "@/lib/order-queue/supplier-capabil
 import { emptySelection, selectionReducer, SELECTION_CAP } from "@/lib/order-queue/selection"
 import { EXPORT_COLUMNS, queueRowsToSheetRows } from "@/lib/order-queue/export"
 import { parseQueueParams, queueParamsToSearch } from "@/lib/order-queue/params"
+import { makeQueueReloader } from "@/lib/order-queue/reload"
 import type { QueueParams, QueueRow, QueueView } from "@/lib/order-queue/types"
 
 const PAGE_SIZE = 50
@@ -169,11 +170,15 @@ function OrderPaymentStatusPageInner() {
     }
   }, [])
 
+  // Latest filters, read at call time so long-lived callbacks (the batch poll) never reload a stale view.
+  const paramsRef = useRef(params)
+  paramsRef.current = params
+
   /** Reload from the top with the current filters (selection cleared: the row set changes). */
-  const reloadQueue = useCallback(() => {
-    dispatchSelection({ type: "clear" })
-    loadQueue(params, false)
-  }, [loadQueue, params])
+  const reloadQueue = useMemo(
+    () => makeQueueReloader(() => paramsRef.current, loadQueue, () => dispatchSelection({ type: "clear" })),
+    [loadQueue],
+  )
 
   useEffect(() => {
     if (isAdmin && !adminLoading) {
@@ -670,9 +675,10 @@ function OrderPaymentStatusPageInner() {
       <select
         className="px-2 py-1 text-xs border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 border-white/60 dark:border-white/5 clay-inset"
         onChange={(e) => handleStatusUpdate(order.id, order.type || "", e.target.value)}
-        disabled={updatingOrderId === order.id}
+        disabled={!order.type || updatingOrderId === order.id}
         defaultValue=""
         aria-label="Update order status"
+        title={order.type ? undefined : "Order type unknown — open it in Orders"}
       >
         <option value="">{updatingOrderId === order.id ? "Updating..." : "Update Status"}</option>
         <option value="pending">Pending</option>
@@ -680,7 +686,7 @@ function OrderPaymentStatusPageInner() {
         <option value="completed">Completed</option>
         <option value="failed">Failed</option>
       </select>
-      {order.status === "pending" && order.paymentStatus === "completed" && (
+      {order.type && order.status === "pending" && order.paymentStatus === "completed" && (
         fulfillingOrderId === order.id ? (
           <Button size="sm" variant="outline" className="text-xs h-7 gap-1" disabled>
             <Loader2 className="w-3 h-3 animate-spin" />
