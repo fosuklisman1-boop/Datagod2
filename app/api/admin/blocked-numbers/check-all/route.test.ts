@@ -104,7 +104,7 @@ describe("check-all route", () => {
       { id: ID2, phone: "0551234567", allowedBy: "b" },
     ])
     const j = await res.json()
-    expect(j).toMatchObject({ flipped: 2, flippedOutside: 2 })
+    expect(j).toMatchObject({ flipped: 2, flippedOutside: 2, flippedOutsideIds: [ID1, ID2] })
     expect(j.flipFailed).toBeUndefined()
   })
 
@@ -115,7 +115,7 @@ describe("check-all route", () => {
     ]))
     markAllowed.mockResolvedValueOnce({ updatedIds: [ID2], failed: false })
     const j = await (await POST(req({ ids: [ID1, ID2] }))).json()
-    expect(j).toMatchObject({ flipped: 2, flippedOutside: 1 })
+    expect(j).toMatchObject({ flipped: 2, flippedOutside: 1, flippedOutsideIds: [ID2] })
   })
 
   it("refused or errored rows never reach the direct flip", async () => {
@@ -133,14 +133,14 @@ describe("check-all route", () => {
     markAllowed.mockRejectedValueOnce(new Error("db"))
     const res = await POST(req({ ids: [ID1] }))
     expect(res.status).toBe(200)
-    expect(await res.json()).toMatchObject({ success: true, flipped: 0, flippedOutside: 0, flipFailed: true })
+    expect(await res.json()).toMatchObject({ success: true, flipped: 0, flippedOutside: 0, flippedOutsideIds: [], flipFailed: true })
   })
 
   it("a partial direct-flip error is reported as flipFailed with the rows that did update counted", async () => {
     checkAll.mockResolvedValue(result([{ phone: "0241234567", byCheckout: false, outside: ["b"] }]))
     handler = () => ({ data: [{ id: ID1, phone: "0241234567" }] })
     markAllowed.mockResolvedValueOnce({ updatedIds: [], failed: true })
-    expect(await (await POST(req({ ids: [ID1] }))).json()).toMatchObject({ flippedOutside: 0, flipFailed: true })
+    expect(await (await POST(req({ ids: [ID1] }))).json()).toMatchObject({ flippedOutside: 0, flippedOutsideIds: [], flipFailed: true })
   })
 
   it("404 when none of the ids exist", async () => {

@@ -68,10 +68,12 @@ export async function POST(request: NextRequest) {
       .filter((r) => !r.allowedByCheckout && r.allowedOutsideCheckout.length > 0)
       .map((r) => ({ id: r.id, phone: r.phone, allowedBy: r.allowedOutsideCheckout[0] }))
     let flippedOutside = 0
+    let flippedOutsideIds: string[] = []
     let flipFailed = false
     if (outsideRows.length > 0) {
       try {
         const res = await markAllowedByAdminCheck(outsideRows)
+        flippedOutsideIds = res.updatedIds
         flippedOutside = res.updatedIds.length
         flipFailed = res.failed
       } catch (err) {
@@ -88,6 +90,7 @@ export async function POST(request: NextRequest) {
       rows: outRows,
       flipped: flipped + flippedOutside,
       flippedOutside,
+      flippedOutsideIds,
       ...(recheckFailed ? { recheckFailed: true } : {}),
       ...(flipFailed ? { flipFailed: true } : {}),
     })
