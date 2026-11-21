@@ -36,6 +36,8 @@ describe("GET /api/admin/orders/all hardening", () => {
     expect(calls.or).toBeDefined()
     expect(calls.or).not.toContain(",y")
     expect(calls.or).not.toContain("y)")
+    expect(calls.or).toContain("phone_number.ilike.%xy%")
+    expect(calls.or).toContain("payment_reference.ilike.%xy%")
   })
   it("escapes LIKE wildcards", async () => {
     await GET(get("?search=" + encodeURIComponent("a%b_c\\d")))

@@ -87,7 +87,12 @@ export async function GET(request: NextRequest) {
     }
 
     const data = ((rows.data ?? []) as DbRow[]).map(mapRow)
-    const total = counts[p.view]
+    // The counts RPC has no statuses filter, so when rows exist take the filtered total from row 0.
+    const rawFirst = ((rows.data ?? []) as DbRow[])[0]
+    let total: number
+    if (rawFirst && rawFirst.total_count != null) total = Number(rawFirst.total_count)
+    else if (p.statuses.length === 0) total = counts[p.view]
+    else total = p.offset // empty page under a statuses filter: nothing further
     return NextResponse.json({
       success: true,
       data,

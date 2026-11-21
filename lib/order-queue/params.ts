@@ -10,7 +10,7 @@ const FAILURE_REASONS: readonly FailureReason[] = [
 const list = (v: string | null): string[] =>
   v ? v.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 50) : []
 
-const isoOrNull = z.string().refine((s) => !Number.isNaN(Date.parse(s)), "bad date")
+const isoOrNull = z.string().datetime({ offset: true })
 
 const schema = z.object({
   view: z.enum(QUEUE_VIEWS as [QueueView, ...QueueView[]]),
@@ -45,7 +45,7 @@ export function parseQueueParams(
     lastProvider: sp.get("lastProvider") || null,
     failureReason: sp.get("failureReason") || null,
     limit: Math.min(200, Math.max(1, intOr(sp.get("limit"), 50))),
-    offset: Math.max(0, intOr(sp.get("offset"), 0)),
+    offset: Math.min(1_000_000, Math.max(0, intOr(sp.get("offset"), 0))),
   }
   const r = schema.safeParse(raw)
   if (!r.success) return { ok: false, error: "Invalid queue parameters" }

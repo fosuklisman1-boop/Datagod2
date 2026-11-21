@@ -82,9 +82,26 @@ describe("GET /api/admin/orders/queue", () => {
     expect(body.hasMore).toBe(false)
   })
 
+  it("with a statuses filter, total comes from row 0 total_count, not the view count", async () => {
+    rpcMock.mockImplementation(async (name: string) =>
+      name === "admin_order_queue" ? { data: [{ ...dbRow, total_count: 1 }], error: null } : { data: countsRows, error: null })
+    const body = await (await GET(get("?view=all&statuses=failed"))).json()
+    expect(body.total).toBe(1)
+    expect(body.hasMore).toBe(false)
+    expect(body.counts.all).toBe(100)
+  })
+
+  it("empty page with a statuses filter reports nothing further", async () => {
+    rpcMock.mockImplementation(async (name: string) =>
+      name === "admin_order_queue" ? { data: [], error: null } : { data: countsRows, error: null })
+    const body = await (await GET(get("?view=all&statuses=failed&offset=50"))).json()
+    expect(body.total).toBe(50)
+    expect(body.hasMore).toBe(false)
+  })
+
   it("hasMore is true when more rows remain", async () => {
     const body = await (await GET(get("?view=all&limit=1"))).json()
-    expect(body.total).toBe(100)
+    expect(body.total).toBe(3)
     expect(body.hasMore).toBe(true)
   })
 
