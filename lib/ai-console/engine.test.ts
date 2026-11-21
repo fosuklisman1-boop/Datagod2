@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { globalEngine, applyEngine, parseTab, changedSettings, type ConsoleForm } from "./engine"
+import { globalEngine, applyEngine, parseTab, changedSettings, hasEmptyModel, type ConsoleForm } from "./engine"
 
 const base = (over: Partial<ConsoleForm> = {}): ConsoleForm => ({
   assistant_name: "DATAGOD AI", tone: "default",
@@ -68,5 +68,18 @@ describe("parseTab", () => {
     expect(parseTab(undefined)).toBe("settings")
     expect(parseTab("nope")).toBe("settings")
     expect(parseTab(["knowledge", "x"])).toBe("knowledge")
+  })
+})
+
+describe("model id guard and name trim", () => {
+  it("empty_other_model_not_saved: blank model ids are never sent and are flagged invalid", () => {
+    const e = applyEngine(base(), "openai", "   ")
+    expect(changedSettings(base(), e)).toEqual({})
+    expect(hasEmptyModel(e)).toBe(true)
+    expect(hasEmptyModel(base())).toBe(false)
+  })
+  it("trims assistant_name and model ids before sending", () => {
+    expect(changedSettings(base(), base({ assistant_name: "  Kofi  " }))).toEqual({ assistant_name: "Kofi" })
+    expect(changedSettings(base(), applyEngine(base(), "openai", " gpt-4o "))).toMatchObject({ admin_model: "gpt-4o" })
   })
 })

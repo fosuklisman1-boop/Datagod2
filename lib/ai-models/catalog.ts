@@ -14,6 +14,8 @@ export interface CatalogModel {
   tools: boolean
   badge?: ModelBadge
   description: string
+  /** Extra line shown on the card (e.g. peak-pricing caveat). */
+  note?: string
   checkedOn: string
   sourceUrl: string
 }
@@ -24,6 +26,7 @@ const GEMINI = "https://aistudio.google.com/docs/pricing"
 const DEEPSEEK = "https://api-docs.deepseek.com/quick_start/pricing"
 const GROQ = "https://console.groq.com/docs/models"
 const DAY = "2026-11-21"
+const PEAK_NOTE = "Off-peak price. Doubles on weekdays 01:00–04:00 and 06:00–10:00 UTC."
 
 export const MODEL_CATALOG: Record<ProviderName, CatalogModel[]> = {
   anthropic: [
@@ -35,11 +38,11 @@ export const MODEL_CATALOG: Record<ProviderName, CatalogModel[]> = {
       description: "Most capable of the three. Rarely needed for support chat.", checkedOn: DAY, sourceUrl: ANTHROPIC },
   ],
   openai: [
-    { id: "gpt-4o-mini", label: "GPT-4o Mini", inUsdPerM: 0.15, outUsdPerM: 0.6, tools: false, badge: "Budget",
+    { id: "gpt-4o-mini", label: "GPT-4o Mini", inUsdPerM: 0.15, outUsdPerM: 0.6, tools: true, badge: "Budget",
       description: "Very low cost, fine for simple questions.", checkedOn: DAY, sourceUrl: OPENAI },
-    { id: "gpt-4o", label: "GPT-4o", inUsdPerM: 2.5, outUsdPerM: 10, tools: false, badge: "Balanced",
+    { id: "gpt-4o", label: "GPT-4o", inUsdPerM: 2.5, outUsdPerM: 10, tools: true, badge: "Balanced",
       description: "A solid all-rounder.", checkedOn: DAY, sourceUrl: OPENAI },
-    { id: "gpt-4.1", label: "GPT-4.1", inUsdPerM: 2, outUsdPerM: 8, tools: false,
+    { id: "gpt-4.1", label: "GPT-4.1", inUsdPerM: 2, outUsdPerM: 8, tools: true,
       description: "Newer and a little cheaper than GPT-4o.", checkedOn: DAY, sourceUrl: OPENAI },
   ],
   gemini: [
@@ -47,14 +50,18 @@ export const MODEL_CATALOG: Record<ProviderName, CatalogModel[]> = {
       description: "Fast Google model. Not listed on Google's current price page.", checkedOn: DAY, sourceUrl: GEMINI },
     { id: "gemini-1.5-pro", label: "Gemini 1.5 Pro", inUsdPerM: null, outUsdPerM: null, tools: false,
       description: "Older Google model. Not listed on Google's current price page.", checkedOn: DAY, sourceUrl: GEMINI },
-    { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", inUsdPerM: 1.25, outUsdPerM: 10, tools: false,
+    { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", inUsdPerM: 1.25, outUsdPerM: 10, tools: true,
       description: "Price shown is for prompts up to 200k tokens. Google lists it as deprecated.", checkedOn: DAY, sourceUrl: GEMINI },
   ],
   deepseek: [
-    { id: "deepseek-chat", label: "DeepSeek V3", inUsdPerM: null, outUsdPerM: null, tools: false,
-      description: "Not listed on DeepSeek's current price page.", checkedOn: DAY, sourceUrl: DEEPSEEK },
-    { id: "deepseek-reasoner", label: "DeepSeek R1", inUsdPerM: null, outUsdPerM: null, tools: false,
-      description: "Reasoning model. Not listed on DeepSeek's current price page.", checkedOn: DAY, sourceUrl: DEEPSEEK },
+    { id: "deepseek-flash", label: "DeepSeek Flash", inUsdPerM: 0.15, outUsdPerM: 0.6, tools: true, badge: "Recommended",
+      description: "Current low-cost DeepSeek model.", note: PEAK_NOTE, checkedOn: DAY, sourceUrl: DEEPSEEK },
+    { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro", inUsdPerM: 0.66, outUsdPerM: 1.98, tools: true, badge: "Balanced",
+      description: "Stronger DeepSeek model for harder questions.", note: PEAK_NOTE, checkedOn: DAY, sourceUrl: DEEPSEEK },
+    { id: "deepseek-chat", label: "DeepSeek Chat (legacy alias)", inUsdPerM: null, outUsdPerM: null, tools: false,
+      description: "Older model name DeepSeek still accepts. Switch to DeepSeek Flash.", checkedOn: DAY, sourceUrl: DEEPSEEK },
+    { id: "deepseek-reasoner", label: "DeepSeek Reasoner (legacy alias)", inUsdPerM: null, outUsdPerM: null, tools: false,
+      description: "Older model name DeepSeek still accepts. Switch to DeepSeek Flash.", checkedOn: DAY, sourceUrl: DEEPSEEK },
   ],
   groq: [
     { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B", inUsdPerM: null, outUsdPerM: null, tools: false,

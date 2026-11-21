@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { supabase } from "@/lib/supabase"
 import type { ProviderName } from "@/lib/ai-provider-config"
 import { MIN_TOOL_STEPS, MAX_TOOL_STEPS } from "@/lib/ai-console/settings"
-import { PROVIDERS, changedSettings, type ConsoleForm } from "@/lib/ai-console/engine"
+import { PROVIDERS, changedSettings, hasEmptyModel, type ConsoleForm } from "@/lib/ai-console/engine"
 import { EngineCard, isNameValid } from "./engine-card"
 import { AudienceCard } from "./audience-card"
 
@@ -75,7 +75,7 @@ export function SettingsTab() {
   const nameError = form && !isNameValid(form.assistant_name) ? "Name must be 2 to 24 letters, numbers, spaces or hyphens." : null
   const diff = original && edited ? changedSettings(original, edited) : {}
   const dirty = Object.keys(diff).length > 0
-  const canSave = dirty && !nameError && !steps.error && !saving
+  const canSave = dirty && !nameError && !steps.error && !saving && !(form && hasEmptyModel(form))
 
   async function save() {
     if (!canSave) return

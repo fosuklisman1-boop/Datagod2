@@ -10,8 +10,8 @@ function usd(n: number): string {
 }
 
 export function ModelCards({
-  provider, model, onChange,
-}: { provider: ProviderName; model: string; onChange: (model: string) => void }) {
+  provider, model, onChange, modelError = false,
+}: { provider: ProviderName; model: string; onChange: (model: string) => void; modelError?: boolean }) {
   const models = catalogFor(provider)
   const isOther = !models.some((m) => m.id === model)
   const src = models[0]
@@ -27,7 +27,7 @@ export function ModelCards({
               type="button"
               aria-pressed={selected}
               onClick={() => onChange(m.id)}
-              className={`rounded-xl border p-3 text-left transition-colors ${selected ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border bg-card hover:border-primary/50"}`}
+              className={`rounded-xl border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${selected ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border bg-card hover:border-primary/50"}`}
             >
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="text-sm font-semibold text-foreground">{m.label}</span>
@@ -36,6 +36,7 @@ export function ModelCards({
               </div>
               <p className="mt-0.5 break-all font-mono text-[11px] text-muted-foreground">{m.id}</p>
               <p className="mt-1.5 text-xs text-muted-foreground">{m.description}</p>
+              {m.note && <p className="mt-1.5 text-[11px] text-muted-foreground">{m.note}</p>}
               <p className="mt-1.5 text-xs text-foreground">
                 {m.inUsdPerM === null || m.outUsdPerM === null
                   ? "Price not checked"
@@ -57,7 +58,9 @@ export function ModelCards({
             placeholder="model-id"
             className="mt-2 h-8 font-mono text-xs"
           />
-          <p className="mt-1.5 text-xs text-muted-foreground">Price not checked</p>
+          {modelError
+            ? <p className="mt-1.5 text-xs text-destructive">Enter a model id</p>
+            : <p className="mt-1.5 text-xs text-muted-foreground">Price not checked</p>}
         </div>
       </div>
       {src && (

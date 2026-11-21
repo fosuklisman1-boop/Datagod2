@@ -540,14 +540,14 @@ export async function POST(req: NextRequest) {
           msg = "The AI service is temporarily overloaded. Please try again in a moment."
         } else if (status === 429 || errMsg.toLowerCase().includes("rate limit")) {
           if (isQuota) {
-            msg = `API quota or billing issue with ${aiProviderName === "openai" ? "OpenAI" : aiProviderName === "gemini" ? "Google Gemini" : "the AI provider"}. Add billing or check your quota in Admin → AI Settings.`
+            msg = `API quota or billing issue with ${aiProviderName === "openai" ? "OpenAI" : aiProviderName === "gemini" ? "Google Gemini" : "the AI provider"}. Add billing or check your quota in Admin → AI Assistant.`
           } else {
             msg = "Too many requests. Please wait a moment and try again."
           }
         } else if (status === 401 || status === 403) {
-          msg = `Invalid API key for ${aiProviderName === "openai" ? "OpenAI" : aiProviderName === "gemini" ? "Google Gemini" : "the AI provider"}. Update it in Admin → AI Settings.`
+          msg = `Invalid API key for ${aiProviderName === "openai" ? "OpenAI" : aiProviderName === "gemini" ? "Google Gemini" : "the AI provider"}. Update it in Admin → AI Assistant.`
         } else if (status === 400) {
-          msg = "The AI provider rejected the request — check the model and API key in Admin → AI Settings."
+          msg = "The AI provider rejected the request — check the model and API key in Admin → AI Assistant."
         } else if (status && status >= 500) {
           msg = "The AI service is temporarily unavailable. Please try again shortly."
         }

@@ -9,7 +9,7 @@ import type { ProviderName } from "@/lib/ai-provider-config"
 import { catalogFor } from "@/lib/ai-models/catalog"
 import { normaliseAssistantName } from "@/lib/ai-chat-ui/assistant-name"
 import {
-  PROVIDERS, GLOBAL_CONTEXTS, applyEngine, globalEngine,
+  PROVIDERS, GLOBAL_CONTEXTS, applyEngine, globalEngine, hasEmptyModel,
   type ConsoleForm, type ChatContext,
 } from "@/lib/ai-console/engine"
 import { TONES } from "@/lib/ai-console/tone"
@@ -117,7 +117,7 @@ export function EngineCard({ form, setForm, keyInfo, nameError }: {
                 role="radio"
                 aria-checked={form.tone === t.id}
                 onClick={() => setForm({ ...form, tone: t.id })}
-                className={`rounded-xl border p-3 text-left transition-colors ${form.tone === t.id ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border bg-card hover:border-primary/50"}`}
+                className={`rounded-xl border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${form.tone === t.id ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border bg-card hover:border-primary/50"}`}
               >
                 <span className="text-sm font-semibold text-foreground">{t.title}</span>
                 <span className="mt-0.5 block text-xs text-muted-foreground">{t.blurb}</span>
@@ -143,7 +143,7 @@ export function EngineCard({ form, setForm, keyInfo, nameError }: {
 
         <div className="space-y-2">
           <Label className="text-sm font-medium">Model</Label>
-          <ModelCards provider={provider} model={model} onChange={(m) => setForm(applyEngine(form, provider, m))} />
+          <ModelCards provider={provider} model={model} modelError={hasEmptyModel(form)} onChange={(m) => setForm(applyEngine(form, provider, m))} />
         </div>
 
         <KeyField

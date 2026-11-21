@@ -37,3 +37,25 @@ describe("MODEL_CATALOG", () => {
     }
   })
 })
+
+describe("current DeepSeek models (R6) and tools badges", () => {
+  const find = (p: ProviderName, id: string) => catalogFor(p).find((m) => m.id === id)!
+  it("lists deepseek-flash and deepseek-v4-pro with off-peak prices and a peak note", () => {
+    const f = find("deepseek", "deepseek-flash"), v = find("deepseek", "deepseek-v4-pro")
+    expect([f.inUsdPerM, f.outUsdPerM]).toEqual([0.15, 0.6])
+    expect([v.inUsdPerM, v.outUsdPerM]).toEqual([0.66, 1.98])
+    expect(f.tools && v.tools).toBe(true)
+    expect(f.note).toMatch(/Off-peak price/)
+  })
+  it("keeps legacy aliases unpriced and relabelled", () => {
+    for (const id of ["deepseek-chat", "deepseek-reasoner"]) {
+      const m = find("deepseek", id)
+      expect(m.label).toMatch(/legacy alias/)
+      expect(m.inUsdPerM).toBeNull()
+    }
+  })
+  it("marks OpenAI and Gemini 2.5 Pro as tool-capable", () => {
+    for (const id of ["gpt-4o-mini", "gpt-4o", "gpt-4.1"]) expect(find("openai", id).tools).toBe(true)
+    expect(find("gemini", "gemini-2.5-pro").tools).toBe(true)
+  })
+})

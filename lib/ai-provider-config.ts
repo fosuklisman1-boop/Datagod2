@@ -40,8 +40,10 @@ export const PROVIDER_MODELS: Record<ProviderName, { id: string; label: string }
     { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro (Powerful)" },
   ],
   deepseek: [
-    { id: "deepseek-chat", label: "DeepSeek V3 (Fast)" },
-    { id: "deepseek-reasoner", label: "DeepSeek R1 (Reasoning)" },
+    { id: "deepseek-flash", label: "DeepSeek Flash" },
+    { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro" },
+    { id: "deepseek-chat", label: "DeepSeek Chat (legacy alias)" },
+    { id: "deepseek-reasoner", label: "DeepSeek Reasoner (legacy alias)" },
   ],
   groq: [
     { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B (Balanced)" },

@@ -48,6 +48,11 @@ export function applyEngine(f: ConsoleForm, provider: ProviderName, model: strin
   }
 }
 
+/** True when any chat context has a blank model id (the "Other model" box was cleared). */
+export function hasEmptyModel(f: ConsoleForm): boolean {
+  return [f.storefront_model, f.dashboard_model, f.admin_model, f.whatsapp_model].some((m) => m.trim() === "")
+}
+
 const SCALAR_FIELDS = [
   "assistant_name", "tone", "max_tool_steps",
   "storefront_provider", "storefront_model", "dashboard_provider", "dashboard_model",
@@ -57,7 +62,15 @@ const SCALAR_FIELDS = [
 /** Only the fields that differ, shaped for PUT /api/admin/ai-config. */
 export function changedSettings(original: ConsoleForm, edited: ConsoleForm): Record<string, unknown> {
   const out: Record<string, unknown> = {}
-  for (const k of SCALAR_FIELDS) if (original[k] !== edited[k]) out[k] = edited[k]
+  for (const k of SCALAR_FIELDS) {
+    const v = edited[k]
+    const sent = typeof v === "string" ? v.trim() : v
+    // A context with a blank model id sends neither its model nor its provider
+    // (the form also blocks Save; see hasEmptyModel).
+    const ctx = k.match(/^(storefront|dashboard|admin|whatsapp)_(provider|model)$/)?.[1]
+    if (ctx && (edited[`${ctx}_model` as keyof ConsoleForm] as string).trim() === "") continue
+    if (original[k] !== sent) out[k] = sent
+  }
   const a = original.audiences, b = edited.audiences
   if (a.admins !== b.admins || a.signedIn !== b.signedIn || a.shopVisitors !== b.shopVisitors || a.publicVisitors !== b.publicVisitors) {
     out.audiences = { ...b }
