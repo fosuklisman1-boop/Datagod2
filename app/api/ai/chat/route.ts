@@ -5,7 +5,9 @@ import { NextRequest } from "next/server"
 import { AIChatContext } from "@/lib/ai-tools"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
-import { AIProviderConfig, DEFAULT_CONFIG, resolveProviderForContext } from "@/lib/ai-providers"
+import { resolveProviderForContext } from "@/lib/ai-providers"
+import { loadAIConfig } from "@/lib/ai-console/load-config"
+import { audienceForContext, maxIterationsFor, resolveAssistantSettings } from "@/lib/ai-console/settings"
 import { runAgenticLoop } from "@/lib/ai-agentic-loop"
 import { resolveCustomDomain } from "@/lib/custom-domain-lookup"
 import { normalizeDomainHost, DomainService } from "@/lib/custom-domains"
@@ -23,25 +25,6 @@ const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
-
-// ── AI config cache (30s TTL) ─────────────────────────────────────────────────
-let configCache: { data: AIProviderConfig; ts: number } | null = null
-
-async function loadAIConfig(): Promise<AIProviderConfig> {
-  if (configCache && Date.now() - configCache.ts < 30_000) return configCache.data
-  try {
-    const { data } = await supabaseAdmin
-      .from("admin_settings")
-      .select("value")
-      .eq("key", "ai_provider_config")
-      .maybeSingle()
-    const cfg: AIProviderConfig = (data?.value as AIProviderConfig) ?? DEFAULT_CONFIG
-    configCache = { data: cfg, ts: Date.now() }
-    return cfg
-  } catch {
-    return DEFAULT_CONFIG
-  }
-}
 
 // ── USSD dial code cache (30s TTL) ────────────────────────────────────────────
 let ussdDialCodeCache: { code: string; ts: number } | null = null
@@ -216,7 +199,7 @@ export async function POST(req: NextRequest) {
   const messages: Anthropic.MessageParam[] = normaliseAndRestrip(cleanedHistory)
   if (messages.length === 0) return fixedTextStream("Please send a message.")
 
-  const [aiConfig, ussdDialCode, guestPurchaseUrl, communityLink] = await Promise.all([loadAIConfig(), loadUssdDialCode(), loadGuestPurchaseUrl(), loadCommunityLink()])
+  const [aiConfig, ussdDialCode, guestPurchaseUrl, communityLink] = await Promise.all([loadAIConfig(supabaseAdmin), loadUssdDialCode(), loadGuestPurchaseUrl(), loadCommunityLink()])
   const channelNote = communityLink
     ? `\nUPDATES CHANNEL: our WhatsApp channel for updates, new bundles & deals is ${communityLink}. Share it (as a plain URL) when someone asks about updates/promos or wants to stay in the loop.`
     : ""
@@ -277,6 +260,17 @@ export async function POST(req: NextRequest) {
   if (context === "admin" && userRole !== "admin") {
     return new Response(
       JSON.stringify({ error: "Admin access required" }),
+      { status: 403, headers: { "Content-Type": "application/json" } }
+    )
+  }
+
+  // ── Assistant audience switch (admin console) ─────────────────────────────
+  // Before rate limit, provider, knowledge and tools: an audience that is switched off gets no assistant at all.
+  // Signed-in users on a storefront count as shopVisitors (the audience follows the page, not the login).
+  const assistantSettings = resolveAssistantSettings(aiConfig)
+  if (!assistantSettings.audiences[audienceForContext(context)]) {
+    return new Response(
+      JSON.stringify({ error: "assistant_off" }),
       { status: 403, headers: { "Content-Type": "application/json" } }
     )
   }
@@ -418,14 +412,16 @@ export async function POST(req: NextRequest) {
   let systemPrompt: ReturnType<typeof buildHomePrompt>
   switch (context) {
     case "home":
-      systemPrompt = buildHomePrompt({ ussdDialCode, guestPurchaseUrl, channelNote, knowledge })
+      systemPrompt = buildHomePrompt({ ussdDialCode, guestPurchaseUrl, channelNote, knowledge, assistantName: assistantSettings.name, tone: assistantSettings.tone })
       break
     case "storefront":
-      systemPrompt = buildStorefrontPrompt({ shopName, storefrontServices, ussdDialCode, shopUssdCode, knowledge })
+      systemPrompt = buildStorefrontPrompt({ shopName, storefrontServices, ussdDialCode, shopUssdCode, knowledge, tone: assistantSettings.tone })
       break
     case "dashboard":
       systemPrompt = buildDashboardPrompt({
         knowledge,
+        assistantName: assistantSettings.name,
+        tone: assistantSettings.tone,
         ussdDialCode,
         channelNote,
         firstName: userContext.firstName,
@@ -440,6 +436,8 @@ export async function POST(req: NextRequest) {
     case "admin":
       systemPrompt = buildAdminPrompt({
         knowledge,
+        assistantName: assistantSettings.name,
+        tone: assistantSettings.tone,
         ussdDialCode,
         firstName: userContext.firstName,
         lastName: userContext.lastName,
@@ -484,7 +482,7 @@ export async function POST(req: NextRequest) {
             ? { sellsData, sellsAirtime, sellsResultsChecker: sellsRC }
             : undefined,
           maxTokens: context === "admin" ? 2048 : 1500,
-          maxIterations: context === "admin" ? 20 : 10,
+          maxIterations: maxIterationsFor(context, assistantSettings),
           onEvent: send,
         })
       } catch (err) {

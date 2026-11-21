@@ -16,6 +16,11 @@ export interface AIProviderConfig {
   admin_model?: string
   whatsapp_provider?: ProviderName
   whatsapp_model?: string
+  // Assistant console settings (Phase 5); see lib/ai-console/settings.ts
+  assistant_name?: string
+  tone?: "default" | "professional" | "friendly" | "fun" | "strict" | "concise"
+  audiences?: { admins: boolean; signedIn: boolean; shopVisitors: boolean; publicVisitors: boolean }
+  max_tool_steps?: number | null
 }
 
 export const PROVIDER_MODELS: Record<ProviderName, { id: string; label: string }[]> = {

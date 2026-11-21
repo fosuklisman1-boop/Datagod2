@@ -1,3 +1,6 @@
+import { DEFAULT_ASSISTANT_NAME } from "@/lib/ai-chat-ui/assistant-name"
+import { toneLine, type AssistantTone } from "@/lib/ai-console/tone"
+
 // Prompt fragments shared by the web chat builders. Everything here is byte-stable: no per-request value.
 
 export interface PromptParts {
@@ -42,3 +45,30 @@ ACTION BUTTONS (use show_action_buttons whenever the user needs to choose):
 - Examples: before placing an order, before a destructive admin action, when presenting a yes/no choice, when offering 2–4 alternatives
 - style: use "primary" for the main/positive action, "danger" for destructive/irreversible actions, "secondary" for cancel or alternatives
 - After calling show_action_buttons, end your message — wait for the user to click a button`
+
+
+const LF = String.fromCharCode(10)
+
+export interface AssistantExtras {
+  /** Display name from the console; ignored when it equals the default. */
+  assistantName?: string
+  tone?: AssistantTone
+}
+
+/**
+ * Adds the optional name line and tone line to the STABLE prompt, right after the opening identity line
+ * (the first line). With defaults nothing is added, so the output is byte-identical to before.
+ */
+export function withAssistantExtras(stable: string, { assistantName, tone }: AssistantExtras, opts: { name?: boolean } = { name: true }): string {
+  const extra: string[] = []
+  if (opts.name !== false && assistantName && assistantName !== DEFAULT_ASSISTANT_NAME) {
+    extra.push(`Your name is ${assistantName}. Introduce yourself by this name.`)
+  }
+  const t = toneLine(tone)
+  if (t) extra.push(t)
+  if (extra.length === 0) return stable
+  const added = extra.join(LF)
+  const nl = stable.indexOf(LF)
+  if (nl === -1) return stable + LF + added
+  return stable.slice(0, nl) + LF + added + stable.slice(nl)
+}
