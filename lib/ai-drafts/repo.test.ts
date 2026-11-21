@@ -228,14 +228,31 @@ describe("getOwnDraft / finishDraft / expireIfDue / terminalDraftsSince", () => 
   })
 
   it("finishDraft leaves executed_at unset for non-outcome statuses", async () => {
-    const row = pendingRow({ status: "pending" })
+    const row = pendingRow({ status: "executing" })
     await finishDraft(fakeDb([row]), row.id, "cancelled", {})
     expect(row.executed_at).toBeNull()
     expect(row.updated_at).toBeTruthy()
   })
 
+  it("finish_only_from_executing", async () => {
+    for (const status of ["pending", "succeeded", "failed", "cancelled", "expired", "unknown"]) {
+      const row = pendingRow({ status, outcome: { keep: true } })
+      await expect(finishDraft(fakeDb([row]), row.id, "succeeded", { order_code: "X1" })).rejects.toThrow()
+      expect(row.status).toBe(status)
+      expect(row.outcome).toEqual({ keep: true })
+    }
+  })
+
+  it("finishDraft can finish from an explicit status (unknown recheck)", async () => {
+    const row = pendingRow({ status: "unknown" })
+    await finishDraft(fakeDb([row]), row.id, "succeeded", { order_code: "X1" }, "unknown")
+    expect(row.status).toBe("succeeded")
+    const executing = pendingRow({ status: "executing" })
+    await expect(finishDraft(fakeDb([executing]), executing.id, "succeeded", {}, "unknown")).rejects.toThrow()
+  })
+
   it("finishDraft throws on DB error", async () => {
-    await expect(finishDraft(fakeDb([pendingRow()], { failOn: "update" }), "x", "failed", {})).rejects.toThrow(/boom/)
+    await expect(finishDraft(fakeDb([pendingRow({ status: "executing" })], { failOn: "update" }), "x", "failed", {})).rejects.toThrow(/boom/)
   })
 
   it("expireIfDue expires only a due pending draft", async () => {

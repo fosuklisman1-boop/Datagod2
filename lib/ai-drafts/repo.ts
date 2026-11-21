@@ -82,17 +82,23 @@ export async function claimDraft(db: SupabaseClient, id: string, userId: string)
   return (data as AiDraft | null) ?? null
 }
 
+/**
+ * Records the outcome. Only moves a row that is still in `from` (default `executing`, the claimed state), so a
+ * finished draft can never be overwritten. Zero rows updated throws. `from: "unknown"` is used only by the recheck.
+ */
 export async function finishDraft(
   db: SupabaseClient,
   id: string,
   status: DraftStatus,
   outcome: Record<string, unknown>,
+  from: DraftStatus = "executing",
 ): Promise<void> {
   const nowIso = new Date().toISOString()
   const patch: Record<string, unknown> = { status, outcome, updated_at: nowIso }
   if ((OUTCOME_STATUSES as readonly string[]).includes(status)) patch.executed_at = nowIso
-  const { error } = await db.from("ai_drafts").update(patch).eq("id", id)
+  const { data, error } = await db.from("ai_drafts").update(patch).eq("id", id).eq("status", from).select("id")
   if (error) fail("finish", error)
+  if (!data || (data as unknown[]).length === 0) fail("finish", { message: `draft is not in status ${from}` })
 }
 
 /** Marks a pending draft past its expiry as expired; returns the current row. */
