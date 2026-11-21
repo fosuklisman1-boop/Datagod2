@@ -21,15 +21,9 @@ const shop = { shopName: "Kofi Data Hub", ussdDialCode: DIAL, shopUssdCode: "432
 const dash = { ussdDialCode: DIAL, channelNote: CHANNEL, firstName: "Ama", lastName: "Mensah", role: "dealer", phone: "0240000000", balance: "GHS 12.50", today: "2026-01-02", cardNonce: "NONCE" }
 const adm = { ussdDialCode: DIAL, firstName: "Ama", lastName: "Mensah", today: "2026-01-02", cardNonce: "NONCE" }
 
-// Expected rewordings (old golden line -> new line in stable). Each is a deliberate fix, not a loss.
-const REWORDED: Record<string, string> = {
-  // The balance snapshot moved under CURRENT REQUEST, so the stable rule must point there, not at ACCOUNT CONTEXT.
-  "- If balance is clearly insufficient, you may call get_wallet_balance first — never rely on the balance shown in ACCOUNT CONTEXT, it can be stale.":
-    "- If balance is clearly insufficient, you may call get_wallet_balance first — never rely on the balance shown in CURRENT REQUEST, it can be stale.",
-}
-
 const nonEmpty = (s: string) => s.split("\n").filter((l) => l.trim())
-const expectedLines = (golden: string) => nonEmpty(golden).map((l) => REWORDED[l] ?? l)
+// Every golden line is kept verbatim (no rewordings); new lines may be added around them.
+const expectedLines = (golden: string) => nonEmpty(golden)
 
 function assertSplitFaithful(golden: string, p: { stable: string; volatile: string }) {
   const exp = expectedLines(golden)
@@ -89,8 +83,8 @@ describe("strict golden checks", () => {
 
   it("the balance rule points at CURRENT REQUEST, which really holds the balance", () => {
     const p = buildDashboardPrompt({ ...dash, knowledge: "" })
-    expect(p.stable).not.toContain("balance shown in ACCOUNT CONTEXT")
-    expect(p.stable).toContain("balance shown in CURRENT REQUEST")
+    // Original rule line kept verbatim, with an added pointer line right after it.
+    expect(p.stable).toContain("never rely on the balance shown in ACCOUNT CONTEXT, it can be stale.\n(The balance snapshot for this request is listed under CURRENT REQUEST below.)")
     expect(p.volatile).toContain("CURRENT REQUEST")
     expect(p.volatile).toContain("Wallet balance (snapshot): GHS 12.50")
   })
