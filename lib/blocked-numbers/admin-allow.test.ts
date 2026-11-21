@@ -8,36 +8,65 @@ const rowsIn = [
   { id: "id2", phone: "0551234567", allowedBy: "codecraft" },
 ]
 
-function setup(handler: (t: string, c: Call[]) => FakeResult) {
+function setup(handler: (t: string, c: Call[]) => FakeResult, readBack: (phones: string[]) => Map<string, boolean> = (p) => new Map(p.map((x) => [x, true]))) {
   const fake = makeFakeDb(handler)
-  const setCache = vi.fn(async () => {})
-  const deps = { db: fake.db as never, now: () => NOW, setCache, getCheckoutProviders: async () => ["kuntanii"] }
-  return { fake, setCache, deps }
+  const order: string[] = []
+  const setCache = vi.fn(async () => { order.push("set") })
+  const getCache = vi.fn(async (phones: string[]) => { order.push("get"); return readBack(phones) })
+  const deps = { db: fake.db as never, now: () => NOW, setCache, getCache, getCheckoutProviders: async () => ["kuntanii"] }
+  return { fake, setCache, getCache, order, deps }
 }
 
 describe("markAllowedByAdminCheck", () => {
-  it("flips only blocked/expired rows, stamps the allowing provider, and caches exactly the updated phones", async () => {
-    const { fake, setCache, deps } = setup(() => ({ data: [{ id: "id1", phone: "0241234567" }] }))
-    const n = await markAllowedByAdminCheck(rowsIn.slice(0, 1), deps)
-    expect(n).toEqual({ updatedIds: ["id1"], failed: false })
+  it("writes and reads back the verified verdict BEFORE the status update, then flips", async () => {
+    const { fake, setCache, getCache, order, deps } = setup(() => {
+      order.push("update")
+      return { data: [{ id: "id1", phone: "0241234567" }] }
+    })
+    const r = await markAllowedByAdminCheck(rowsIn.slice(0, 1), deps)
+    expect(r).toEqual({ updatedIds: ["id1"], failed: false, cacheFailed: 0 })
+    expect(order).toEqual(["set", "get", "update"])
+    expect(setCache).toHaveBeenCalledWith(new Map([["0241234567", true]]), ["kuntanii"])
+    expect(getCache).toHaveBeenCalledWith(["0241234567"], ["kuntanii"])
     const calls = fake.log[0].calls
     expect(callArgs(calls, "update")![0]).toMatchObject({ status: "allowed", allowed_by: "hubnet", allowed_at: NOW.toISOString(), updated_at: NOW.toISOString() })
     expect(hasCall(calls, "in", "status", ["blocked", "expired"])).toBe(true)
-    expect(setCache).toHaveBeenCalledWith(new Map([["0241234567", true]]), ["kuntanii"])
   })
 
-  it("a guarded update that returns no row writes no cache and counts nothing", async () => {
-    const { setCache, deps } = setup(() => ({ data: [] }))
+  it("a phone whose cache read-back is not true is not flipped and is counted as cacheFailed", async () => {
+    const { fake, deps } = setup(() => ({ data: [{ id: "id2", phone: "0551234567" }] }), () => new Map([["0241234567", false]]))
     const r = await markAllowedByAdminCheck(rowsIn, deps)
     expect(r.updatedIds).toEqual([])
-    expect(setCache).not.toHaveBeenCalled()
+    expect(r).toMatchObject({ failed: true, cacheFailed: 2 })
+    expect(fake.log).toHaveLength(0)
   })
 
-  it("a db error marks nothing, writes no cache and reports failed", async () => {
-    const { setCache, deps } = setup(() => ({ error: { code: "x" } }))
+  it("only phones that read back true are updated", async () => {
+    const { fake, deps } = setup(() => ({ data: [{ id: "id1", phone: "0241234567" }] }), () => new Map([["0241234567", true]]))
     const r = await markAllowedByAdminCheck(rowsIn, deps)
-    expect(r).toEqual({ updatedIds: [], failed: true })
-    expect(setCache).not.toHaveBeenCalled()
+    expect(r).toEqual({ updatedIds: ["id1"], failed: true, cacheFailed: 1 })
+    expect(fake.log).toHaveLength(1)
+    expect(hasCall(fake.log[0].calls, "in", "id", ["id1"])).toBe(true)
+  })
+
+  it("a throwing cache write or read marks nothing", async () => {
+    const { fake, deps } = setup(() => ({ data: [] }))
+    deps.setCache.mockRejectedValueOnce(new Error("redis"))
+    const r = await markAllowedByAdminCheck(rowsIn, deps)
+    expect(r).toMatchObject({ updatedIds: [], failed: true, cacheFailed: 2 })
+    expect(fake.log).toHaveLength(0)
+  })
+
+  it("a guarded update that returns no row counts nothing (harmless verified cache entry may remain)", async () => {
+    const { deps } = setup(() => ({ data: [] }))
+    const r = await markAllowedByAdminCheck(rowsIn, deps)
+    expect(r).toEqual({ updatedIds: [], failed: false, cacheFailed: 0 })
+  })
+
+  it("a db error reports failed with nothing counted", async () => {
+    const { deps } = setup(() => ({ error: { code: "x" } }))
+    const r = await markAllowedByAdminCheck(rowsIn, deps)
+    expect(r).toEqual({ updatedIds: [], failed: true, cacheFailed: 0 })
   })
 
   it("chunks updates at 500 ids", async () => {
@@ -47,10 +76,11 @@ describe("markAllowedByAdminCheck", () => {
     expect(fake.log).toHaveLength(3)
   })
 
-  it("no rows means no db call", async () => {
-    const { fake, setCache, deps } = setup(() => ({}))
-    expect(await markAllowedByAdminCheck([], deps)).toEqual({ updatedIds: [], failed: false })
+  it("no rows means no db or cache call", async () => {
+    const { fake, setCache, getCache, deps } = setup(() => ({}))
+    expect(await markAllowedByAdminCheck([], deps)).toEqual({ updatedIds: [], failed: false, cacheFailed: 0 })
     expect(fake.log).toHaveLength(0)
     expect(setCache).not.toHaveBeenCalled()
+    expect(getCache).not.toHaveBeenCalled()
   })
 })
