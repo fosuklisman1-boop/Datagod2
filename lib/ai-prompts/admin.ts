@@ -1,7 +1,10 @@
 import { cardNonceRule } from "@/lib/ai-drafts/outcome-notes"
+import { appendKnowledge } from "./knowledge"
 import { draftCardRule, formattingRules, type PromptParts } from "./shared"
 
 export interface AdminPromptInput {
+  /** Rendered "## Knowledge base" section for this label (or ""); appended to the end of stable. */
+  knowledge?: string
   ussdDialCode: string
   // Per request:
   firstName: string
@@ -129,5 +132,5 @@ ${formattingRules}`
 You are assisting admin ${i.firstName} ${i.lastName}.
 When filtering by date/time use ISO format. Today's date is ${i.today}. Use this as the base for "today", "this week", "this month" etc.${cardNonceRule(i.cardNonce)}`
 
-  return { stable, volatile }
+  return { stable: appendKnowledge(stable, i.knowledge), volatile }
 }

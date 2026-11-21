@@ -1,7 +1,10 @@
 import { joinServiceLabels, type DomainService } from "@/lib/custom-domains"
+import { appendKnowledge } from "./knowledge"
 import { formattingRules, knowledgeBaseRule, type PromptParts } from "./shared"
 
 export interface StorefrontPromptInput {
+  /** Rendered "## Knowledge base" section for this label (or ""); appended to the end of stable. */
+  knowledge?: string
   shopName: string
   /** null = unrestricted (the shop offers everything). */
   storefrontServices: DomainService[] | null
@@ -14,7 +17,7 @@ export interface StorefrontPromptInput {
  * Guest storefront prompt. Everything derives from the shop's configuration (name, services, USSD code), so it is
  * stable for that shop; there is no per-visitor value, so volatile is empty.
  */
-export function buildStorefrontPrompt({ shopName, storefrontServices, ussdDialCode, shopUssdCode }: StorefrontPromptInput): PromptParts {
+export function buildStorefrontPrompt({ shopName, storefrontServices, ussdDialCode, shopUssdCode, knowledge }: StorefrontPromptInput): PromptParts {
   const sellsData = !storefrontServices || storefrontServices.includes("data_bundles")
   const sellsAirtime = !storefrontServices || storefrontServices.includes("airtime")
   const sellsRC = !storefrontServices || storefrontServices.includes("results_checker")
@@ -97,5 +100,5 @@ ${storefrontUssdSection}${unavailableServiceRule}
 
 ${knowledgeBaseRule}
 ${formattingRules}`
-  return { stable, volatile: "" }
+  return { stable: appendKnowledge(stable, knowledge), volatile: "" }
 }

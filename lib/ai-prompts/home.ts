@@ -1,6 +1,9 @@
+import { appendKnowledge } from "./knowledge"
 import { formattingRules, knowledgeBaseRule, type PromptParts } from "./shared"
 
 export interface HomePromptInput {
+  /** Rendered "## Knowledge base" section for this label (or ""); appended to the end of stable. */
+  knowledge?: string
   ussdDialCode: string
   guestPurchaseUrl: string
   /** Optional "UPDATES CHANNEL" line (already prefixed with a newline), or "". Platform setting, not per user. */
@@ -8,7 +11,7 @@ export interface HomePromptInput {
 }
 
 /** Visitor receptionist prompt. Nothing here is per-request, so volatile is empty. */
-export function buildHomePrompt({ ussdDialCode, guestPurchaseUrl, channelNote }: HomePromptInput): PromptParts {
+export function buildHomePrompt({ ussdDialCode, guestPurchaseUrl, channelNote, knowledge }: HomePromptInput): PromptParts {
   const stable = `You are DATAGOD's friendly AI receptionist. Datagod is a Ghanaian platform for buying affordable mobile data bundles and airtime instantly.
 
 ABOUT DATAGOD:
@@ -76,5 +79,5 @@ ${channelNote}
 
 ${knowledgeBaseRule}
 ${formattingRules}`
-  return { stable, volatile: "" }
+  return { stable: appendKnowledge(stable, knowledge), volatile: "" }
 }

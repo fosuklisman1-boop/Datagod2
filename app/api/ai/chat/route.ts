@@ -13,6 +13,7 @@ import { z } from "zod"
 import { terminalDraftsSince } from "@/lib/ai-drafts/repo"
 import { buildOutcomeNote, cardResultsBlock, OUTCOME_LOOKBACK_MS, stripClientCardNotes } from "@/lib/ai-drafts/outcome-notes"
 import { buildAdminPrompt, buildDashboardPrompt, buildHomePrompt, buildStorefrontPrompt } from "@/lib/ai-prompts"
+import { knowledgeLabelFor, loadKnowledge, renderKnowledge } from "@/lib/ai-prompts/knowledge"
 import { randomBytes } from "crypto"
 import { suspensionStatus } from "@/lib/auth/suspension"
 import { normaliseHistory } from "@/lib/ai-history"
@@ -389,13 +390,18 @@ export async function POST(req: NextRequest) {
   // ── System prompt ─────────────────────────────────────────────────────────
   // Split into a byte-stable prefix (cached on Anthropic) and a small per-request tail; see lib/ai-prompts/.
   const today = new Date().toISOString().split("T")[0]   // e.g. 2026-05-22 — recomputed every request
+  // Whole knowledge base for this context's label goes into the stable prefix (all-or-nothing under a char budget).
+  const knowledge = renderKnowledge(
+    await loadKnowledge(supabaseAdmin, knowledgeLabelFor(context === "home" || context === "storefront" || context === "dashboard" ? context : "admin")),
+  )
   const systemPrompt =
     context === "home"
-      ? buildHomePrompt({ ussdDialCode, guestPurchaseUrl, channelNote })
+      ? buildHomePrompt({ ussdDialCode, guestPurchaseUrl, channelNote, knowledge })
       : context === "storefront"
-        ? buildStorefrontPrompt({ shopName, storefrontServices, ussdDialCode, shopUssdCode })
+        ? buildStorefrontPrompt({ shopName, storefrontServices, ussdDialCode, shopUssdCode, knowledge })
         : context === "dashboard"
           ? buildDashboardPrompt({
+              knowledge,
               ussdDialCode,
               channelNote,
               firstName: userContext.firstName,
@@ -407,6 +413,7 @@ export async function POST(req: NextRequest) {
               cardNonce,
             })
           : buildAdminPrompt({
+              knowledge,
               ussdDialCode,
               firstName: userContext.firstName,
               lastName: userContext.lastName,
