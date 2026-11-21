@@ -62,7 +62,27 @@ export function handoffFailureMessage(status?: number): string {
 
 /** False when pressing the button could do nothing at all (so the UI hides it). */
 export function handoffAvailable(o: { mode: "thread" | "whatsapp"; hasToken?: boolean; phone?: string | null; whatsapp?: string | null }): boolean {
-  const wa = !!o.whatsapp?.trim()
+  const wa = !!whatsappHref(o.whatsapp)
   if (o.mode === "whatsapp") return wa
   return (!!o.hasToken && !!o.phone?.trim()) || wa
+}
+
+const WA_HOSTS = new Set(["wa.me", "api.whatsapp.com", "chat.whatsapp.com", "wa.link"])
+
+/** A safe WhatsApp URL: an https link on a WhatsApp host, or a phone number. Anything else is null. */
+export function whatsappHref(value?: string | null): string | null {
+  const v = value?.trim()
+  if (!v) return null
+  if (/^https:\/\//i.test(v)) {
+    try {
+      const u = new URL(v)
+      return u.protocol === "https:" && !u.username && !u.password && WA_HOSTS.has(u.hostname.toLowerCase()) ? v : null
+    } catch {
+      return null
+    }
+  }
+  if (!/^\+?[\d\s-]+$/.test(v)) return null
+  const digits = v.replace(/\D/g, "")
+  if (digits.length < 9) return null
+  return `https://wa.me/${digits.startsWith("0") ? `233${digits.slice(1)}` : digits}`
 }

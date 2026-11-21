@@ -1,10 +1,10 @@
 "use client"
 
 import { useState, useRef, useEffect, useCallback } from "react"
-import { Sparkles, X, Send, ChevronDown, RefreshCw } from "lucide-react"
+import { Sparkles, X, ChevronDown, RefreshCw } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import { useDraggableFloatingPosition } from "@/hooks/use-draggable-floating-position"
-import { ChatWelcome, ChatInput, HandoffButton, MessageText, SuggestionChips, TypingIndicator, useAssistantName } from "@/components/ai/chat"
+import { ChatWelcome, ChatInput, HandoffButton, MessageText, CopyAnnounceProvider, SuggestionChips, TypingIndicator, useAssistantName } from "@/components/ai/chat"
 import { followupsFor } from "@/lib/ai-chat-ui/suggestions"
 import { historyKey, safeClear, safeLoad, safeSave, trimHistory } from "@/lib/ai-chat-ui/history"
 
@@ -57,7 +57,6 @@ const chipMdComponents = {
 export function HomeAIChatWidget() {
   const [isOpen, setIsOpen]             = useState(false)
   const [messages, setMessages]         = useState<Message[]>([])
-  const [input, setInput]               = useState("")
   const [isStreaming, setIsStreaming]   = useState(false)
   const [streamingContent, setStreamingContent] = useState("")
   const [actionButtons, setActionButtons] = useState<ActionButton[] | null>(null)
@@ -98,17 +97,12 @@ export function HomeAIChatWidget() {
 
   const messagesEndRef    = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
-  const inputRef          = useRef<HTMLInputElement>(null)
   const { position: fabPosition, containerRef: fabContainerRef, onPointerDown: onFabPointerDown, onClickCapture: onFabClickCapture } =
     useDraggableFloatingPosition("datagod_ai_widget_position")
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages, streamingContent, actionButtons])
-
-  useEffect(() => {
-    if (isOpen) setTimeout(() => inputRef.current?.focus(), 100)
-  }, [isOpen])
 
   useEffect(() => {
     if (!isOpen) return
@@ -156,7 +150,7 @@ export function HomeAIChatWidget() {
   }
 
   const sendMessage = useCallback(async (overrideText?: string, baseMessages?: Message[]) => {
-    const text = (overrideText !== undefined ? overrideText : input).trim()
+    const text = (overrideText ?? "").trim()
     if (!text || isStreaming) return
 
     setActionButtons(null)
@@ -165,7 +159,6 @@ export function HomeAIChatWidget() {
     const userMsg: Message = { role: "user", content: text, timestamp: Date.now() }
     const nextMessages = [...(baseMessages ?? messages), userMsg]
     setMessages(nextMessages)
-    setInput("")
     setIsStreaming(true)
 
     const history = nextMessages.filter(m => !m.isError).slice(-10).map(m => ({ role: m.role, content: m.content }))
@@ -217,14 +210,7 @@ export function HomeAIChatWidget() {
       setIsStreaming(false)
       setStreamingContent("")
     }
-  }, [input, messages, isStreaming])
-
-  function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault()
-      sendMessage()
-    }
-  }
+  }, [messages, isStreaming])
 
   return (
     <>
@@ -265,7 +251,7 @@ export function HomeAIChatWidget() {
                     : "bg-muted text-foreground rounded-bl-sm"
                 }`}>
                   {msg.role === "assistant"
-                    ? <ReactMarkdown components={chipMdComponents}>{msg.content}</ReactMarkdown>
+                    ? <CopyAnnounceProvider><ReactMarkdown components={chipMdComponents}>{msg.content}</ReactMarkdown></CopyAnnounceProvider>
                     : msg.content
                   }
                   {msg.isError && (
@@ -328,7 +314,7 @@ export function HomeAIChatWidget() {
           </div>
 
           {/* Input */}
-          <ChatInput name={assistantName} onSend={(t) => sendMessage(t)} disabled={isStreaming} />
+          <ChatInput autoFocus name={assistantName} onSend={(t) => sendMessage(t)} disabled={isStreaming} />
           </div>
         </div>
       )}

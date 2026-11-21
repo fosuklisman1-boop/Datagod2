@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { buildHandoffThreadBody, handoffAvailable, handoffFailureMessage, type HandoffMessage } from "@/lib/ai-chat-ui/handoff"
+import { buildHandoffThreadBody, handoffAvailable, handoffFailureMessage, whatsappHref, type HandoffMessage } from "@/lib/ai-chat-ui/handoff"
 
 interface HandoffButtonProps {
   mode: "thread" | "whatsapp"
@@ -16,14 +16,6 @@ interface HandoffButtonProps {
   onOutcome?: (kind: "thread" | "whatsapp" | "fallback") => void
   className?: string
   children?: React.ReactNode
-}
-
-function whatsappHref(value?: string | null): string | null {
-  const v = value?.trim()
-  if (!v) return null
-  if (/^https?:\/\//i.test(v)) return v
-  const digits = v.replace(/\D/g, "")
-  return digits ? `https://wa.me/${digits.startsWith("0") ? `233${digits.slice(1)}` : digits}` : null
 }
 
 export function HandoffButton({ mode, messages, whatsappNumber, getToken, phone, onOutcome, className, children }: HandoffButtonProps) {
@@ -84,9 +76,11 @@ export function HandoffButton({ mode, messages, whatsappNumber, getToken, phone,
       >
         {busy ? "Opening…" : (children ?? "Talk to a person")}
       </button>
-      <span role="status" aria-live="polite" className={notice ? "block text-xs text-muted-foreground" : "sr-only"}>
-        {notice}
-      </span>
+      {mode === "thread" && (
+        <span role="status" aria-live="polite" className={notice ? "block text-xs text-muted-foreground" : "sr-only"}>
+          {notice}
+        </span>
+      )}
     </>
   )
 }

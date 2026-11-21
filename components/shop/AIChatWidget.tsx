@@ -1,11 +1,11 @@
 "use client"
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
-import { Sparkles, X, Send, Trash2, ChevronDown, RefreshCw, EyeOff } from "lucide-react"
+import { Sparkles, X, ChevronDown, RefreshCw, EyeOff } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import { useDraggableFloatingPosition } from "@/hooks/use-draggable-floating-position"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
-import { ChatWelcome, ChatInput, HandoffButton, MessageText, SuggestionChips, TypingIndicator } from "@/components/ai/chat"
+import { ChatWelcome, ChatInput, HandoffButton, MessageText, CopyAnnounceProvider, SuggestionChips, TypingIndicator } from "@/components/ai/chat"
 import { followupsFor } from "@/lib/ai-chat-ui/suggestions"
 import { safeLoad, safeSave, safeClear, trimHistory } from "@/lib/ai-chat-ui/history"
 
@@ -104,7 +104,6 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }
   const [adminEnabled, setAdminEnabled] = useState(true)
   const domainBranding = useDomainBranding()
   const [messages, setMessages] = useState<Message[]>([])
-  const [input, setInput] = useState("")
   const [isStreaming, setIsStreaming] = useState(false)
   const [streamingContent, setStreamingContent] = useState("")
   const [actionButtons, setActionButtons] = useState<ActionButton[] | null>(null)
@@ -138,7 +137,6 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
   const [showScrollBtn, setShowScrollBtn] = useState(false)
   const { position: fabPosition, containerRef: fabContainerRef, onPointerDown: onFabPointerDown, onClickCapture: onFabClickCapture } =
     useDraggableFloatingPosition("datagod_ai_widget_position")
@@ -174,10 +172,6 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages, streamingContent, actionButtons])
-
-  useEffect(() => {
-    if (isOpen) setTimeout(() => inputRef.current?.focus(), 100)
-  }, [isOpen])
 
   useEffect(() => {
     if (!isOpen) return
@@ -222,7 +216,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }
   }
 
   const sendMessage = useCallback(async (overrideText?: string, baseMessages?: Message[]) => {
-    const text = (overrideText !== undefined ? overrideText : input).trim()
+    const text = (overrideText ?? "").trim()
     if (!text || isStreaming) return
 
     setActionButtons(null)
@@ -232,7 +226,6 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }
     const nextMessages = [...(baseMessages ?? messages), userMsg]
     setMessages(nextMessages)
     persist(nextMessages)
-    setInput("")
     setIsStreaming(true)
 
     const history = nextMessages.filter(m => !m.isError).slice(-10).map(m => ({ role: m.role, content: m.content }))
@@ -293,14 +286,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }
       setIsStreaming(false)
       setStreamingContent("")
     }
-  }, [input, isStreaming, messages, shopSlug, onCheckoutPrefill])
-
-  function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault()
-      sendMessage()
-    }
-  }
+  }, [isStreaming, messages, shopSlug, onCheckoutPrefill])
 
   function handleScroll() {
     const el = scrollContainerRef.current
@@ -348,9 +334,9 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }
                   context="storefront"
                   name={shop.shop_name}
                   services={{
-                    sellsData: (domainBranding.services ?? ["data_bundles"]).includes("data_bundles"),
-                    sellsAirtime: (domainBranding.services ?? ["airtime"]).includes("airtime"),
-                    sellsResultsChecker: (domainBranding.services ?? ["results_checker"]).includes("results_checker"),
+                    sellsData: (domainBranding.services ?? ["data_bundles", "airtime", "results_checker"]).includes("data_bundles"),
+                    sellsAirtime: (domainBranding.services ?? ["data_bundles", "airtime", "results_checker"]).includes("airtime"),
+                    sellsResultsChecker: (domainBranding.services ?? ["data_bundles", "airtime", "results_checker"]).includes("results_checker"),
                   }}
                   onSend={(t) => sendMessage(t)}
                   disabled={isStreaming}
@@ -372,7 +358,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }
                   ) : (
                     <div className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                       <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm leading-relaxed ${msg.role === "user" ? "bg-primary text-primary-foreground rounded-br-sm" : "bg-muted text-foreground rounded-bl-sm"}`}>
-                        {msg.role === "user" ? <span>{msg.content}</span> : <ReactMarkdown components={chipMdComponents}>{msg.content}</ReactMarkdown>}
+                        {msg.role === "user" ? <span>{msg.content}</span> : <CopyAnnounceProvider><ReactMarkdown components={chipMdComponents}>{msg.content}</ReactMarkdown></CopyAnnounceProvider>}
                       </div>
                     </div>
                   )}
@@ -419,7 +405,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }
             )}
           </div>
 
-          <ChatInput name={shop.shop_name} onSend={(t) => sendMessage(t)} disabled={isStreaming} />
+          <ChatInput autoFocus name={shop.shop_name} onSend={(t) => sendMessage(t)} disabled={isStreaming} />
           </div>
         </div>
       )}

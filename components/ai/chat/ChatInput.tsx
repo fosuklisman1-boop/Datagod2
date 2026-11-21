@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Send } from "lucide-react"
 
 interface ChatInputProps {
@@ -10,10 +10,18 @@ interface ChatInputProps {
   maxLength?: number
   /** Fills the box (never sends) when it changes, e.g. a deep link that pre-writes a request. */
   prefill?: string
+  /** Focuses the box when it mounts (the widgets mount it when the chat opens). */
+  autoFocus?: boolean
 }
 
-export function ChatInput({ name, onSend, disabled, maxLength = 1000, prefill }: ChatInputProps) {
+export function ChatInput({ name, onSend, disabled, maxLength = 1000, prefill, autoFocus }: ChatInputProps) {
   const [value, setValue] = useState("")
+  const ref = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (!autoFocus) return
+    const t = setTimeout(() => ref.current?.focus(), 100)
+    return () => clearTimeout(t)
+  }, [autoFocus])
   useEffect(() => { if (prefill) setValue(prefill) }, [prefill])
   const submit = () => {
     const text = value.trim()
@@ -30,6 +38,7 @@ export function ChatInput({ name, onSend, disabled, maxLength = 1000, prefill }:
       }}
     >
       <input
+        ref={ref}
         type="text"
         value={value}
         maxLength={maxLength}

@@ -60,3 +60,24 @@ describe("handoff outcomes", () => {
     expect(out).toBe("Me: hi bye")
   })
 })
+
+import { whatsappHref } from "./handoff"
+
+describe("whatsappHref", () => {
+  it("whatsapp_href_allows_whatsapp_hosts", () => {
+    for (const u of ["https://wa.me/233241234567", "https://api.whatsapp.com/send?phone=1", "https://chat.whatsapp.com/abc", "https://wa.link/xyz"]) expect(whatsappHref(u)).toBe(u)
+    expect(whatsappHref("0241234567")).toBe("https://wa.me/233241234567")
+    expect(whatsappHref("+233 24 123 4567")).toBe("https://wa.me/233241234567")
+  })
+  it("whatsapp_href_rejects_other_https_host", () => {
+    expect(whatsappHref("https://example.com/chat")).toBeNull()
+    expect(whatsappHref("http://wa.me/1")).toBeNull()
+  })
+  it("whatsapp_href_rejects_javascript_and_lookalikes", () => {
+    for (const u of ["javascript:alert(1)", "https://wa.me.evil.com/1", "https://evil.com/wa.me", "https://evil.com@wa.me.evil.com", "https://wa.me@evil.com/1", "", null, undefined]) expect(whatsappHref(u)).toBeNull()
+  })
+  it("handoff_unavailable_for_rejected_link", () => {
+    expect(handoffAvailable({ mode: "whatsapp", whatsapp: "https://evil.com" })).toBe(false)
+    expect(handoffAvailable({ mode: "thread", hasToken: true, phone: null, whatsapp: "https://evil.com" })).toBe(false)
+  })
+})

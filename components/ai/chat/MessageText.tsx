@@ -1,8 +1,34 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { createContext, useContext, useEffect, useRef, useState } from "react"
 import { Check, Copy } from "lucide-react"
 import { splitCopyChips } from "@/lib/ai-chat-ui/copy-chips"
+
+type Announce = (() => void) | null
+const AnnounceContext = createContext<Announce>(null)
+
+function useAnnouncer() {
+  const [text, setText] = useState("")
+  const t = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (t.current) clearTimeout(t.current) }, [])
+  const announce = () => {
+    setText("Copied")
+    if (t.current) clearTimeout(t.current)
+    t.current = setTimeout(() => setText(""), 1500)
+  }
+  return { text, announce }
+}
+
+/** Wrap one whole message (e.g. its markdown) so all its copy chips share a single polite live region. */
+export function CopyAnnounceProvider({ children }: { children: React.ReactNode }) {
+  const { text, announce } = useAnnouncer()
+  return (
+    <AnnounceContext.Provider value={announce}>
+      {children}
+      <span role="status" aria-live="polite" className="sr-only">{text}</span>
+    </AnnounceContext.Provider>
+  )
+}
 
 function CopyChip({ value, onCopied }: { value: string; onCopied: () => void }) {
   const [copied, setCopied] = useState(false)
@@ -34,22 +60,28 @@ function CopyChip({ value, onCopied }: { value: string; onCopied: () => void }) 
   )
 }
 
-/** Plain text with order codes, USSD codes and phone numbers turned into copy chips. Other text is untouched. */
-export function MessageText({ text }: { text: string }) {
-  const [announce, setAnnounce] = useState("")
-  const t = useRef<ReturnType<typeof setTimeout> | null>(null)
-  useEffect(() => () => { if (t.current) clearTimeout(t.current) }, [])
-  const onCopied = () => {
-    setAnnounce("Copied")
-    if (t.current) clearTimeout(t.current)
-    t.current = setTimeout(() => setAnnounce(""), 1500)
-  }
+function Chips({ text, onCopied }: { text: string; onCopied: () => void }) {
   return (
     <>
       {splitCopyChips(text).map((p, i) =>
         p.kind === "chip" ? <CopyChip key={i} value={p.value} onCopied={onCopied} /> : <span key={i}>{p.value}</span>,
       )}
-      <span role="status" aria-live="polite" className="sr-only">{announce}</span>
     </>
   )
+}
+
+function Standalone({ text }: { text: string }) {
+  const { text: live, announce } = useAnnouncer()
+  return (
+    <>
+      <Chips text={text} onCopied={announce} />
+      <span role="status" aria-live="polite" className="sr-only">{live}</span>
+    </>
+  )
+}
+
+/** Plain text with order codes, USSD codes and phone numbers as copy chips. Inside a CopyAnnounceProvider it adds no live region of its own. */
+export function MessageText({ text }: { text: string }) {
+  const shared = useContext(AnnounceContext)
+  return shared ? <Chips text={text} onCopied={shared} /> : <Standalone text={text} />
 }
