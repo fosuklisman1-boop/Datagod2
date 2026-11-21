@@ -397,3 +397,25 @@ describe("hubnet whitelist", () => {
     expect(hubnetEntry().configured()).toBe(true)
   })
 })
+
+describe("hubnet whitelist opt-in (C1)", () => {
+  afterEach(() => {
+    hubnetConfigured.mockReset()
+    delete process.env.HUBNET_WHITELIST_ENABLED
+  })
+  it("key set but flag unset is not configured", () => {
+    hubnetConfigured.mockReturnValue(true)
+    delete process.env.HUBNET_WHITELIST_ENABLED
+    expect(hubnetEntry().configured()).toBe(false)
+  })
+  it("key set and flag true is configured", () => {
+    hubnetConfigured.mockReturnValue(true)
+    process.env.HUBNET_WHITELIST_ENABLED = "true"
+    expect(hubnetEntry().configured()).toBe(true)
+  })
+  it("flag true but no key is not configured", () => {
+    hubnetConfigured.mockReturnValue(false)
+    process.env.HUBNET_WHITELIST_ENABLED = "true"
+    expect(hubnetEntry().configured()).toBe(false)
+  })
+})

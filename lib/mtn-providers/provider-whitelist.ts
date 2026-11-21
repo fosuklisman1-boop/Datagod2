@@ -425,7 +425,9 @@ export const WHITELIST_REGISTRY: WhitelistEntry[] = [
   },
   {
     name: "hubnet",
-    configured: () => isHubnetConfigured(),
+    // Opt-in: Hubnet's number-check answers can switch/release real orders, so the
+    // key alone must never enrol it. Read lazily.
+    configured: () => isHubnetConfigured() && process.env.HUBNET_WHITELIST_ENABLED === "true",
     check: checkHubnet,
     checkBatch: (m) => checkHubnetBatch(m),
     checkBatchStrict: (m) => checkHubnetBatch(m, true),
