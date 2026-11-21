@@ -31,7 +31,7 @@ export function ChatInput({ name, onSend, disabled, maxLength = 1000, prefill, a
   }
   return (
     <form
-      className="flex items-center gap-2 border-t border-border bg-card/60 p-3"
+      className="flex items-center gap-2 border-t border-border bg-card p-3"
       onSubmit={(e) => {
         e.preventDefault()
         submit()

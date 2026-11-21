@@ -1,3 +1,5 @@
+import { ghanaSignificant } from "@/lib/phone-format"
+
 export interface HandoffMessage {
   role: string
   content: string
@@ -43,8 +45,10 @@ export function buildHandoffMessage(messages: HandoffMessage[]): string {
 
 /** Exact body for POST /api/support/threads (createThreadSchema). Customer text may not contain < > &. */
 export function buildHandoffThreadBody(messages: HandoffMessage[], contact: HandoffContact) {
-  const transcript = buildHandoffMessage(messages).replace(/[<>&]/g, " ")
-  const message = transcript.length >= 5 ? transcript : "Me: I would like to speak to a person."
+  const raw = buildHandoffMessage(messages)
+  const transcript = raw.replace(/[<>&]/g, " ")
+  const DEFAULT_MESSAGE = "Me: I would like to speak to a person."
+  const message = transcript.length >= 5 && !hasScript(raw) && !hasScript(transcript) ? transcript : DEFAULT_MESSAGE
   return {
     subject: "From AI chat",
     category: "other" as const,
@@ -54,17 +58,27 @@ export function buildHandoffThreadBody(messages: HandoffMessage[], contact: Hand
   }
 }
 
-export function handoffFailureMessage(status?: number): string {
-  return status === 409
-    ? "You already have 3 open support chats — opening WhatsApp instead."
-    : "Couldn't open a support chat — opening WhatsApp instead."
+// Same script-injection patterns the support schema rejects (lib/support-validation.ts), so a transcript that would fail is replaced.
+const SCRIPT_PATTERNS = [/javascript:/i, /<script/i, /\bon(?!(?:ly|ce|e|es|line|to|going)\b)\w+\s*=/i]
+const hasScript = (s: string) => SCRIPT_PATTERNS.some((re) => re.test(s))
+
+/** Canonical local 0XXXXXXXXX for any accepted Ghana format (spaces, 233, +233, 00233), or null. */
+export function normaliseHandoffPhone(phone?: string | null): string | null {
+  if (!phone) return null
+  const sig = ghanaSignificant(phone.trim().replace(/^\+?00(?=233)/, ""))
+  return sig ? `0${sig}` : null
+}
+
+export function handoffFailureMessage(status?: number, hasWhatsApp = true): string {
+  const head = status === 409 ? "You already have 3 open support chats" : "Couldn't open a support chat"
+  return hasWhatsApp ? `${head} — opening WhatsApp instead.` : `${head}. Please try again later.`
 }
 
 /** False when pressing the button could do nothing at all (so the UI hides it). */
 export function handoffAvailable(o: { mode: "thread" | "whatsapp"; hasToken?: boolean; phone?: string | null; whatsapp?: string | null }): boolean {
   const wa = !!whatsappHref(o.whatsapp)
   if (o.mode === "whatsapp") return wa
-  return (!!o.hasToken && !!o.phone?.trim()) || wa
+  return (!!o.hasToken && !!normaliseHandoffPhone(o.phone)) || wa
 }
 
 const WA_HOSTS = new Set(["wa.me", "api.whatsapp.com", "chat.whatsapp.com", "wa.link"])

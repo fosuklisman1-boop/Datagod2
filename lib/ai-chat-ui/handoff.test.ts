@@ -81,3 +81,34 @@ describe("whatsappHref", () => {
     expect(handoffAvailable({ mode: "thread", hasToken: true, phone: null, whatsapp: "https://evil.com" })).toBe(false)
   })
 })
+
+import { normaliseHandoffPhone } from "./handoff"
+
+describe("final-fix handoff", () => {
+  it("handoff_phone_normalised_passes_schema", () => {
+    for (const p of ["024 123 4567", "233241234567", "+233 24 123 4567", "00233241234567", "0241234567"]) {
+      expect(normaliseHandoffPhone(p)).toBe("0241234567")
+      const c = { phone: normaliseHandoffPhone(p)!, whatsapp: normaliseHandoffPhone(p)! }
+      expect(createThreadSchema.safeParse(buildHandoffThreadBody([m("user", "hello there")], c)).success).toBe(true)
+    }
+    expect(normaliseHandoffPhone("12345")).toBeNull()
+    expect(normaliseHandoffPhone(null)).toBeNull()
+  })
+  it("handoff_thread_unavailable_for_bad_phone", () => {
+    expect(handoffAvailable({ mode: "thread", hasToken: true, phone: "12345", whatsapp: null })).toBe(false)
+    expect(handoffAvailable({ mode: "thread", hasToken: true, phone: "233241234567", whatsapp: null })).toBe(true)
+  })
+  it("handoff_failure_message_without_whatsapp", () => {
+    expect(handoffFailureMessage(409, false)).not.toMatch(/WhatsApp/)
+    expect(handoffFailureMessage(500, false)).not.toMatch(/WhatsApp/)
+    expect(handoffFailureMessage(409, false)).toMatch(/3 open/)
+    expect(handoffFailureMessage(500, true)).toMatch(/WhatsApp/)
+  })
+  it("handoff_script_like_transcript_falls_back", () => {
+    for (const t of ["click javascript:alert(1)", "<script>x</script>", "img onerror=alert(1)"]) {
+      const b = buildHandoffThreadBody([m("user", t)], contact)
+      expect(createThreadSchema.safeParse(b).success).toBe(true)
+      expect(b.message).toBe("Me: I would like to speak to a person.")
+    }
+  })
+})

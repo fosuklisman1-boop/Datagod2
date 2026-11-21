@@ -71,6 +71,7 @@ export function DashboardAIChatWidget() {
   const [userId, setUserId] = useState<string | null>(null)
   const [firstName, setFirstName] = useState("")
   const [phone, setPhone] = useState<string | null>(null)
+  const [whatsapp, setWhatsapp] = useState<string | null>(null)
   const [historyLoaded, setHistoryLoaded] = useState(false)
   const assistantName = useAssistantName()
   const [balance, setBalance] = useState<string | null>(null)
@@ -162,6 +163,10 @@ export function DashboardAIChatWidget() {
   }, [])
 
   useEffect(() => {
+    fetch("/api/support-config").then(r => (r.ok ? r.json() : null)).then(j => { if (j?.whatsapp) setWhatsapp(String(j.whatsapp)) }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
     fetch("/api/public/config")
       .then(r => r.ok ? r.json() : null)
       .then(data => {
@@ -222,7 +227,9 @@ export function DashboardAIChatWidget() {
     sendMessage(messages[idx].content, messages.slice(0, idx))
   }
 
-  const sendMessage = useCallback(async (text: string, baseMessages?: Message[]) => {
+  const sendingRef = useRef(false)
+
+  const sendMessageInner = useCallback(async (text: string, baseMessages?: Message[]) => {
     text = text.trim()
     if (!text || isStreaming) return
 
@@ -240,8 +247,11 @@ export function DashboardAIChatWidget() {
 
     const history = nextMessages.filter(m => !m.isError).slice(-10).map(m => ({ role: m.role, content: m.content }))
 
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 60_000)
     try {
       const res = await fetch("/api/ai/chat", {
+        signal: ctrl.signal,
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -256,6 +266,7 @@ export function DashboardAIChatWidget() {
       const decoder = new TextDecoder()
       let buffer = ""
       let assistantText = ""
+      let streamError = false
       const cards: CardData[] = []
 
       while (true) {
@@ -276,6 +287,7 @@ export function DashboardAIChatWidget() {
               setStreamingContent(assistantText)
             } else if (event.type === "error") {
               assistantText = event.content ?? "Something went wrong. Please try again."
+              streamError = true
               setStreamingContent(assistantText)
             } else if (event.type === "action_buttons") {
               setActionButtons(event.buttons as ActionButton[])
@@ -289,15 +301,27 @@ export function DashboardAIChatWidget() {
       }
 
       const finalText = assistantText || (cards.length > 0 ? "Please check the details below." : "Sorry, I couldn't get a response. Please try again.")
-      const finalMessages = [...nextMessages, { role: "assistant" as const, content: finalText, timestamp: Date.now(), ...(cards.length > 0 ? { cards } : {}) }]
+      const finalMessages = [...nextMessages, { role: "assistant" as const, content: finalText, timestamp: Date.now(), ...(streamError ? { isError: true } : {}), ...(cards.length > 0 ? { cards } : {}) }]
       setMessages(finalMessages)
     } catch {
       setMessages([...nextMessages, { role: "assistant" as const, content: "Something went wrong.", timestamp: Date.now(), isError: true }])
     } finally {
+      clearTimeout(timer)
       setIsStreaming(false)
       setStreamingContent("")
     }
   }, [isStreaming, messages])
+
+  // Check-and-set synchronously so a double-tap can never start two requests.
+  const sendMessage = useCallback(async (text: string, baseMessages?: Message[]) => {
+    if (sendingRef.current) return
+    sendingRef.current = true
+    try {
+      await sendMessageInner(text, baseMessages)
+    } finally {
+      sendingRef.current = false
+    }
+  }, [sendMessageInner])
 
   function handleScroll() {
     const el = scrollContainerRef.current
@@ -321,14 +345,14 @@ export function DashboardAIChatWidget() {
     <>
       {isOpen && (
         <div className="fixed inset-0 z-[60] flex bg-black/50 backdrop-blur-sm sm:items-center sm:justify-center sm:p-4" onClick={() => setIsOpen(false)}>
-          <div className="w-full h-full sm:h-[85vh] sm:max-h-[700px] sm:w-[440px] sm:max-w-[calc(100vw-2rem)] bg-card/80 backdrop-blur-3xl backdrop-saturate-150 sm:rounded-2xl border border-border shadow-[0_24px_48px_rgba(0,0,0,0.14)] shadow-primary/10 flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
-          <div className="bg-primary/55 backdrop-blur-sm text-primary-foreground px-4 py-3 flex items-center justify-between flex-shrink-0 border-b border-border">
+          <div className="w-full h-full sm:h-[85vh] sm:max-h-[700px] sm:w-[440px] sm:max-w-[calc(100vw-2rem)] bg-card sm:rounded-2xl border border-border shadow-[0_24px_48px_rgba(0,0,0,0.14)] shadow-primary/10 flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-primary text-primary-foreground px-4 py-3 flex items-center justify-between flex-shrink-0 border-b border-border">
             <div>
               <p className="font-semibold text-sm">{assistantName}</p>
               {balance && <p className="text-primary-foreground/70 text-xs">Wallet: {balance}</p>}
             </div>
             <div className="flex items-center gap-3">
-              <HandoffButton mode="thread" messages={messages} getToken={getAccessToken} phone={phone} className="text-xs font-medium text-primary-foreground/90 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground" />
+              <HandoffButton mode="thread" messages={messages} getToken={getAccessToken} phone={phone} whatsappNumber={whatsapp} noticeClassName="max-w-[9rem] text-[11px] leading-tight text-primary-foreground/90" className="text-xs font-medium text-primary-foreground/90 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground" />
               {messages.length > 0 && (
                 <button onClick={newChat} disabled={isStreaming} className="text-xs font-medium text-primary-foreground/90 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground disabled:opacity-50">New chat</button>
               )}
@@ -356,7 +380,7 @@ export function DashboardAIChatWidget() {
                       {msg.isError && (
                         <div className="mt-2 flex flex-wrap items-center gap-3">
                           <button onClick={retryLast} disabled={isStreaming} className="text-xs font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50">Try again</button>
-                          <HandoffButton mode="thread" messages={messages} getToken={getAccessToken} phone={phone} />
+                          <HandoffButton mode="thread" messages={messages} getToken={getAccessToken} phone={phone} whatsappNumber={whatsapp} />
                         </div>
                       )}
                     </div>
@@ -421,7 +445,7 @@ export function DashboardAIChatWidget() {
             )}
           </div>
 
-          <ChatInput name={assistantName} onSend={(t) => sendMessage(t)} disabled={isStreaming} prefill={prefill} />
+          <ChatInput autoFocus name={assistantName} onSend={(t) => sendMessage(t)} disabled={isStreaming} prefill={prefill} />
           </div>
         </div>
       )}

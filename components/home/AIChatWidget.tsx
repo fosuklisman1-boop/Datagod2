@@ -149,7 +149,9 @@ export function HomeAIChatWidget() {
     return "px-3 py-1.5 rounded-xl text-xs font-medium border border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 transition-colors"
   }
 
-  const sendMessage = useCallback(async (overrideText?: string, baseMessages?: Message[]) => {
+  const sendingRef = useRef(false)
+
+  const sendMessageInner = useCallback(async (overrideText?: string, baseMessages?: Message[]) => {
     const text = (overrideText ?? "").trim()
     if (!text || isStreaming) return
 
@@ -163,8 +165,11 @@ export function HomeAIChatWidget() {
 
     const history = nextMessages.filter(m => !m.isError).slice(-10).map(m => ({ role: m.role, content: m.content }))
 
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 60_000)
     try {
       const res = await fetch("/api/ai/chat", {
+        signal: ctrl.signal,
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: history, context: "home" }),
@@ -176,6 +181,7 @@ export function HomeAIChatWidget() {
       const decoder = new TextDecoder()
       let buffer = ""
       let assistantText = ""
+      let streamError = false
 
       while (true) {
         const { done, value } = await reader.read()
@@ -194,6 +200,7 @@ export function HomeAIChatWidget() {
               setStreamingContent(assistantText)
             } else if (event.type === "error") {
               assistantText = event.content ?? "Something went wrong. Please try again."
+              streamError = true
               setStreamingContent(assistantText)
             } else if (event.type === "action_buttons") {
               setActionButtons(event.buttons as ActionButton[])
@@ -203,14 +210,26 @@ export function HomeAIChatWidget() {
       }
 
       const finalText = assistantText || "Sorry, I couldn't get a response. Please try again."
-      setMessages(prev => [...prev, { role: "assistant", content: finalText, timestamp: Date.now() }])
+      setMessages(prev => [...prev, { role: "assistant", content: finalText, timestamp: Date.now(), ...(streamError ? { isError: true } : {}) }])
     } catch {
       setMessages(prev => [...prev, { role: "assistant", content: "Something went wrong.", timestamp: Date.now(), isError: true }])
     } finally {
+      clearTimeout(timer)
       setIsStreaming(false)
       setStreamingContent("")
     }
   }, [messages, isStreaming])
+
+  // Check-and-set synchronously so a double-tap can never start two requests.
+  const sendMessage = useCallback(async (overrideText?: string, baseMessages?: Message[]) => {
+    if (sendingRef.current) return
+    sendingRef.current = true
+    try {
+      await sendMessageInner(overrideText, baseMessages)
+    } finally {
+      sendingRef.current = false
+    }
+  }, [sendMessageInner])
 
   return (
     <>
@@ -218,7 +237,7 @@ export function HomeAIChatWidget() {
         <div className="fixed inset-0 z-[60] flex bg-black/50 backdrop-blur-sm sm:items-center sm:justify-center sm:p-4" onClick={() => setIsOpen(false)}>
           <div className="w-full h-full sm:h-[85vh] sm:max-h-[700px] sm:w-[420px] sm:max-w-[calc(100vw-2rem)] bg-card sm:rounded-2xl border border-primary/20 shadow-[0_24px_48px_rgba(0,0,0,0.12)] shadow-primary/10 flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
           {/* Header */}
-          <div className="bg-gradient-to-r from-primary to-primary/80 text-primary-foreground px-4 py-3 flex items-center justify-between flex-shrink-0">
+          <div className="bg-primary text-primary-foreground px-4 py-3 flex items-center justify-between flex-shrink-0">
             <div>
               <p className="font-semibold text-sm">{assistantName}</p>
               <p className="text-primary-foreground/70 text-xs">Your AI receptionist</p>

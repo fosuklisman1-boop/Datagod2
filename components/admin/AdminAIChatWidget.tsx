@@ -187,7 +187,9 @@ export function AdminAIChatWidget() {
     sendMessage(messages[idx].content, messages.slice(0, idx))
   }
 
-  const sendMessage = useCallback(async (text: string, baseMessages?: Message[]) => {
+  const sendingRef = useRef(false)
+
+  const sendMessageInner = useCallback(async (text: string, baseMessages?: Message[]) => {
     text = text.trim()
     if (!text || isStreaming) return
 
@@ -205,8 +207,11 @@ export function AdminAIChatWidget() {
 
     const history = nextMessages.filter(m => !m.isError).slice(-10).map(m => ({ role: m.role, content: m.content }))
 
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 60_000)
     try {
       const res = await fetch("/api/ai/chat", {
+        signal: ctrl.signal,
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -221,6 +226,7 @@ export function AdminAIChatWidget() {
       const decoder = new TextDecoder()
       let buffer = ""
       let assistantText = ""
+      let streamError = false
       const cards: CardData[] = []
 
       while (true) {
@@ -241,6 +247,7 @@ export function AdminAIChatWidget() {
               setStreamingContent(assistantText)
             } else if (event.type === "error") {
               assistantText = event.content ?? "Something went wrong. Please try again."
+              streamError = true
               setStreamingContent(assistantText)
             } else if (event.type === "action_buttons") {
               setActionButtons(event.buttons as ActionButton[])
@@ -254,15 +261,27 @@ export function AdminAIChatWidget() {
       }
 
       const finalText = assistantText || (cards.length > 0 ? "Please check the details below." : "Sorry, I couldn't get a response. Please try again.")
-      const finalMessages = [...nextMessages, { role: "assistant" as const, content: finalText, timestamp: Date.now(), ...(cards.length > 0 ? { cards } : {}) }]
+      const finalMessages = [...nextMessages, { role: "assistant" as const, content: finalText, timestamp: Date.now(), ...(streamError ? { isError: true } : {}), ...(cards.length > 0 ? { cards } : {}) }]
       setMessages(finalMessages)
     } catch {
       setMessages([...nextMessages, { role: "assistant" as const, content: "Something went wrong.", timestamp: Date.now(), isError: true }])
     } finally {
+      clearTimeout(timer)
       setIsStreaming(false)
       setStreamingContent("")
     }
   }, [isStreaming, messages])
+
+  // Check-and-set synchronously so a double-tap can never start two requests.
+  const sendMessage = useCallback(async (text: string, baseMessages?: Message[]) => {
+    if (sendingRef.current) return
+    sendingRef.current = true
+    try {
+      await sendMessageInner(text, baseMessages)
+    } finally {
+      sendingRef.current = false
+    }
+  }, [sendMessageInner])
 
   function handleScroll() {
     const el = scrollContainerRef.current
@@ -284,17 +303,17 @@ export function AdminAIChatWidget() {
     <>
       {isOpen && (
         <div className="fixed inset-0 z-[60] flex bg-black/50 backdrop-blur-sm sm:items-center sm:justify-center sm:p-4" onClick={() => setIsOpen(false)}>
-          <div className="w-full h-full sm:h-[85vh] sm:max-h-[700px] sm:w-[460px] sm:max-w-[calc(100vw-2rem)] bg-card/80 backdrop-blur-3xl backdrop-saturate-150 sm:rounded-2xl border border-border shadow-[0_32px_64px_rgba(0,0,0,0.35)] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
-          <div className="bg-muted/60 backdrop-blur-sm text-foreground px-4 py-3 flex items-center justify-between flex-shrink-0 border-b border-border">
+          <div className="w-full h-full sm:h-[85vh] sm:max-h-[700px] sm:w-[460px] sm:max-w-[calc(100vw-2rem)] bg-card sm:rounded-2xl border border-border shadow-[0_32px_64px_rgba(0,0,0,0.35)] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-primary text-primary-foreground px-4 py-3 flex items-center justify-between flex-shrink-0 border-b border-border">
             <div>
               <p className="font-semibold text-sm">{assistantName}</p>
-              <p className="text-muted-foreground text-xs">Full platform access</p>
+              <p className="text-primary-foreground/70 text-xs">Full platform access</p>
             </div>
             <div className="flex items-center gap-3">
               {messages.length > 0 && (
-                <button onClick={newChat} disabled={isStreaming} className="text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50">New chat</button>
+                <button onClick={newChat} disabled={isStreaming} className="text-xs font-medium text-primary-foreground/90 underline-offset-2 hover:text-primary-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground disabled:opacity-50">New chat</button>
               )}
-              <button onClick={() => setIsOpen(false)} aria-label="Close chat" className="text-muted-foreground hover:text-foreground transition-colors">
+              <button onClick={() => setIsOpen(false)} aria-label="Close chat" className="text-primary-foreground/70 hover:text-primary-foreground transition-colors">
                 <X size={18} />
               </button>
             </div>
@@ -398,7 +417,7 @@ export function AdminAIChatWidget() {
             )}
           </div>
 
-          <ChatInput name={assistantName} onSend={(t) => sendMessage(t)} disabled={isStreaming} />
+          <ChatInput autoFocus name={assistantName} onSend={(t) => sendMessage(t)} disabled={isStreaming} />
           </div>
         </div>
       )}

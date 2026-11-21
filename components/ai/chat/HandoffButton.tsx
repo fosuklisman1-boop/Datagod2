@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { buildHandoffThreadBody, handoffAvailable, handoffFailureMessage, whatsappHref, type HandoffMessage } from "@/lib/ai-chat-ui/handoff"
+import { buildHandoffThreadBody, handoffAvailable, handoffFailureMessage, normaliseHandoffPhone, whatsappHref, type HandoffMessage } from "@/lib/ai-chat-ui/handoff"
 
 interface HandoffButtonProps {
   mode: "thread" | "whatsapp"
@@ -15,10 +15,12 @@ interface HandoffButtonProps {
   /** Called with how the press ended. */
   onOutcome?: (kind: "thread" | "whatsapp" | "fallback") => void
   className?: string
+  /** Classes for the failure notice (e.g. readable colours inside a coloured header). */
+  noticeClassName?: string
   children?: React.ReactNode
 }
 
-export function HandoffButton({ mode, messages, whatsappNumber, getToken, phone, onOutcome, className, children }: HandoffButtonProps) {
+export function HandoffButton({ mode, messages, whatsappNumber, getToken, phone, onOutcome, className, noticeClassName, children }: HandoffButtonProps) {
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState("")
 
@@ -39,12 +41,13 @@ export function HandoffButton({ mode, messages, whatsappNumber, getToken, phone,
     setNotice("")
     let status: number | undefined
     try {
-      if (!getToken || !phone) throw new Error("no thread contact")
+      const contact = normaliseHandoffPhone(phone)
+      if (!getToken || !contact) throw new Error("no thread contact")
       const token = await getToken()
       const res = await fetch("/api/support/threads", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify(buildHandoffThreadBody(messages, { phone, whatsapp: phone })),
+        body: JSON.stringify(buildHandoffThreadBody(messages, { phone: contact, whatsapp: contact })),
       })
       status = res.status
       const json = res.ok ? await res.json() : null
@@ -53,7 +56,7 @@ export function HandoffButton({ mode, messages, whatsappNumber, getToken, phone,
       onOutcome?.("thread")
       window.location.assign(`/dashboard/complaints?thread=${encodeURIComponent(id)}`)
     } catch {
-      setNotice(handoffFailureMessage(status))
+      setNotice(handoffFailureMessage(status, !!whatsappHref(whatsappNumber)))
       onOutcome?.("fallback")
       openWhatsApp()
     } finally {
@@ -77,7 +80,7 @@ export function HandoffButton({ mode, messages, whatsappNumber, getToken, phone,
         {busy ? "Opening…" : (children ?? "Talk to a person")}
       </button>
       {mode === "thread" && (
-        <span role="status" aria-live="polite" className={notice ? "block text-xs text-muted-foreground" : "sr-only"}>
+        <span role="status" aria-live="polite" className={notice ? (noticeClassName ?? "block text-xs text-muted-foreground") : "sr-only"}>
           {notice}
         </span>
       )}

@@ -1,7 +1,7 @@
 "use client"
 
 import ReactMarkdown from "react-markdown"
-import { MessageText } from "./MessageText"
+import { CopyAnnounceProvider, MessageText } from "./MessageText"
 
 /** Turns plain-string markdown children into copy-chip text; other nodes pass through. */
 function wrapChips(children: React.ReactNode): React.ReactNode {
@@ -31,5 +31,6 @@ const plainComponents = {
 
 /** Assistant markdown. `chips` adds tappable copy chips (finished messages); streaming text stays plain. */
 export function AssistantMarkdown({ text, chips = true }: { text: string; chips?: boolean }) {
-  return <ReactMarkdown components={chips ? chipComponents : plainComponents}>{text}</ReactMarkdown>
+  const md = <ReactMarkdown components={chips ? chipComponents : plainComponents}>{text}</ReactMarkdown>
+  return chips ? <CopyAnnounceProvider>{md}</CopyAnnounceProvider> : md
 }

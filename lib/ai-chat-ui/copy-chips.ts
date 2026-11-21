@@ -3,7 +3,8 @@ export type TextPart = { kind: "text"; value: string } | { kind: "chip"; value: 
 
 // Reference codes the platform generates (see app/api/orders/purchase, lib/secure-random.ts, lib/afa-fulfillment.ts):
 //   ORD-<13-digit ts>, ORD-<ts>-<9 safe chars>, AFA-<7 digits>, AT-/RCK-/RC-<3>-<3>, WD-<ts>-<9>, SBR-<hex>, BILL-<12 hex>.
-const CODE = "(?:ORD|AFA|AT|RCK|RC|WD|SBR|BILL|TXN)-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*"
+// A real code always carries a digit, which keeps product names (AT-iShare, MTN-data) from becoming chips.
+const CODE = "(?=[A-Za-z0-9-]*\\d)(?:ORD|AFA|AT|RCK|RC|WD|SBR|BILL|TXN)-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*"
 const USSD = "\\*\\d[\\d*]*#"
 const PHONE = "(?:\\+233|233|0)\\d{9}"
 

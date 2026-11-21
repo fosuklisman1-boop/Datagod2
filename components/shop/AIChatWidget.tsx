@@ -6,6 +6,7 @@ import ReactMarkdown from "react-markdown"
 import { useDraggableFloatingPosition } from "@/hooks/use-draggable-floating-position"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 import { ChatWelcome, ChatInput, HandoffButton, MessageText, CopyAnnounceProvider, SuggestionChips, TypingIndicator } from "@/components/ai/chat"
+import { whatsappHref } from "@/lib/ai-chat-ui/handoff"
 import { followupsFor } from "@/lib/ai-chat-ui/suggestions"
 import { safeLoad, safeSave, safeClear, trimHistory } from "@/lib/ai-chat-ui/history"
 
@@ -84,7 +85,7 @@ const chipMdComponents = {
 
 export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }: Props) {
   const [platformWhatsapp, setPlatformWhatsapp] = useState<string | null>(null)
-  const whatsapp = whatsappLink || platformWhatsapp
+  const whatsapp = whatsappHref(whatsappLink) ? whatsappLink : platformWhatsapp
   const [isOpen, setIsOpen] = useState(false)
   const [hidden, setHidden] = useState(() => {
     try {
@@ -215,7 +216,9 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }
     sendMessage(messages[idx].content, messages.slice(0, idx))
   }
 
-  const sendMessage = useCallback(async (overrideText?: string, baseMessages?: Message[]) => {
+  const sendingRef = useRef(false)
+
+  const sendMessageInner = useCallback(async (overrideText?: string, baseMessages?: Message[]) => {
     const text = (overrideText ?? "").trim()
     if (!text || isStreaming) return
 
@@ -230,8 +233,11 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }
 
     const history = nextMessages.filter(m => !m.isError).slice(-10).map(m => ({ role: m.role, content: m.content }))
 
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 60_000)
     try {
       const res = await fetch("/api/ai/chat", {
+        signal: ctrl.signal,
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: history, context: "storefront", shopSlug }),
@@ -243,6 +249,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }
       const decoder = new TextDecoder()
       let buffer = ""
       let assistantText = ""
+      let streamError = false
 
       while (true) {
         const { done, value } = await reader.read()
@@ -262,6 +269,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }
               setStreamingContent(assistantText)
             } else if (event.type === "error") {
               assistantText = event.content ?? "Something went wrong. Please try again."
+              streamError = true
               setStreamingContent(assistantText)
             } else if (event.type === "checkout_prefill" && onCheckoutPrefill) {
               onCheckoutPrefill(event.data as ShopPackageData)
@@ -275,7 +283,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }
       }
 
       const finalText = assistantText || "Sorry, I couldn't get a response. Please try again."
-      const finalMessages = [...nextMessages, { role: "assistant" as const, content: finalText, timestamp: Date.now() }]
+      const finalMessages = [...nextMessages, { role: "assistant" as const, content: finalText, timestamp: Date.now(), ...(streamError ? { isError: true } : {}) }]
       setMessages(finalMessages)
       persist(finalMessages)
     } catch {
@@ -283,10 +291,22 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }
       setMessages(errMessages)
       persist(errMessages)
     } finally {
+      clearTimeout(timer)
       setIsStreaming(false)
       setStreamingContent("")
     }
   }, [isStreaming, messages, shopSlug, onCheckoutPrefill])
+
+  // Check-and-set synchronously so a double-tap can never start two requests.
+  const sendMessage = useCallback(async (overrideText?: string, baseMessages?: Message[]) => {
+    if (sendingRef.current) return
+    sendingRef.current = true
+    try {
+      await sendMessageInner(overrideText, baseMessages)
+    } finally {
+      sendingRef.current = false
+    }
+  }, [sendMessageInner])
 
   function handleScroll() {
     const el = scrollContainerRef.current
@@ -310,8 +330,8 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }
     <>
       {isOpen && (
         <div className="fixed inset-0 z-[60] flex bg-black/50 backdrop-blur-sm sm:items-center sm:justify-center sm:p-4" onClick={() => setIsOpen(false)}>
-          <div className="w-full h-full sm:h-[85vh] sm:max-h-[700px] sm:w-[420px] sm:max-w-[calc(100vw-2rem)] bg-card/80 backdrop-blur-3xl backdrop-saturate-150 sm:rounded-2xl border border-border shadow-[0_24px_48px_rgba(0,0,0,0.14)] shadow-primary/10 flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
-          <div className="bg-primary/55 backdrop-blur-sm text-primary-foreground px-4 py-3 flex items-center justify-between flex-shrink-0 border-b border-border">
+          <div className="w-full h-full sm:h-[85vh] sm:max-h-[700px] sm:w-[420px] sm:max-w-[calc(100vw-2rem)] bg-card sm:rounded-2xl border border-border shadow-[0_24px_48px_rgba(0,0,0,0.14)] shadow-primary/10 flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-primary text-primary-foreground px-4 py-3 flex items-center justify-between flex-shrink-0 border-b border-border">
             <div>
               <p className="font-semibold text-sm">{shop.shop_name}</p>
               <p className="text-primary-foreground/70 text-xs">AI Assistant</p>

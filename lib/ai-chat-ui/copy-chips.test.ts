@@ -29,3 +29,13 @@ describe("copy chips", () => {
     }
   })
 })
+
+describe("copy chips names", () => {
+  it("copy_chips_ignores_product_names", () => {
+    expect(chips("AT-iShare AT-BigTime AT-Premium MTN-data RC-results AT-Ishare, RCK-vouchers")).toEqual([])
+    expect(chips("AT-A2B-C3D")).toHaveLength(1)
+    expect(chips("ORD-1732100000000")).toHaveLength(1)
+    expect(chips("AFA-1234567")).toHaveLength(1)
+    expect(chips("SBR-0a1b2c3d4e5f")).toHaveLength(1)
+  })
+})
