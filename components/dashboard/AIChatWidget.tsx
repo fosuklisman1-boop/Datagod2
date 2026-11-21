@@ -7,6 +7,8 @@ import { supabase } from "@/lib/supabase"
 import { ChatMessage } from "@/components/ui/chat-message"
 import { useDraggableFloatingPosition } from "@/hooks/use-draggable-floating-position"
 import { DraftCard } from "@/components/ai/DraftCard"
+import { usePathname, useRouter } from "next/navigation"
+import { parseReapproveParams } from "@/lib/ai-drafts/deep-link"
 
 interface CardData {
   draftId: string
@@ -56,6 +58,8 @@ const mdComponents = {
 }
 
 export function DashboardAIChatWidget() {
+  const router = useRouter()
+  const pathname = usePathname()
   const [isOpen, setIsOpen] = useState(false)
   const [hidden, setHidden] = useState(() => {
     try {
@@ -96,6 +100,38 @@ export function DashboardAIChatWidget() {
   const [showScrollBtn, setShowScrollBtn] = useState(false)
   const { position: fabPosition, containerRef: fabContainerRef, onPointerDown: onFabPointerDown, onClickCapture: onFabClickCapture } =
     useDraggableFloatingPosition("datagod_ai_widget_position")
+
+  // /dashboard?ai=reapprove&task=<uuid> (push from the scheduled-order pause): open the widget and PREFILL
+  // (never auto-send) a request to re-create that task. The owner-scoped list read supplies the old prompt.
+  useEffect(() => {
+    const link = parseReapproveParams(window.location.search)
+    if (!link) return
+    setHidden(false)
+    setIsOpen(true)
+    setInput("Re-create my scheduled data order.")
+    const params = new URLSearchParams(window.location.search)
+    params.delete("ai")
+    params.delete("task")
+    const qs = params.toString()
+    router.replace(qs ? `${pathname}?${qs}` : pathname)
+    const taskId = link.taskId
+    if (!taskId) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session) return
+        const res = await fetch("/api/admin/scheduled-tasks?scope=own", { headers: { Authorization: `Bearer ${session.access_token}` } })
+        if (!res.ok || cancelled) return
+        const body = await res.json()
+        const task = (body?.tasks as { id: string; prompt?: string }[] | undefined)?.find(t => t.id === taskId)
+        if (task?.prompt && !cancelled) setInput(`Re-create my scheduled order: ${task.prompt}`)
+      } catch {}
+    })()
+    return () => { cancelled = true }
+    // Runs once on mount; router/pathname are stable enough for a one-shot link read.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     async function init() {

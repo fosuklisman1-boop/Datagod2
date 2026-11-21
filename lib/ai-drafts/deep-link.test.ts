@@ -24,3 +24,20 @@ describe("cardPushBody", () => {
     expect(cardPushBody({ title: "x".repeat(300) }).length).toBe(120)
   })
 })
+
+import { parseReapproveParams } from "./deep-link"
+
+describe("parseReapproveParams", () => {
+  it("returns the task id when ai=reapprove and task is a uuid", () => {
+    expect(parseReapproveParams(`?ai=reapprove&task=${ID}`)).toEqual({ taskId: ID })
+  })
+  it("returns taskId null for reapprove without a valid task", () => {
+    expect(parseReapproveParams("?ai=reapprove")).toEqual({ taskId: null })
+    expect(parseReapproveParams("?ai=reapprove&task=abc")).toEqual({ taskId: null })
+  })
+  it("returns null when not a reapprove link", () => {
+    expect(parseReapproveParams("")).toBeNull()
+    expect(parseReapproveParams(`?task=${ID}`)).toBeNull()
+    expect(parseReapproveParams(`?ai=other&task=${ID}`)).toBeNull()
+  })
+})

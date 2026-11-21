@@ -18,3 +18,11 @@ export function cardPushBody(display: Record<string, unknown> | null | undefined
   const body = bits.length ? `${title} (${bits.join(", ")})` : title
   return body.slice(0, MAX_BODY)
 }
+
+/** `?ai=reapprove&task=<uuid>` from a location.search string. null when it is not a reapprove link; taskId is null when the task id is missing or not a uuid. */
+export function parseReapproveParams(search: string): { taskId: string | null } | null {
+  const p = new URLSearchParams(search)
+  if (p.get("ai") !== "reapprove") return null
+  const task = p.get("task")
+  return { taskId: task && UUID.test(task) ? task : null }
+}
