@@ -165,4 +165,27 @@ Every failure returns { "success": false, "message": "..." } with one of these s
 ========================================================================
 PROBE RESULTS (append below — Test key, /test/ paths; record real bodies, redact phones)
 ========================================================================
-(none yet)
+2026-11-21 ~14:45 GMT, LIVE key, read-only GETs on /live/ (no orders placed):
+
+check_balance -> HTTP 200
+{"event":"query.success","ip_address":"…","message":"query successful","status":"success","request_id":"…",
+ "data":{"response_msg":"Your available balance for Hubnet is GHS 46.1","expire_time":null,"wallet_balance":46.1,
+ "last_top_up_date":"November 21st 2026, 1:31:01 pm","today's_sales":3.9,"total_sales":3.9}}
+  => wallet_balance is a number; matches the doc example shape.
+
+check-transaction-status?reference=<ref Hubnet does not know> -> HTTP 404
+{"event":"query.success","ip":"…","message":"Invalid path. Please provide a valid path: check_balance, check-transaction-status, refunds, or mtn-verification.","status":false,"request_id":"…","data":null}
+  => UNDOCUMENTED. This is Hubnet's "not found" for a valid status call. It is NOT a bad path:
+     check-transaction-status with NO query -> 400 {"success":false,"message":"Please provide the transaction reference as a query parameter."}
+     (same 400 for ?transaction_id= / ?ref=), so ?reference= is the right parameter.
+     A wrong path segment (/check-transaction-status/<ref>) -> 404 {"success":false,"message":"Page not found."}
+     A misspelt endpoint (check_transaction_status) -> the same "Invalid path" body, so this message alone is ambiguous;
+     we accept it as "missing" only because our status path is fixed + verified, and Hubnet's 409 duplicate-reference
+     rejection makes a mistaken re-place safe.
+  Incident: before this was known, Hubnet was set as MTN primary at 14:29 and 2 real orders were held as
+  OUTCOME_UNKNOWN (never placed — both refs + R2 confirmed unknown to Hubnet). Primary reverted to agentportalgh.
+
+refunds (none yet) -> HTTP 404 {"event":"query.success","message":"No refunded transactions found.","status":false,"data":null}
+  => empty list is a 404, not 200 []. listRefunds treats non-2xx as null (=> sweep does nothing) — OK.
+
+STILL UNKNOWN: the body for a FOUND transaction (status vocabulary), data-order success body, refund item shape, webhook payload.
