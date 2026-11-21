@@ -46,6 +46,20 @@ describe("checkHubnetUnknownAttempts", () => {
     expect(writes).toEqual([])
   })
 
+  it("rate_limited stops the whole run at once (no more lookups, no alert)", async () => {
+    const U2 = "22222222-3333-4444-8555-666666666666"
+    const { db } = makeDb([
+      { id: "t1", shop_order_id: U1, order_id: null, api_order_id: null, created_at: recent },
+      { id: "t2", shop_order_id: U2, order_id: null, api_order_id: null, created_at: recent },
+    ])
+    const getStatus = vi.fn(async (_ref: string) => ({ kind: "rate_limited", retryAfterSec: 60 }) as StatusLookup)
+    const alert = vi.fn(async () => {})
+    const out = await checkHubnetUnknownAttempts(db, { getStatus } as any, alert, NOW)
+    expect(getStatus).toHaveBeenCalledTimes(1)
+    expect(alert).not.toHaveBeenCalled()
+    expect(out.found).toBe(0)
+  })
+
   it("a failed attempt is not alerted on; a later live attempt still is", async () => {
     const { db } = makeDb([{ id: "t1", shop_order_id: U1, order_id: null, api_order_id: null, created_at: recent }])
     const failedLk: StatusLookup = { kind: "found", status: "failed", refunded: false, raw: {} }

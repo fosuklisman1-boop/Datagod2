@@ -71,6 +71,22 @@ describe("fulfillAirtimeViaHubnet", () => {
     }
   })
 
+  it("pre-place lookup rate_limited => not sent (manual), never placed, never processing", async () => {
+    const r = mk({ statuses: { [REF1]: [{ kind: "rate_limited", retryAfterSec: 60 } as any] } })
+    expect(await fulfillAirtimeViaHubnet(order, r.deps)).toBe(false)
+    expect(r.client.placeAirtime).not.toHaveBeenCalled()
+    expect(r.marks.every(m => m.patch.status === undefined)).toBe(true)
+    expect(r.alerts[0].kind).toBe("manual")
+    expect(r.alerts[0].message).toContain("rate limited")
+  })
+
+  it("a lookup kind it does not know never places (holds for review)", async () => {
+    const r = mk({ statuses: { [REF1]: [{ kind: "something_new" } as any] } })
+    expect(await fulfillAirtimeViaHubnet(order, r.deps)).toBe(true)
+    expect(r.client.placeAirtime).not.toHaveBeenCalled()
+    expect(r.alerts.some(a => a.kind === "review")).toBe(true)
+  })
+
   it("invalid phone => not sent without calling Hubnet", async () => {
     const r = mk()
     expect(await fulfillAirtimeViaHubnet({ ...order, beneficiary_phone: "123" }, r.deps)).toBe(false)
@@ -309,6 +325,18 @@ describe("syncHubnetAirtime", () => {
     const [type, , message] = (alert as any).mock.calls[0]
     expect(type).toBe("airtime_hubnet_stuck:s1")
     expect(message).not.toContain(PHONE)
+  })
+
+  it("rate_limited stops the loop: no bump, no stuck alert, not counted as checked", async () => {
+    const stale = proc({ id: "s1", created_at: new Date(Date.now() - 7 * 3600_000).toISOString() })
+    const other = proc({ id: "s2" })
+    const { db } = fakeDb([stale, other])
+    const client: any = { getStatus: vi.fn(async () => ({ kind: "rate_limited", retryAfterSec: 60 })) }
+    const alert = vi.fn(async () => {})
+    expect(await syncHubnetAirtime(db, client, 50, { alert })).toEqual({ checked: 0, updated: 0 })
+    expect(client.getStatus).toHaveBeenCalledTimes(1)
+    expect(stale.updated_at).toBe("2026-01-01T00:00:00.000Z")
+    expect(alert).not.toHaveBeenCalled()
   })
 })
 

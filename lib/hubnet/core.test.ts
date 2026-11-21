@@ -9,6 +9,7 @@ import {
   classifyStatusReply,
   classifyPlaceReply,
   normalizeRefunds,
+  hubnetRetryAfterSec,
   HUBNET_MAX_ATTEMPTS,
 } from "./core"
 
@@ -141,6 +142,25 @@ describe("classifyStatusReply", () => {
   it("treats 404 with non-object body as unknown", () => {
     expect(classifyStatusReply(404, "Not Found")).toEqual({ kind: "unknown" })
   })
+  // Live probe 2026-11-21: check-transaction-status?reference=<unknown ref> answers exactly this.
+  // (A missing ?reference= gives 400; a wrong path segment gives 404 "Page not found.")
+  it("treats Hubnet's live 'Invalid path' not-found reply as missing", () => {
+    const live = {
+      event: "query.success",
+      ip: "172.68.42.128",
+      message: "Invalid path. Please provide a valid path: check_balance, check-transaction-status, refunds, or mtn-verification.",
+      status: false,
+      request_id: "c6490340-2507044",
+      data: null,
+    }
+    expect(classifyStatusReply(404, live)).toEqual({ kind: "missing" })
+  })
+  it("keeps a router-level 'Page not found.' 404 as unknown", () => {
+    expect(classifyStatusReply(404, { success: false, message: "Page not found." })).toEqual({ kind: "unknown" })
+  })
+  it("keeps an 'Invalid path' 404 that carries data as unknown", () => {
+    expect(classifyStatusReply(404, { event: "query.success", message: "Invalid path.", status: false, data: { x: 1 } })).toEqual({ kind: "unknown" })
+  })
   it("unknown when 200 has no status word", () => {
     expect(classifyStatusReply(200, { success: true })).toEqual({ kind: "unknown" })
   })
@@ -180,6 +200,36 @@ describe("normalizeRefunds", () => {
     expect(normalizeRefunds("x")).toEqual([])
     expect(normalizeRefunds({ data: 5 })).toEqual([])
     expect(normalizeRefunds([1, null, "a"])).toEqual([])
+  })
+})
+
+describe("Hubnet live shapes (2026-11-21)", () => {
+  it("a delivered order (data.delivery_status 'Successful') is completed", () => {
+    const live = {
+      event: "query.success", message: "query successful", status: true, request_id: "x",
+      data: { number: "0XXXXXXXXX", amount: 3.9, status: "Delivered", volume: "1000 MB", delivery_status: "Successful", tracking_id: 2332121 },
+    }
+    expect(classifyStatusReply(200, live)).toMatchObject({ kind: "found", status: "completed", refunded: false, costGhs: 3.9 })
+  })
+  it("maps 'Successful' as completed", () => {
+    expect(mapHubnetStatus("Successful")).toBe("completed")
+  })
+  it("a 429 is rate_limited, never unknown or missing, whatever the body", () => {
+    const live = { error: { code: 429, type: "TooManyRequestsException", message: "API rate limit exceeded.", retry_after_seconds: 60 } }
+    expect(classifyStatusReply(429, live, "25")).toEqual({ kind: "rate_limited", retryAfterSec: 60 })
+    expect(classifyStatusReply(429, "<html>")).toEqual({ kind: "rate_limited", retryAfterSec: 60 })
+    expect(classifyStatusReply(429, null, "90")).toEqual({ kind: "rate_limited", retryAfterSec: 90 })
+  })
+})
+
+describe("hubnetRetryAfterSec", () => {
+  it("takes the longer of header and body, clamped to 5..300, default 60", () => {
+    expect(hubnetRetryAfterSec("25", { error: { retry_after_seconds: 60 } })).toBe(60)
+    expect(hubnetRetryAfterSec("120", { error: { retry_after_seconds: 60 } })).toBe(120)
+    expect(hubnetRetryAfterSec(null, {})).toBe(60)
+    expect(hubnetRetryAfterSec("junk", undefined)).toBe(60)
+    expect(hubnetRetryAfterSec("1", undefined)).toBe(5)
+    expect(hubnetRetryAfterSec("99999", undefined)).toBe(300)
   })
 })
 

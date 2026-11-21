@@ -49,6 +49,7 @@ export async function checkHubnetUnknownAttempts(
       for (let n = 1; n <= HUBNET_MAX_ATTEMPTS; n++) {
         const ref = hubnetRef("data", id, n)
         const res = await client.getStatus(ref)
+        if (res.kind === "rate_limited") return out // Hubnet pushed back (or run budget spent): stop, next run continues
         if (res.kind !== "found") continue // missing or unknown: not evidence
         if (res.status === "failed") continue // failed/refunded attempt delivered nothing: no "do not re-send" alert
         await alert(

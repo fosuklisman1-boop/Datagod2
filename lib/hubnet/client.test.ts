@@ -200,3 +200,69 @@ describe("hubnet client redirects (M2)", () => {
     if (!air.ok) expect(air.response.error_type).toBe("OUTCOME_UNKNOWN")
   })
 })
+
+describe("hubnet client rate limiting (live 429, 2026-11-21)", () => {
+  const LIVE_429 = { error: { code: 429, type: "TooManyRequestsException", message: "API rate limit exceeded.", retry_after_seconds: 60 } }
+
+  function fetch429ThenOk() {
+    let first = true
+    const calls: string[] = []
+    const fn = vi.fn(async (url: any) => {
+      calls.push(String(url))
+      if (first) {
+        first = false
+        return new Response(JSON.stringify(LIVE_429), { status: 429, headers: { "Retry-After": "25" } })
+      }
+      return new Response(JSON.stringify({ status: true, data: { delivery_status: "Successful" } }), { status: 200 })
+    }) as unknown as typeof fetch
+    return { fn, calls }
+  }
+
+  it("a status 429 is rate_limited (not unknown), using the longer wait", async () => {
+    const { fn } = fetch429ThenOk()
+    const c = createHubnetClient({ fetch: fn, env: baseEnv })
+    expect(await c.getStatus("DGabc")).toEqual({ kind: "rate_limited", retryAfterSec: 60 })
+  })
+
+  it("after a 429 every call skips Hubnet during the cooldown", async () => {
+    const { fn, calls } = fetch429ThenOk()
+    const c = createHubnetClient({ fetch: fn, env: baseEnv })
+    await c.getStatus("DGabc")
+    expect(calls).toHaveLength(1)
+
+    expect((await c.getStatus("DGdef")).kind).toBe("rate_limited")
+    const data = await c.placeData("mtn", { phone: "0241234567", volumeMb: 1000, reference: "DGdef" })
+    expect(data.ok).toBe(false)
+    if (!data.ok) {
+      expect(data.response.error_type).toBe("RATE_LIMIT")
+      expect(data.response.success).toBe(false)
+    }
+    const air = await c.placeAirtime({ phone: "0241234567", amountGhs: 5, reference: "DAdef" })
+    expect(air.ok).toBe(false)
+    if (!air.ok) expect(air.response.error_type).toBe("RATE_LIMIT")
+    expect(await c.getBalance()).toBeNull()
+    expect(await c.listRefunds()).toBeNull()
+    expect(await c.verifyMtn("0241234567")).toBeNull()
+    expect(calls).toHaveLength(1) // nothing else reached Hubnet
+  })
+
+  it("an order POST 429 also starts the cooldown", async () => {
+    const { fn, calls } = fetch429ThenOk()
+    const c = createHubnetClient({ fetch: fn, env: baseEnv })
+    await c.placeData("mtn", { phone: "0241234567", volumeMb: 1000, reference: "DGabc" })
+    expect((await c.getStatus("DGabc")).kind).toBe("rate_limited")
+    expect(calls).toHaveLength(1)
+  })
+
+  it("calls Hubnet again once the cooldown has passed", async () => {
+    const { memoryCooldown } = await import("./cooldown")
+    let t = 1_000_000
+    const cooldown = memoryCooldown(() => t)
+    const { fn, calls } = fetch429ThenOk()
+    const c = createHubnetClient({ fetch: fn, env: baseEnv, cooldown })
+    await c.getStatus("DGabc")
+    t += 61_000
+    expect(await c.getStatus("DGabc")).toMatchObject({ kind: "found", status: "completed" })
+    expect(calls).toHaveLength(2)
+  })
+})

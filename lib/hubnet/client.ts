@@ -1,7 +1,8 @@
 // Hubnet HTTP client. Env is read lazily from the injected env so tests can
 // inject it. Deliberately no logging (key, webhook token and phones are secret/PII).
 import { sendOrderRequest, type OrderRequestResult } from "@/lib/mtn-providers/outcome"
-import { classifyStatusReply, normalizeRefunds, type HubnetNet, type HubnetRefundItem, type StatusLookup } from "./core"
+import { classifyStatusReply, hubnetRetryAfterSec, normalizeRefunds, type HubnetNet, type HubnetRefundItem, type StatusLookup } from "./core"
+import { defaultHubnetCooldown, memoryCooldown, type HubnetCooldown } from "./cooldown"
 
 const DEFAULT_BASE = "https://hubnet.app"
 const TIMEOUT_MS = 30_000
@@ -29,9 +30,35 @@ export function hubnetWebhookUrl(env: NodeJS.ProcessEnv = process.env): string |
 
 const VERIFY_STATUSES: readonly string[] = ["verified", "unverified", "queued", "invalid"]
 
-export function createHubnetClient(opts: { fetch?: typeof fetch; env?: NodeJS.ProcessEnv } = {}): HubnetClient {
+/** Ordinary "not sent" failure while Hubnet is rate-limiting us: nothing was sent, so a retry is safe. */
+export function hubnetRateLimitedOrder(retryAfterSec: number): OrderRequestResult {
+  return {
+    ok: false,
+    response: {
+      success: false,
+      message: `Hubnet is rate-limiting requests - not sent, try again in ${retryAfterSec}s`,
+      error_type: "RATE_LIMIT",
+    },
+  }
+}
+
+export function createHubnetClient(
+  opts: { fetch?: typeof fetch; env?: NodeJS.ProcessEnv; cooldown?: HubnetCooldown } = {},
+): HubnetClient {
   const doFetch: typeof fetch = opts.fetch ?? ((...a) => fetch(...a))
   const envOf = () => opts.env ?? process.env
+  // Production shares one cooldown across instances; an injected fetch (tests) gets a private one.
+  const cooldown: HubnetCooldown = opts.cooldown ?? (opts.fetch ? memoryCooldown() : defaultHubnetCooldown())
+
+  /** Every Hubnet reply passes through here: a 429 starts the shared cooldown. */
+  const watch = async (res: Response): Promise<Response> => {
+    if (res.status === 429) {
+      let body: unknown
+      try { body = JSON.parse(await res.clone().text()) } catch { body = undefined }
+      await cooldown.trip(hubnetRetryAfterSec(res.headers.get("retry-after"), body))
+    }
+    return res
+  }
 
   const url = (path: string) => {
     const mode = envOf().HUBNET_MODE === "test" ? "test" : "live"
@@ -51,9 +78,9 @@ export function createHubnetClient(opts: { fetch?: typeof fetch; env?: NodeJS.Pr
       // Never follow redirects: the token header must not leave the Hubnet host, and a 3xx is not an answer.
       redirect: "manual",
       signal: AbortSignal.timeout(TIMEOUT_MS),
-    })
+    }).then(watch)
   const get = (path: string) =>
-    doFetch(url(path), { method: "GET", headers: headers(false), redirect: "manual", signal: AbortSignal.timeout(TIMEOUT_MS) })
+    doFetch(url(path), { method: "GET", headers: headers(false), redirect: "manual", signal: AbortSignal.timeout(TIMEOUT_MS) }).then(watch)
 
   const withWebhook = (body: Record<string, unknown>) => {
     const w = hubnetWebhookUrl(envOf())
@@ -68,27 +95,38 @@ export function createHubnetClient(opts: { fetch?: typeof fetch; env?: NodeJS.Pr
     }
   }
 
+  /** Seconds left in the cooldown; 0 = go ahead. */
+  const busy = () => cooldown.remainingSec()
+
   return {
-    placeData(net, b) {
+    async placeData(net, b) {
+      const wait = await busy()
+      if (wait > 0) return hubnetRateLimitedOrder(wait)
       return sendOrderRequest("Hubnet", () =>
         post(`${net}-new-transaction`, withWebhook({ phone: b.phone, volume: String(b.volumeMb), reference: b.reference }))
       )
     },
-    placeAirtime(b) {
+    async placeAirtime(b) {
+      const wait = await busy()
+      if (wait > 0) return hubnetRateLimitedOrder(wait)
       return sendOrderRequest("Hubnet", () =>
         post("airtime-new-transaction", withWebhook({ phone: b.phone, volume: b.amountGhs.toFixed(2), reference: b.reference }))
       )
     },
     async getStatus(reference) {
+      const wait = await busy()
+      if (wait > 0) return { kind: "rate_limited", retryAfterSec: wait }
       try {
         const res = await get(`check-transaction-status?reference=${encodeURIComponent(reference)}`)
         const json = await readJson(res)
+        if (res.status === 429) return classifyStatusReply(429, json, res.headers.get("retry-after"))
         return json === undefined ? { kind: "unknown" } : classifyStatusReply(res.status, json)
       } catch {
         return { kind: "unknown" }
       }
     },
     async listRefunds() {
+      if ((await busy()) > 0) return null
       try {
         const res = await get("refunds")
         if (res.status < 200 || res.status >= 300) return null
@@ -99,6 +137,7 @@ export function createHubnetClient(opts: { fetch?: typeof fetch; env?: NodeJS.Pr
       }
     },
     async getBalance() {
+      if ((await busy()) > 0) return null
       try {
         const res = await get("check_balance")
         if (res.status < 200 || res.status >= 300) return null
@@ -110,6 +149,7 @@ export function createHubnetClient(opts: { fetch?: typeof fetch; env?: NodeJS.Pr
       }
     },
     async verifyMtn(number) {
+      if ((await busy()) > 0) return null
       try {
         const res = await get(`mtn-verification?number=${encodeURIComponent(number)}`)
         if (res.status < 200 || res.status >= 300) return null
