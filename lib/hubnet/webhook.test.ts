@@ -149,4 +149,8 @@ describe("redactHubnetBody", () => {
     expect(out).not.toContain("233241234567")
     expect(redactHubnetBody("a".repeat(5000)).length).toBe(2000)
   })
+  it("replaces CR/LF so a body cannot forge log lines", () => {
+    const out = redactHubnetBody("a\r\n[HUBNET-WEBHOOK] forged\nb\rc")
+    expect(out).not.toMatch(/[\r\n]/)
+  })
 })

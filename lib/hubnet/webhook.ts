@@ -50,7 +50,10 @@ export function extractHubnetRef(payload: unknown): string | null {
 
 /** Mask 10-digit 0XXXXXXXXX and 233XXXXXXXXX numbers, then cap at 2000 chars. */
 export function redactHubnetBody(body: string): string {
-  return body.replace(/(?<!\d)(?:233\d{9}|0\d{9})(?!\d)/g, (m) => redactPhone(m)).slice(0, 2000)
+  return body
+    .replace(/[\r\n]/g, " ")
+    .replace(/(?<!\d)(?:233\d{9}|0\d{9})(?!\d)/g, (m) => redactPhone(m))
+    .slice(0, 2000)
 }
 
 export async function processHubnetWebhook(ref: string, deps: HubnetWebhookDeps): Promise<HubnetWebhookResult> {

@@ -22,6 +22,13 @@ export async function POST(request: NextRequest) {
     return done()
   }
 
+  // Cheap pre-check: an oversized declared body is never read.
+  const declared = Number(request.headers.get("content-length"))
+  if (Number.isFinite(declared) && declared > HUBNET_WEBHOOK_MAX_BYTES) {
+    console.warn("[HUBNET-WEBHOOK] declared body too large, not reading")
+    return done()
+  }
+
   const rawBody = await request.text()
   const headerNames = Array.from(request.headers.keys()).join(",")
   const bytes = Buffer.byteLength(rawBody, "utf8")

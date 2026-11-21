@@ -68,4 +68,12 @@ describe("/api/admin/hubnet", () => {
   it("rejects unknown actions", async () => {
     expect((await GET(get("?action=x"))).status).toBe(400)
   })
+
+  it("unknown-action error is a fixed string that does not echo the value", async () => {
+    const res = await GET(get("?action=%3Cscript%3Ealert(1)%3C%2Fscript%3E"))
+    const text = await res.text()
+    expect(res.status).toBe(400)
+    expect(text).not.toContain("script")
+    expect(JSON.parse(text)).toEqual({ error: "Unknown action" })
+  })
 })

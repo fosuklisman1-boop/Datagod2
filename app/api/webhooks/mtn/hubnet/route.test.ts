@@ -54,6 +54,16 @@ describe("hubnet webhook route", () => {
     expect(afterMock).not.toHaveBeenCalled()
   })
 
+  it("content-length over 64KB: 200 without reading the body", async () => {
+    const { r, text } = req({ t: TOKEN, body: JSON.stringify({ reference: REF }) })
+    const big = new NextRequest(r.url, { method: "POST", body: "{}", headers: { "content-length": String(70 * 1024) } })
+    const bigText = vi.spyOn(big, "text")
+    await expect200(await POST(big))
+    expect(bigText).not.toHaveBeenCalled()
+    expect(afterMock).not.toHaveBeenCalled()
+    expect(text).not.toHaveBeenCalled()
+  })
+
   it("invalid JSON: 200, not processed", async () => {
     const { r } = req({ t: TOKEN, body: "{not json" })
     await expect200(await POST(r))

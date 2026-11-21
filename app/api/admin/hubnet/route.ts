@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
 
   const action = request.nextUrl.searchParams.get("action")
   if (action !== "balance") {
-    return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 })
+    return NextResponse.json({ error: "Unknown action" }, { status: 400 })
   }
 
   const configured = isHubnetConfigured()

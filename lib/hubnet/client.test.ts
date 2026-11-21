@@ -170,3 +170,33 @@ describe("hubnet client", () => {
     expect(out).not.toContain("0241234567")
   })
 })
+
+describe("hubnet client redirects (M2)", () => {
+  it("passes redirect: manual on every request", async () => {
+    const { fn, calls } = fakeFetch(() => ({ body: {} }))
+    const c = createHubnetClient({ fetch: fn, env: baseEnv })
+    await c.placeData("mtn", { phone: "0241234567", volumeMb: 1000, reference: "DGabc" })
+    await c.placeAirtime({ phone: "0241234567", amountGhs: 10, reference: "DAabc" })
+    await c.getStatus("DGabc")
+    await c.listRefunds()
+    await c.getBalance()
+    await c.verifyMtn("0241234567")
+    expect(calls).toHaveLength(6)
+    for (const call of calls) expect(call.init.redirect).toBe("manual")
+  })
+
+  it("a 3xx makes reads unknown/null and placements outcome-unknown (never a definitive failure)", async () => {
+    const { fn } = fakeFetch(() => ({ status: 302, text: "" }))
+    const c = createHubnetClient({ fetch: fn, env: baseEnv })
+    expect(await c.getStatus("DGabc")).toEqual({ kind: "unknown" })
+    expect(await c.getBalance()).toBeNull()
+    expect(await c.verifyMtn("0241234567")).toBeNull()
+    expect(await c.listRefunds()).toBeNull()
+    const placed = await c.placeData("mtn", { phone: "0241234567", volumeMb: 1000, reference: "DGabc" })
+    expect(placed.ok).toBe(false)
+    if (!placed.ok) expect(placed.response.error_type).toBe("OUTCOME_UNKNOWN")
+    const air = await c.placeAirtime({ phone: "0241234567", amountGhs: 5, reference: "DAabc" })
+    expect(air.ok).toBe(false)
+    if (!air.ok) expect(air.response.error_type).toBe("OUTCOME_UNKNOWN")
+  })
+})

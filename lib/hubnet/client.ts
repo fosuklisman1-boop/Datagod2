@@ -48,10 +48,12 @@ export function createHubnetClient(opts: { fetch?: typeof fetch; env?: NodeJS.Pr
       method: "POST",
       headers: headers(true),
       body: JSON.stringify(body),
+      // Never follow redirects: the token header must not leave the Hubnet host, and a 3xx is not an answer.
+      redirect: "manual",
       signal: AbortSignal.timeout(TIMEOUT_MS),
     })
   const get = (path: string) =>
-    doFetch(url(path), { method: "GET", headers: headers(false), signal: AbortSignal.timeout(TIMEOUT_MS) })
+    doFetch(url(path), { method: "GET", headers: headers(false), redirect: "manual", signal: AbortSignal.timeout(TIMEOUT_MS) })
 
   const withWebhook = (body: Record<string, unknown>) => {
     const w = hubnetWebhookUrl(envOf())
