@@ -7,6 +7,7 @@ import { buyerPriceRole } from "@/lib/ussd/price-role"
 import type { WaShopSession } from "@/lib/whatsapp-bot/shop-types"
 import { dialerRateRole } from "@/lib/sub-agents/dealer-rates"
 import { RoleReadError } from "@/lib/roles/repo"
+import { resolveBulkStatusIds } from "@/lib/ai-drafts/bulk-status-ids"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -2277,36 +2278,27 @@ export async function executeToolCall(
         }
 
         const newStatus = (input.status ?? input.new_status) as string
-        const fs = input.filter_status as string | undefined
-        const fn = input.filter_network as string | undefined
-        const df = input.date_from as string | undefined
-        const dt = input.date_to as string | undefined
-
-        // Collect matching IDs from all five order tables in parallel
-        function applyFilters(q: any, statusField: "status" | "order_status", paymentFilter?: string) {
-          if (paymentFilter) q = q.eq("payment_status", paymentFilter)
-          if (fs) q = q.eq(statusField, fs)
-          if (fn) q = q.ilike("network", fn)
-          if (df) q = q.gte("created_at", df)
-          if (dt) q = q.lte("created_at", dt)
-          return q
+        // Collect matching IDs from all five order tables (lib/ai-drafts/bulk-status-ids.ts)
+        let idsByTable
+        try {
+          idsByTable = await resolveBulkStatusIds(
+            supabaseAdmin as any,
+            {
+              filter_status: input.filter_status as string | undefined,
+              filter_network: input.filter_network as string | undefined,
+              date_from: input.date_from as string | undefined,
+              date_to: input.date_to as string | undefined,
+            },
+            newStatus,
+          )
+        } catch (e) {
+          return { error: e instanceof Error ? e.message : "Failed to look up orders" }
         }
 
-        const [r1, r2, r3, r4, r5] = await Promise.all([
-          applyFilters(supabaseAdmin.from("orders").select("id"), "status"),
-          applyFilters(supabaseAdmin.from("shop_orders").select("id"), "order_status", "completed"),
-          applyFilters(supabaseAdmin.from("ussd_orders").select("id"), "order_status", "completed"),
-          applyFilters(supabaseAdmin.from("ussd_shop_orders").select("id"), "order_status", "completed"),
-          applyFilters(supabaseAdmin.from("api_orders").select("id"), "status"),
-        ])
-
-        const err = [r1.error, r2.error, r3.error, r4.error, r5.error].find(Boolean)
-        if (err) return { error: err.message }
-
         const allIds = [
-          ...(r1.data ?? []), ...(r2.data ?? []), ...(r3.data ?? []),
-          ...(r4.data ?? []), ...(r5.data ?? []),
-        ].map(o => o.id)
+          ...idsByTable.orders, ...idsByTable.shop_orders, ...idsByTable.ussd_orders,
+          ...idsByTable.ussd_shop_orders, ...idsByTable.api_orders,
+        ]
 
         if (allIds.length === 0) return { success: true, count: 0, message: "No matching orders found." }
 
