@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { supabaseAdmin } from "@/lib/supabase"
 import { recheckBlockedNumbers } from "@/lib/blocked-numbers/recheck"
+import { markAllowedByAdminCheck } from "@/lib/blocked-numbers/admin-allow"
 import { checkAllProviders } from "@/lib/blocked-numbers/all-providers"
 import { normalizeGhanaPhone } from "@/lib/phone-format"
 import { isUuid } from "@/lib/blocked-numbers/admin-view"
@@ -60,15 +61,38 @@ export async function POST(request: NextRequest) {
         console.error("[BLOCKED-ADMIN] check-all recheck failed:", err instanceof Error ? err.name : "UnknownError")
       }
     }
-    console.log(`[BLOCKED-ADMIN] check-all rows=${outRows.length} checkoutAllowed=${flipIds.length} flipped=${flipped} recheckFailed=${recheckFailed}`)
+
+    // Owner decision 2026-11-21: any configured provider's approval lets the number through checkout.
+    // Rows no checkout provider allowed are flipped directly (guarded) and their verified verdict cached.
+    const outsideRows = outRows
+      .filter((r) => !r.allowedByCheckout && r.allowedOutsideCheckout.length > 0)
+      .map((r) => ({ id: r.id, phone: r.phone, allowedBy: r.allowedOutsideCheckout[0] }))
+    let flippedOutside = 0
+    let flippedOutsideIds: string[] = []
+    let flipFailed = false
+    if (outsideRows.length > 0) {
+      try {
+        const res = await markAllowedByAdminCheck(outsideRows)
+        flippedOutsideIds = res.updatedIds
+        flippedOutside = res.updatedIds.length
+        flipFailed = res.failed
+      } catch (err) {
+        flipFailed = true
+        console.error("[BLOCKED-ADMIN] check-all direct flip failed:", err instanceof Error ? err.name : "UnknownError")
+      }
+    }
+    console.log(`[BLOCKED-ADMIN] check-all rows=${outRows.length} checkoutAllowed=${flipIds.length} flipped=${flipped} flippedOutside=${flippedOutside} recheckFailed=${recheckFailed} flipFailed=${flipFailed}`)
     return NextResponse.json({
       success: true,
       providers,
       checkoutProviders,
       failedProviders: failedProviders ?? [],
       rows: outRows,
-      flipped,
+      flipped: flipped + flippedOutside,
+      flippedOutside,
+      flippedOutsideIds,
       ...(recheckFailed ? { recheckFailed: true } : {}),
+      ...(flipFailed ? { flipFailed: true } : {}),
     })
   } catch (err) {
     console.error("[BLOCKED-ADMIN] check-all failed:", err instanceof Error ? err.name : "UnknownError")
