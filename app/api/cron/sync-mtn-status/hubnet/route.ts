@@ -8,6 +8,8 @@ import { fetchReversalCandidates, isReversal, flagReversal, REVERSAL_WINDOW_MS }
 import { applyHubnetStatusChange, type HubnetSyncRow } from "@/lib/hubnet/sync"
 import { checkHubnetUnknownAttempts } from "@/lib/hubnet/unknown-attempts"
 import { createHubnetClient } from "@/lib/hubnet/client"
+import { sweepHubnetRefunds } from "@/lib/hubnet/refund-sweep"
+import { notifyAdminsThrottled } from "@/lib/sms/notify"
 import type { HubnetStatus } from "@/lib/hubnet/core"
 
 // Answer the scheduler at once (cron-job.org times out at 30s); the sync runs after the response.
@@ -39,7 +41,7 @@ async function phase<T>(name: string, fn: () => Promise<T>): Promise<T | { error
  *
  * Safety net for Hubnet orders whose webhook was missed, then the unknown-attempt
  * watcher (possible double deliveries). airtime-sync (Task 8) and refund-sweep
- * (Task 6, every 10th minute) are placeholders until those tasks land.
+ * is a placeholder until that task lands; the refund sweep runs every 10th minute.
  */
 async function runHubnetSync(request: NextRequest) {
     const { authorized, errorResponse } = verifyCronAuth(request)
@@ -52,9 +54,11 @@ async function runHubnetSync(request: NextRequest) {
         checkHubnetUnknownAttempts(supabase, createHubnetClient()))
     // Placeholder: wired in Task 8.
     const airtimeSync = await phase("airtime-sync", async () => ({ skipped: "not yet wired" }))
-    // Placeholder: wired in Task 6; will run only on every 10th minute.
+    // Refund sweep runs only on every 10th minute.
     const refundSweep = await phase("refund-sweep", async () =>
-        new Date().getUTCMinutes() % 10 === 0 ? { skipped: "not yet wired" } : { skipped: "not this minute" })
+        new Date().getUTCMinutes() % 10 === 0
+            ? sweepHubnetRefunds(supabase, createHubnetClient(), notifyAdminsThrottled)
+            : { skipped: "not this minute" })
 
     const failed = [statusSync, reversals, unknownAttempts, airtimeSync, refundSweep].some(
         (r) => typeof r === "object" && r !== null && "error" in r
