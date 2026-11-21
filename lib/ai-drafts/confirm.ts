@@ -1,8 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
-import { claimDraft, expireIfDue, finishDraft, getOwnDraft } from "./repo"
+import { claimDraft, expireIfDue, finishDraft, getOwnDraft, recoverStaleExecuting } from "./repo"
 import type { AiDraft, DraftStatus } from "./types"
 import {
   BULK_TABLES,
+  PURCHASE_SETTLE_MS,
   executeDraft,
   revalidateDraft,
   round2,
@@ -56,8 +57,9 @@ const adminRequired = (d: AiDraft): CardState => ({ status: "failed", outcome: {
 
 export async function confirmDraft(db: SupabaseClient, id: string, caller: ConfirmCaller): Promise<CardState | null> {
   // 2. Own draft only (anything else reads as not found).
-  const found = await getOwnDraft(db, id, caller.userId)
-  if (!found) return null
+  const loaded = await getOwnDraft(db, id, caller.userId)
+  if (!loaded) return null
+  const found = await recoverStaleExecuting(db, loaded)
 
   // 3. Already finished (or executing elsewhere): return the stored state, never run again.
   if (found.status !== "pending") return toCardState(found)
@@ -152,6 +154,13 @@ async function recheckResult(db: SupabaseClient, draft: AiDraft): Promise<ExecRe
         .maybeSingle()
       if (error) throw new Error("recheck read failed")
       if (data) return { status: "succeeded", outcome: { order_code: (data as any).order_code, rechecked: true } }
+      // The request may still be in flight server-side. Only conclude after the settle window, measured from when
+      // it was sent: executed_at, else the original claim time kept by recoverStaleExecuting, else updated_at.
+      const claimedAt = (draft.outcome as any)?.claimed_at
+      const sentAt = Date.parse(draft.executed_at ?? (typeof claimedAt === "string" ? claimedAt : draft.updated_at))
+      if (!Number.isFinite(sentAt) || Date.now() - sentAt < PURCHASE_SETTLE_MS) {
+        return { status: "unknown", outcome: { code: "still_checking", message: "Still checking. Try again in a few minutes." } }
+      }
       return { status: "failed", outcome: { code: "not_placed", message: "The order was not placed and you were not charged. Prepare it again." } }
     }
 
@@ -223,8 +232,9 @@ async function recheckResult(db: SupabaseClient, draft: AiDraft): Promise<ExecRe
 }
 
 export async function recheckDraft(db: SupabaseClient, id: string, caller: ConfirmCaller): Promise<CardState | null> {
-  const draft = await getOwnDraft(db, id, caller.userId)
-  if (!draft) return null
+  const loaded = await getOwnDraft(db, id, caller.userId)
+  if (!loaded) return null
+  const draft = await recoverStaleExecuting(db, loaded)
   if (draft.status !== "unknown") return toCardState(draft)
   if (ADMIN_ACTIONS.has(draft.action) && !caller.isAdmin) return adminRequired(draft)
 
@@ -234,6 +244,11 @@ export async function recheckDraft(db: SupabaseClient, id: string, caller: Confi
   } catch {
     // Could not read the state: stay unknown, unchanged.
     return { status: "unknown", outcome: { ...(draft.outcome ?? {}), code: "recheck_failed" }, display: draft.display }
+  }
+
+  // Still-checking is not written: rewriting would restart the settle clock (executed_at) and lose claimed_at.
+  if (result.status === "unknown" && result.outcome.code === "still_checking") {
+    return { status: "unknown", outcome: result.outcome, display: draft.display }
   }
 
   try {

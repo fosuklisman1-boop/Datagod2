@@ -119,6 +119,36 @@ export async function expireIfDue(db: SupabaseClient, draft: AiDraft): Promise<A
   return (await getOwnDraft(db, draft.id, draft.user_id)) ?? draft
 }
 
+/** An `executing` draft untouched for this long was interrupted (crash, killed function). */
+export const STALE_EXECUTING_MS = 60_000
+
+/**
+ * Moves a stale `executing` draft to `unknown` ({code:'interrupted'}) so the recheck can resolve it. One conditional
+ * update (still executing AND not touched for 60 s); zero rows means it finished meanwhile, so the fresh row is
+ * returned. The original claim time is kept in outcome.claimed_at (updated_at is overwritten by this update); the
+ * purchase settle window reads it because executed_at is never set on this path.
+ */
+export async function recoverStaleExecuting(db: SupabaseClient, draft: AiDraft): Promise<AiDraft> {
+  if (draft.status !== "executing") return draft
+  const now = Date.now()
+  if (new Date(draft.updated_at).getTime() > now - STALE_EXECUTING_MS) return draft
+  const { data, error } = await db
+    .from("ai_drafts")
+    .update({
+      status: "unknown",
+      outcome: { code: "interrupted", message: "We couldn't confirm the result.", claimed_at: draft.updated_at },
+      updated_at: new Date(now).toISOString(),
+    })
+    .eq("id", draft.id)
+    .eq("status", "executing")
+    .lt("updated_at", new Date(now - STALE_EXECUTING_MS).toISOString())
+    .select()
+    .maybeSingle()
+  if (error) fail("recover", error)
+  if (data) return data as AiDraft
+  return (await getOwnDraft(db, draft.id, draft.user_id)) ?? draft
+}
+
 export async function cancelDraft(db: SupabaseClient, id: string, userId: string): Promise<AiDraft | null> {
   const { data, error } = await db
     .from("ai_drafts")

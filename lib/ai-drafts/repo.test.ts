@@ -8,6 +8,7 @@ import {
   expireIfDue,
   cancelDraft,
   terminalDraftsSince,
+  recoverStaleExecuting,
 } from "./repo"
 import { paramsSchemaFor } from "./types"
 
@@ -59,6 +60,7 @@ function fakeDb(rows: Row[] = [], opts: { failOn?: string } = {}) {
         in(c: string, vs: unknown[]) { filters.push((r) => vs.includes(r[c])); return b },
         gt(c: string, v: string) { filters.push((r) => r[c] > v); return b },
         lte(c: string, v: string) { filters.push((r) => r[c] <= v); return b },
+        lt(c: string, v: string) { filters.push((r) => r[c] < v); return b },
         gte(c: string, v: string) { filters.push((r) => r[c] != null && r[c] >= v); return b },
         order(col: string, o?: { ascending?: boolean }) { orderBy = { col, asc: o?.ascending !== false }; return b },
         single() { const x = run(); return Promise.resolve(x.error ? x : { data: x.data![0] ?? null, error: x.data!.length ? null : { message: "no row" } }) },
@@ -192,6 +194,37 @@ describe("claimDraft", () => {
     const row = pendingRow()
     expect(await claimDraft(fakeDb([row]), row.id, OTHER)).toBeNull()
     expect(row.status).toBe("pending")
+  })
+})
+
+describe("recoverStaleExecuting", () => {
+  it("stale_executing_becomes_unknown", async () => {
+    const claimedAt = new Date(Date.now() - 90_000).toISOString()
+    const row = pendingRow({ status: "executing", updated_at: claimedAt })
+    const out = await recoverStaleExecuting(fakeDb([row]), row as any)
+    expect(out.status).toBe("unknown")
+    expect(row.status).toBe("unknown")
+    expect(row.outcome).toMatchObject({ code: "interrupted", claimed_at: claimedAt })
+  })
+
+  it("fresh_executing_untouched", async () => {
+    const row = pendingRow({ status: "executing", updated_at: new Date(Date.now() - 5_000).toISOString() })
+    const out = await recoverStaleExecuting(fakeDb([row]), row as any)
+    expect(out.status).toBe("executing")
+    expect(row.status).toBe("executing")
+    expect(row.outcome).toBeNull()
+  })
+
+  it("non-executing drafts are returned as is", async () => {
+    const row = pendingRow({ status: "succeeded", updated_at: new Date(Date.now() - 900_000).toISOString() })
+    expect((await recoverStaleExecuting(fakeDb([row]), row as any)).status).toBe("succeeded")
+  })
+
+  it("re-reads when the conditional update matched nothing (finished meanwhile)", async () => {
+    const stale = pendingRow({ status: "executing", updated_at: new Date(Date.now() - 90_000).toISOString() })
+    const db = fakeDb([{ ...stale, status: "succeeded", outcome: { order_code: "X" } }])
+    const out = await recoverStaleExecuting(db, stale as any)
+    expect(out.status).toBe("succeeded")
   })
 })
 

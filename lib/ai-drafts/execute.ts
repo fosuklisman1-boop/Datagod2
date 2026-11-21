@@ -27,6 +27,9 @@ export interface ExecCall {
 
 export const FETCH_TIMEOUT_MS = 15_000
 
+/** A purchase with no order found is only declared not_placed once this long has passed since it was sent. */
+export const PURCHASE_SETTLE_MS = 360_000
+
 export const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
 export const sameMoney = (a: number, b: number) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) < 0.005
 

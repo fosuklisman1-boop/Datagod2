@@ -11,6 +11,9 @@ vi.mock("./bulk-status-ids", () => ({
 }))
 
 import { confirmDraft, recheckDraft } from "./confirm"
+import { PURCHASE_SETTLE_MS } from "./execute"
+
+const ago = (ms: number) => new Date(Date.now() - ms).toISOString()
 import { executeDraft, revalidateDraft } from "./execute"
 
 type Row = Record<string, any>
@@ -38,6 +41,7 @@ function fakeDb(tables: Record<string, Row[]>) {
         in(c: string, vs: unknown[]) { filters.push((r) => vs.includes(r[c])); return b },
         gt(c: string, v: string) { filters.push((r) => r[c] > v); return b },
         lte(c: string, v: string) { filters.push((r) => r[c] <= v); return b },
+        lt(c: string, v: string) { filters.push((r) => r[c] < v); return b },
         gte(c: string, v: string) { filters.push((r) => r[c] != null && r[c] >= v); return b },
         order() { return b },
         limit() { return b },
@@ -481,7 +485,7 @@ describe("recheckDraft", () => {
   it("an order with the same key for a different user is not found", async () => {
     const db = fakeDb(
       baseTables({
-        ai_drafts: [draftRow({ status: "unknown" })],
+        ai_drafts: [draftRow({ status: "unknown", executed_at: ago(PURCHASE_SETTLE_MS + 60_000) })],
         orders: [{ id: "o-1", idempotency_key: DRAFT, user_id: TARGET, order_code: "ORD-42" }],
       }),
     )
@@ -490,10 +494,60 @@ describe("recheckDraft", () => {
   })
 
   it("unknown_purchase_recheck_no_order", async () => {
-    const db = fakeDb(baseTables({ ai_drafts: [draftRow({ status: "unknown" })] }))
+    const db = fakeDb(baseTables({ ai_drafts: [draftRow({ status: "unknown", executed_at: ago(PURCHASE_SETTLE_MS + 60_000) })] }))
     const out = await recheckDraft(db, DRAFT, caller(vi.fn()))
     expect(out!.status).toBe("failed")
     expect(out!.outcome).toMatchObject({ code: "not_placed" })
+  })
+
+  it("recheck_purchase_not_found_recent_still_checking", async () => {
+    const stored = { code: "no_response", message: "We couldn't confirm the result." }
+    const db = fakeDb(baseTables({ ai_drafts: [draftRow({ status: "unknown", outcome: stored, executed_at: ago(60_000) })] }))
+    const out = await recheckDraft(db, DRAFT, caller(vi.fn()))
+    expect(out!.status).toBe("unknown")
+    expect(out!.outcome).toMatchObject({ code: "still_checking" })
+    // Not written: the settle clock must not restart.
+    expect(db.tables.ai_drafts[0].status).toBe("unknown")
+    expect(db.tables.ai_drafts[0].outcome).toEqual(stored)
+    expect(db.tables.ai_drafts[0].executed_at).toBeTruthy()
+  })
+
+  it("recheck_purchase_not_found_after_settle_failed", async () => {
+    const db = fakeDb(baseTables({ ai_drafts: [draftRow({ status: "unknown", executed_at: ago(PURCHASE_SETTLE_MS + 1_000) })] }))
+    const out = await recheckDraft(db, DRAFT, caller(vi.fn()))
+    expect(out!.status).toBe("failed")
+    expect(out!.outcome).toMatchObject({ code: "not_placed" })
+  })
+
+  it("recovered draft with no executed_at settles from the original claim time", async () => {
+    const recent = draftRow({ status: "unknown", executed_at: null, outcome: { code: "interrupted", claimed_at: ago(60_000) } })
+    const dbRecent = fakeDb(baseTables({ ai_drafts: [recent] }))
+    expect((await recheckDraft(dbRecent, DRAFT, caller(vi.fn())))!.outcome).toMatchObject({ code: "still_checking" })
+    const old = draftRow({ status: "unknown", executed_at: null, outcome: { code: "interrupted", claimed_at: ago(PURCHASE_SETTLE_MS + 1_000) } })
+    const dbOld = fakeDb(baseTables({ ai_drafts: [old] }))
+    expect((await recheckDraft(dbOld, DRAFT, caller(vi.fn())))!.status).toBe("failed")
+  })
+
+  it("recheck_resolves_interrupted_purchase", async () => {
+    const db = fakeDb(
+      baseTables({
+        ai_drafts: [draftRow({ status: "executing", updated_at: ago(120_000) })],
+        orders: [{ id: "o-1", idempotency_key: DRAFT, user_id: USER, order_code: "ORD-8" }],
+      }),
+    )
+    const out = await recheckDraft(db, DRAFT, caller(vi.fn()))
+    expect(out!.status).toBe("succeeded")
+    expect(out!.outcome).toMatchObject({ order_code: "ORD-8" })
+    expect(db.tables.ai_drafts[0].status).toBe("succeeded")
+  })
+
+  it("confirm on a stale executing draft recovers it to unknown without calling an endpoint", async () => {
+    const db = fakeDb(baseTables({ ai_drafts: [draftRow({ status: "executing", updated_at: ago(120_000) })] }))
+    const fetchFn = vi.fn()
+    const out = await confirmDraft(db, DRAFT, caller(fetchFn))
+    expect(out!.status).toBe("unknown")
+    expect(out!.outcome).toMatchObject({ code: "interrupted" })
+    expect(fetchFn).not.toHaveBeenCalled()
   })
 
   it("recheck on a non-unknown draft just returns its state", async () => {
