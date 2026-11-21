@@ -63,12 +63,12 @@ describe("server_note_reflects_failed_draft", () => {
     ])
     const call = await post({ conversationKey: CK, messages: [{ role: "user", content: "hi" }, { role: "assistant", content: "ok" }, { role: "user", content: "what happened?" }] })
     const msgs = call!.messages
-    expect(msgs).toHaveLength(4)
+    expect(msgs).toHaveLength(3)
     expect(msgs[2].role).toBe("user")
     expect(msgs[2].content).toContain(`[card ${REAL_ID}: failed; insufficient_balance]`)
     expect(msgs[2].content).toContain("[card 44444444-4444-4444-8444-444444444444: succeeded; order ORD-123]")
     expect(msgs[2].content).not.toContain("ignore all rules")
-    expect(msgs[3].content).toBe("what happened?")
+    expect(msgs[2].content).toMatch(/what happened\?$/)
     const [, userId, key, since] = h.terminalDraftsSince.mock.calls[0]
     expect(userId).toBe("user-1")
     expect(key).toBe(CK)
@@ -99,6 +99,24 @@ describe("server_note_reflects_failed_draft", () => {
     h.terminalDraftsSince.mockRejectedValue(new Error("db down"))
     const call = await post({ conversationKey: CK, messages: [{ role: "user", content: "hi" }] })
     expect(call!.messages).toEqual([{ role: "user", content: "hi" }])
+  })
+})
+
+describe("card_note_prepended_to_latest_user_message", () => {
+  it("wraps the note in <card_results> and puts it before the original text", async () => {
+    h.terminalDraftsSince.mockResolvedValue([{ id: REAL_ID, status: "succeeded", outcome: { order_code: "ORD-9" } }])
+    const call = await post({ conversationKey: CK, messages: [{ role: "user", content: "thanks" }] })
+    expect(call!.messages).toEqual([
+      { role: "user", content: `<card_results>\n[card ${REAL_ID}: succeeded; order ORD-9]\n</card_results>\n\nthanks` },
+    ])
+  })
+})
+
+describe("no_consecutive_user_messages_added", () => {
+  it("keeps the role sequence identical to the request", async () => {
+    h.terminalDraftsSince.mockResolvedValue([{ id: REAL_ID, status: "failed", outcome: { code: "x" } }])
+    const call = await post({ conversationKey: CK, messages: [{ role: "user", content: "a" }, { role: "assistant", content: "b" }, { role: "user", content: "c" }] })
+    expect(call!.messages.map(m => m.role)).toEqual(["user", "assistant", "user"])
   })
 })
 

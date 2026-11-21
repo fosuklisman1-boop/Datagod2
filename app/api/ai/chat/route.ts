@@ -266,7 +266,14 @@ export async function POST(req: NextRequest) {
         for (let i = messages.length - 1; i >= 0; i--) {
           if (messages[i].role === "user") { lastUser = i; break }
         }
-        if (lastUser >= 0) messages.splice(lastUser, 0, { role: "user", content: note })
+        // Prepend to the latest user message (never a separate message): the role sequence stays valid for
+        // every provider adapter. History content is always a string at this point.
+        if (lastUser >= 0 && typeof messages[lastUser].content === "string") {
+          messages[lastUser] = {
+            role: "user",
+            content: `<card_results>\n${note}\n</card_results>\n\n${messages[lastUser].content}`,
+          }
+        }
       }
     } catch {
       console.error("[AI-CHAT] could not load card outcomes")
