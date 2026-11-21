@@ -12,6 +12,7 @@ import { ApexPrimeProvider } from "@/lib/mtn-providers/apexprime-provider"
 import { SPFastITProvider } from "@/lib/mtn-providers/spfastit-provider"
 import { SPFastITTelecelProvider } from "@/lib/mtn-providers/spfastit-telecel-provider"
 import { BundlePortalProvider } from "@/lib/mtn-providers/bundleportal-provider"
+import { HubnetProvider } from "@/lib/mtn-providers/hubnet-provider"
 import { sendLowBalanceAlert } from "@/lib/mtn-balance-alert"
 
 export const dynamic = "force-dynamic"
@@ -21,7 +22,7 @@ export async function GET(request: NextRequest) {
   if (!auth.authorized) return auth.errorResponse!
 
   try {
-    const [sykes, datakazina, xpress, eazyghdata, bisdel, codecraft, agentportalgh, apexprime, spfastit, spfastitTelecel, bundleportal] = await Promise.all([
+    const [sykes, datakazina, xpress, eazyghdata, bisdel, codecraft, agentportalgh, apexprime, spfastit, spfastitTelecel, bundleportal, hubnet] = await Promise.all([
       new SykesProvider().checkBalance().catch(() => null),
       new DataKazinaProvider().checkBalance().catch(() => null),
       new XpressProvider().checkBalance().catch(() => null),
@@ -33,6 +34,7 @@ export async function GET(request: NextRequest) {
       new SPFastITProvider().checkBalance().catch(() => null),
       new SPFastITTelecelProvider().checkBalance().catch(() => null),
       new BundlePortalProvider().checkBalance().catch(() => null),
+      new HubnetProvider().checkBalance().catch(() => null),
     ])
 
     const { data: settingData } = await supabase
@@ -43,7 +45,7 @@ export async function GET(request: NextRequest) {
 
     const threshold = parseInt(settingData?.value || "500", 10)
 
-    const balances = { sykes, datakazina, xpress, eazyghdata, bisdel, codecraft, agentportalgh, apexprime, bundleportal, spfastit_telecel: spfastitTelecel }
+    const balances = { sykes, datakazina, xpress, eazyghdata, bisdel, codecraft, agentportalgh, apexprime, bundleportal, hubnet, spfastit_telecel: spfastitTelecel }
     const lows = {
       sykes: sykes !== null && sykes < threshold,
       datakazina: datakazina !== null && datakazina < threshold,
@@ -54,6 +56,7 @@ export async function GET(request: NextRequest) {
       agentportalgh: agentportalgh !== null && agentportalgh < threshold,
       apexprime: apexprime !== null && apexprime < threshold,
       bundleportal: bundleportal !== null && bundleportal < threshold,
+      hubnet: hubnet !== null && hubnet < threshold,
       spfastit_telecel: spfastitTelecel !== null && spfastitTelecel < threshold,
     }
 

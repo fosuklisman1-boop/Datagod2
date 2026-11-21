@@ -64,7 +64,7 @@ export default function MTNSettingsPage() {
   const [toggling, setToggling] = useState(false)
   const [gateSettings, setGateSettings] = useState<{ enabled: boolean; updated_at?: string } | null>(null)
   const [gateToggling, setGateToggling] = useState(false)
-  const [mtnProvider, setMtnProvider] = useState<"sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft" | "agentportalgh" | "apexprime" | "bundleportal" | "kuntanii">("sykes")
+  const [mtnProvider, setMtnProvider] = useState<"sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft" | "agentportalgh" | "apexprime" | "bundleportal" | "kuntanii" | "hubnet">("sykes")
   const [syncingPackages, setSyncingPackages] = useState(false)
   const [savingProvider, setSavingProvider] = useState(false)
   const [bisdelCategories, setBisdelCategories] = useState<string[]>([])
@@ -159,7 +159,10 @@ export default function MTNSettingsPage() {
   const [bpVerifyResult, setBpVerifyResult] = useState<any>(null)
   const [bpVerifying, setBpVerifying] = useState(false)
 
-  type MTNProviderName = "sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft" | "agentportalgh" | "apexprime" | "bundleportal" | "kuntanii"
+  const [hubnetStatus, setHubnetStatus] = useState<{ balance: number | null; mode: "live" | "test"; configured: boolean } | null>(null)
+  const [hubnetLoading, setHubnetLoading] = useState(false)
+
+  type MTNProviderName = "sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft" | "agentportalgh" | "apexprime" | "bundleportal" | "kuntanii" | "hubnet"
   const [retrySequenceEnabled, setRetrySequenceEnabled] = useState(false)
   const [retrySequence, setRetrySequence] = useState<MTNProviderName[]>([])
   const [savingRetrySequence, setSavingRetrySequence] = useState(false)
@@ -167,7 +170,7 @@ export default function MTNSettingsPage() {
   const [disabledProviders, setDisabledProviders] = useState<MTNProviderName[]>([])
   const [togglingDisabled, setTogglingDisabled] = useState<MTNProviderName | null>(null)
 
-  type NonMTNProvider = "datakazina" | "xpress" | "eazyghdata" | "codecraft" | "agentportalgh" | "apexprime" | "spfastit" | "bundleportal" | "spfastit_telecel"
+  type NonMTNProvider = "datakazina" | "xpress" | "eazyghdata" | "codecraft" | "agentportalgh" | "apexprime" | "spfastit" | "bundleportal" | "spfastit_telecel" | "hubnet"
   const [telecelProvider, setTelecelProvider] = useState<NonMTNProvider>("codecraft")
   const [atIshareProvider, setAtIshareProvider] = useState<NonMTNProvider>("codecraft")
   const [atBigtimeProvider, setAtBigtimeProvider] = useState<NonMTNProvider>("codecraft")
@@ -299,6 +302,30 @@ export default function MTNSettingsPage() {
       }
     }
     loadBundlePortalData()
+  }, [activeTab])
+
+  useEffect(() => {
+    if (activeTab !== "hubnet") return
+    const loadHubnetStatus = async () => {
+      setHubnetLoading(true)
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session?.access_token) return
+        const res = await fetch("/api/admin/hubnet?action=balance", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        })
+        if (res.ok) {
+          setHubnetStatus(await res.json())
+        } else {
+          toast.error("Failed to load Hubnet status")
+        }
+      } catch (e) {
+        console.error("Error loading Hubnet status:", e)
+      } finally {
+        setHubnetLoading(false)
+      }
+    }
+    loadHubnetStatus()
   }, [activeTab])
 
   useEffect(() => {
@@ -1304,7 +1331,7 @@ export default function MTNSettingsPage() {
     sykes: "Sykes", datakazina: "DataKazina", xpress: "Xpress",
     eazyghdata: "EazyGhData", bisdel: "Bisdel", codecraft: "CodeCraft", agentportalgh: "AgentPortalGH",
     apexprime: "Apex Prime", bundleportal: "Bundle Portal",
-    kuntanii: "Kuntanii",
+    kuntanii: "Kuntanii", hubnet: "Hubnet",
   }
 
   return (
@@ -1599,6 +1626,7 @@ export default function MTNSettingsPage() {
                 { value: "xpress", label: "Xpress", sub: "Batch-enabled" },
                 { value: "eazyghdata", label: "EazyGhData", sub: "Package-based" },
                 { value: "bundleportal", label: "Bundle Portal", sub: "Webhook-first, all networks" },
+                { value: "hubnet", label: "Hubnet", sub: "Webhook-first, all networks" },
               ]
               const nonBigTimeProviders: { value: NonMTNProvider; label: string; sub: string }[] = [
                 ...baseProviders,
@@ -2716,6 +2744,43 @@ export default function MTNSettingsPage() {
           <TabsContent value="kuntanii" className="space-y-4 mt-6">
             <ActivationCard providerKey="kuntanii" label="Kuntanii" />
             <KuntaniiCard />
+          </TabsContent>
+
+          <TabsContent value="hubnet" className="space-y-4 mt-6">
+            <ActivationCard providerKey="hubnet" label="Hubnet" />
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Wallet className="h-5 w-5 text-primary" />Hubnet account</CardTitle>
+                <CardDescription>Read-only status. The API key and mode are set in the server environment.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {hubnetLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading…</div>
+                ) : hubnetStatus ? (
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Configured</p>
+                      <p className="text-lg font-semibold text-foreground">{hubnetStatus.configured ? "Yes" : "No"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Mode</p>
+                      <p className="text-lg font-semibold text-foreground">{hubnetStatus.mode === "test" ? "Test" : "Live"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Wallet balance</p>
+                      {hubnetStatus.balance !== null ? (
+                        <p className="text-lg font-semibold text-foreground">₵{hubnetStatus.balance.toFixed(2)}</p>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No balance data available.</p>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No status data available.</p>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </div>

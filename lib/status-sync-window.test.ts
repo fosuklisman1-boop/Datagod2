@@ -87,8 +87,15 @@ describe("provider status syncs use the window", () => {
     expect(src).toMatch(/\.in\("status", \["pending", "processing"\]\)\s*\n\s*\.gte\("created_at", syncWindowStartIso\(\)\)/)
   })
 
+  // hubnet also skips UNKNOWN_ placeholder ids, so a `.not(...)` sits between the status filter and the window.
+  it("hubnet only polls pending/processing rows inside the sync window", () => {
+    const src = readFileSync(join(root, "hubnet", "route.ts"), "utf8")
+    expect(src).toContain("syncWindowStartIso")
+    expect(src).toMatch(/\.in\("status", \["pending", "processing"\]\)[\s\S]{0,80}\.gte\("created_at", syncWindowStartIso\(\)\)/)
+  })
+
   it("covers every per-provider sync route (a new one must opt in)", () => {
     const dirs = readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name)
-    expect(dirs.sort()).toEqual([...providers].sort())
+    expect(dirs.sort()).toEqual([...providers, "hubnet"].sort())
   })
 })
