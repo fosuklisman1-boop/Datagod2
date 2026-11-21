@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { draftCardView, formatGhanaTime, type CardViewState } from "./draft-card-view"
+import { draftCardView, formatGhanaTime, linkedCardState, type CardViewState } from "./draft-card-view"
 
 const NOW = Date.parse("2026-11-21T10:00:00Z")
 const display = {
@@ -257,5 +257,24 @@ describe("load errors, balance line, replay proof", () => {
     expect(v.variant).toBe("unknown")
     expect(v.showCheckAgain).toBe(true)
     expect(v.message).toBe("We couldn't confirm the result.")
+  })
+})
+
+describe("linked card initial state", () => {
+  const serverOf = (over: Record<string, unknown>) => ({ status: "pending", outcome: null, display, expires_at: new Date(NOW + 60_000).toISOString(), ...over })
+
+  it("linked_card_already_succeeded_shows_done", () => {
+    const s = linkedCardState(serverOf({ status: "succeeded", outcome: { order_code: "A1" } }))
+    const v = draftCardView(s, NOW)
+    expect(v.variant).toBe("succeeded")
+    expect(v.showConfirm).toBe(false)
+  })
+
+  it("linked_card_expired_no_confirm", () => {
+    const v = draftCardView(linkedCardState(serverOf({ status: "expired" })), NOW)
+    expect(v.variant).toBe("expired")
+    expect(v.showConfirm).toBe(false)
+    const cancelled = draftCardView(linkedCardState(serverOf({ status: "cancelled" })), NOW)
+    expect(cancelled.showConfirm).toBe(false)
   })
 })

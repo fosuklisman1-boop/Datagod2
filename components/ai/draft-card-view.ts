@@ -140,6 +140,11 @@ function partialItems(o: Record<string, unknown>): string[] {
   })
 }
 
+/** Card state for a draft opened from a link: the stored server state (GET body), never an assumed "pending". */
+export function linkedCardState(s: { status: string; outcome?: Record<string, unknown> | null; display: unknown; expires_at: string }): CardViewState {
+  return { status: s.status, outcome: s.outcome ?? null, display: s.display, expires_at: s.expires_at, warnings: [] }
+}
+
 export function draftCardView(state: CardViewState, nowMs: number): CardView {
   const { title, lines } = readDisplay(state.display)
   const o = state.outcome ?? {}

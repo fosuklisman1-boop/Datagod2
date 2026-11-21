@@ -50,6 +50,7 @@ vi.mock("@/lib/ai-drafts/standing-order", () => ({ runStandingOrder: vi.fn() }))
 
 import { GET } from "./route"
 import { aiTools } from "@/lib/ai-tools"
+import { adminBackgroundTools } from "@/lib/ai-scheduled/tools"
 
 const ADMIN = "22222222-2222-4222-8222-222222222222"
 const past = () => new Date(Date.now() - 60_000).toISOString()
@@ -124,16 +125,20 @@ describe("run-ai-tasks admin cards", () => {
     expect(h.push.mock.calls.some((c) => c[1].title === CARD_TITLE)).toBe(false)
   })
 
-  it("admin_task_cannot_execute", async () => {
+  it("admin_background_toolset_pinned", async () => {
     seed("admin")
-    h.runLoop.mockImplementation(async (p: any) => {
-      h.tables.ai_drafts.push(draftRow(p.toolCtx.conversationKey))
-      return { text: "ok", toolsUsed: [] }
-    })
     await GET(req())
     expect(h.fetch).not.toHaveBeenCalled()
     const p = h.runLoop.mock.calls[0][0]
-    expect(names(p.toolFilter(aiTools("admin")))).toContain("prepare_withdrawal_action")
+    // The cron hands the loop the real admin-background filter.
+    expect(p.toolFilter).toBe(adminBackgroundTools)
+    const list = names(adminBackgroundTools(aiTools("admin")))
+    for (const n of ["place_wallet_order", "adjust_wallet_balance", "manage_withdrawal", "suspend_user", "update_user_role", "bulk_update_order_status", "prepare_wallet_order"]) {
+      expect(list).not.toContain(n)
+    }
+    for (const n of ["prepare_wallet_adjustment", "prepare_withdrawal_action", "prepare_user_suspension", "prepare_role_change", "prepare_bulk_status_update"]) {
+      expect(list).toContain(n)
+    }
   })
 
   it("admin_task_toolset_excludes_prepare_wallet_order", async () => {
@@ -162,7 +167,9 @@ describe("run-ai-tasks admin cards", () => {
   it("admin prompt says nobody is watching", async () => {
     seed("admin")
     await GET(req())
-    expect(h.runLoop.mock.calls[0][0].system).toContain("running in the background with nobody watching")
+    const sys = h.runLoop.mock.calls[0][0].system as string
+    expect(sys).toContain("You are running in the background with nobody watching. You cannot adjust wallets, act on withdrawals, change roles, suspend users, bulk-change order statuses or place data orders")
+    expect(sys).not.toContain("You cannot perform actions")
   })
 
   it("non_admin_task_gets_no_admin_tools", async () => {

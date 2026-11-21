@@ -12,6 +12,8 @@ import { parseDraftParam } from "@/lib/ai-drafts/deep-link"
 
 interface CardData {
   draftId: string
+  status?: string
+  outcome?: Record<string, unknown> | null
   display: unknown
   expires_at: string
   warnings?: string[]
@@ -81,7 +83,7 @@ export function AdminAIChatWidget() {
         if (cancelled) return
         if (!res.ok) return setLinkedCard({ id, card: null, missing: true })
         const s = await res.json()
-        setLinkedCard({ id, card: { draftId: id, display: s.display, expires_at: s.expires_at }, missing: false })
+        setLinkedCard({ id, card: { draftId: id, status: s.status, outcome: s.outcome ?? null, display: s.display, expires_at: s.expires_at }, missing: false })
       } catch {
         if (!cancelled) setLinkedCard({ id, card: null, missing: true })
       }
@@ -334,7 +336,7 @@ export function AdminAIChatWidget() {
                     <DraftCard
                       key={linkedCard.id}
                       draftId={linkedCard.id}
-                      initial={{ display: linkedCard.card.display, expires_at: linkedCard.card.expires_at }}
+                      initial={{ display: linkedCard.card.display, expires_at: linkedCard.card.expires_at, status: linkedCard.card.status, outcome: linkedCard.card.outcome }}
                       getToken={getAccessToken}
                     />
                   ) : linkedCard.missing ? (

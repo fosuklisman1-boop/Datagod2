@@ -9,7 +9,7 @@ import { draftCardView, UNKNOWN_MESSAGE, type CardViewState, type LoadError } fr
 
 export interface DraftCardProps {
   draftId: string
-  initial: { display: unknown; expires_at: string; warnings?: string[] }
+  initial: { display: unknown; expires_at: string; warnings?: string[]; status?: string; outcome?: Record<string, unknown> | null }
   getToken: () => Promise<string>
   /** Sends a chat message through the widget's own send function. Never calls an API itself. */
   onPrepareAgain?: () => void
@@ -39,8 +39,8 @@ const HTTP_MESSAGES: Record<number, string> = {
 
 export function DraftCard({ draftId, initial, getToken, onPrepareAgain }: DraftCardProps) {
   const [state, setState] = useState<CardViewState>({
-    status: "pending",
-    outcome: null,
+    status: initial.status ?? "pending",
+    outcome: initial.outcome ?? null,
     display: initial.display,
     expires_at: initial.expires_at,
     warnings: initial.warnings ?? [],
