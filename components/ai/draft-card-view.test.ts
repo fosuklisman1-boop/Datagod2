@@ -1,0 +1,204 @@
+import { describe, expect, it } from "vitest"
+import { draftCardView, formatGhanaTime, type CardViewState } from "./draft-card-view"
+
+const NOW = Date.parse("2026-11-21T10:00:00Z")
+const display = {
+  title: "Confirm data order",
+  lines: [
+    { label: "Price", value: "GHS 23.50" },
+    { label: "Balance after", value: "GHS 96.50" },
+  ],
+}
+const base = (over: Partial<CardViewState> = {}): CardViewState => ({
+  status: "pending",
+  outcome: null,
+  display,
+  expires_at: new Date(NOW + 9 * 60_000 + 41_000).toISOString(),
+  warnings: [],
+  ...over,
+})
+const view = (over: Partial<CardViewState> = {}, now = NOW) => draftCardView(base(over), now)
+
+describe("draftCardView", () => {
+  it("pending_shows_confirm", () => {
+    const v = view()
+    expect(v.variant).toBe("pending")
+    expect(v.showConfirm).toBe(true)
+    expect(v.showCancel).toBe(true)
+    expect(v.title).toBe("Confirm data order")
+    expect(v.lines).toEqual(expect.arrayContaining([{ label: "Price", value: "GHS 23.50" }]))
+    expect(v.countdownText).toBe("Expires in 9:41")
+    expect(v.greyed).toBe(false)
+  })
+
+  it("pending past its expiry renders the expired view", () => {
+    const v = view({}, NOW + 10 * 60_000)
+    expect(v.variant).toBe("expired")
+    expect(v.showConfirm).toBe(false)
+    expect(v.showPrepareAgain).toBe(true)
+    expect(v.greyed).toBe(true)
+  })
+
+  it("confirm_disables_buttons_while_request_in_flight: executing hides every action", () => {
+    const v = view({ status: "executing" })
+    expect(v.variant).toBe("executing")
+    expect(v.showConfirm).toBe(false)
+    expect(v.showCancel).toBe(false)
+    expect(v.showCheckAgain).toBe(false)
+    expect(v.countdownText).toBeNull()
+  })
+
+  it("succeeded_hides_confirm_after_reload", () => {
+    const v = view({ status: "already_done", finalStatus: "succeeded", outcome: { order_code: "ORD-1", new_balance: 96.5 } })
+    expect(v.variant).toBe("succeeded")
+    expect(v.showConfirm).toBe(false)
+    expect(v.showCancel).toBe(false)
+    expect(v.lines).toEqual(expect.arrayContaining([{ label: "Order", value: "ORD-1" }, { label: "New balance", value: "GHS 96.50" }]))
+    expect(v.message).toMatch(/already/i)
+    expect(v.countdownText).toBeNull()
+  })
+
+  it("a first-tap succeeded shows the result without the replay wording", () => {
+    const v = view({ status: "succeeded", outcome: { order_code: "ORD-2" } })
+    expect(v.variant).toBe("succeeded")
+    expect(v.message).not.toMatch(/already/i)
+    expect(v.showConfirm).toBe(false)
+  })
+
+  it("unknown_shows_check_again", () => {
+    const v = view({ status: "unknown", outcome: { code: "no_response", message: "We couldn't confirm the result." } })
+    expect(v.variant).toBe("unknown")
+    expect(v.showCheckAgain).toBe(true)
+    expect(v.showConfirm).toBe(false)
+    expect(v.message).toBe("We couldn't confirm the result.")
+  })
+
+  it("superseded_greyed", () => {
+    const v = view({ status: "superseded" })
+    expect(v.greyed).toBe(true)
+    expect(v.showConfirm).toBe(false)
+    expect(v.showCancel).toBe(false)
+    expect(v.message).toBe("Replaced by a newer card")
+  })
+
+  it("cancelled and expired are greyed", () => {
+    expect(view({ status: "cancelled" }).greyed).toBe(true)
+    const e = view({ status: "expired" })
+    expect(e.greyed).toBe(true)
+    expect(e.showPrepareAgain).toBe(true)
+  })
+
+  it("insufficient_balance links to the wallet top-up page", () => {
+    const v = view({ status: "failed", outcome: { code: "insufficient_balance" } })
+    expect(v.variant).toBe("failed")
+    expect(v.message).toMatch(/balance/i)
+    expect(v.topUpHref).toBe("/dashboard/wallet")
+  })
+
+  it("price_changed shows old to new and Prepare again", () => {
+    const v = view({ status: "failed", outcome: { code: "price_changed", oldPrice: 23.5, newPrice: 25 } })
+    expect(v.message).toContain("GHS 23.50")
+    expect(v.message).toContain("GHS 25.00")
+    expect(v.showPrepareAgain).toBe(true)
+  })
+
+  it("schedule_not_supported", () => {
+    const v = view({ status: "failed", outcome: { code: "schedule_not_supported" } })
+    expect(v.message).toMatch(/schedul/i)
+    expect(v.showConfirm).toBe(false)
+  })
+
+  it("still_checking keeps Check again", () => {
+    const v = view({ status: "unknown", outcome: { code: "still_checking" } })
+    expect(v.message).toBe("Still checking. Try again in a few minutes.")
+    expect(v.showCheckAgain).toBe(true)
+  })
+
+  it("interrupted is unknown with Check again", () => {
+    const v = view({ status: "unknown", outcome: { code: "interrupted" } })
+    expect(v.showCheckAgain).toBe(true)
+    expect(v.message).toBe("We couldn't confirm the result.")
+  })
+
+  it("not_placed tells the user they were not charged", () => {
+    const v = view({ status: "failed", outcome: { code: "not_placed" } })
+    expect(v.message).toMatch(/not charged/i)
+    expect(v.showPrepareAgain).toBe(true)
+  })
+
+  it("not_applied is safe to prepare again", () => {
+    const v = view({ status: "failed", outcome: { code: "not_applied" } })
+    expect(v.message).toMatch(/not applied/i)
+    expect(v.showPrepareAgain).toBe(true)
+  })
+
+  it("check_wallet_history", () => {
+    const v = view({ status: "unknown", outcome: { code: "check_wallet_history" } })
+    expect(v.message).toMatch(/wallet history/i)
+    expect(v.showCheckAgain).toBe(true)
+  })
+
+  it("admin_required", () => {
+    const v = view({ status: "failed", outcome: { code: "admin_required" } })
+    expect(v.message).toMatch(/admin/i)
+    expect(v.showConfirm).toBe(false)
+  })
+
+  it("partial shows N done and M failed with a per-item list", () => {
+    const v = view({
+      status: "already_done",
+      finalStatus: "partial",
+      outcome: {
+        applied: 2,
+        total: 3,
+        results: [
+          { id: "aaaaaaaa-1111", ok: true },
+          { id: "bbbbbbbb-2222", ok: true },
+          { id: "cccccccc-3333", ok: false, error: "not_applied" },
+        ],
+      },
+    })
+    expect(v.variant).toBe("partial")
+    expect(v.message).toBe("2 done · 1 failed")
+    expect(v.items).toHaveLength(3)
+    expect(v.showConfirm).toBe(false)
+  })
+
+  it("partial bulk results list per table", () => {
+    const v = view({
+      status: "partial",
+      outcome: { applied: 3, total: 5, results: [{ table: "orders", count: 3, total: 5 }] },
+    })
+    expect(v.message).toBe("3 done · 2 failed")
+    expect(v.items[0]).toContain("orders")
+  })
+
+  it("endpoint_error", () => {
+    const v = view({ status: "failed", outcome: { code: "endpoint_error" } })
+    expect(v.message).toMatch(/went wrong/i)
+  })
+
+  it("rejected and unknown codes fall back to the server message, then a generic line", () => {
+    expect(view({ status: "failed", outcome: { code: "rejected", message: "Number is blocked" } }).message).toBe("Number is blocked")
+    expect(view({ status: "failed", outcome: { code: "weird" } }).message).toMatch(/could not be completed/i)
+  })
+
+  it("an unrecognised unknown outcome still shows Check again", () => {
+    const v = view({ status: "unknown", outcome: null })
+    expect(v.message).toBe("We couldn't confirm the result.")
+    expect(v.showCheckAgain).toBe(true)
+  })
+
+  it("renders a once schedule timestamp human-readably (Ghana = UTC)", () => {
+    const v = view({
+      display: { title: "Confirm scheduled order", lines: [{ label: "Schedule", value: "Once at 2026-11-22T08:00:00.000Z" }] },
+    })
+    expect(v.lines[0].value).toBe("Once at Sun 22 Nov, 08:00")
+    expect(formatGhanaTime("2026-11-22T08:00:00Z")).toBe("Sun 22 Nov, 08:00")
+  })
+
+  it("shows warnings on a pending card", () => {
+    const v = view({ warnings: ["duplicate_recent"] })
+    expect(v.showConfirm).toBe(true)
+  })
+})

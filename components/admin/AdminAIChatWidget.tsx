@@ -6,11 +6,26 @@ import ReactMarkdown from "react-markdown"
 import { supabase } from "@/lib/supabase"
 import { ChatMessage } from "@/components/ui/chat-message"
 import { useDraggableFloatingPosition } from "@/hooks/use-draggable-floating-position"
+import { DraftCard } from "@/components/ai/DraftCard"
+
+interface CardData {
+  draftId: string
+  display: unknown
+  expires_at: string
+  warnings?: string[]
+}
 
 interface Message {
   role: "user" | "assistant"
   content: string
   timestamp: number
+  cards?: CardData[]
+}
+
+async function getAccessToken(): Promise<string> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error("Not signed in")
+  return session.access_token
 }
 
 interface ActionButton {
@@ -55,6 +70,11 @@ export function AdminAIChatWidget() {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const tokenRef = useRef<string | null>(null)
+  // One key per widget session. The server uses it to link cards to this conversation.
+  const conversationKeyRef = useRef<string | null>(null)
+  if (conversationKeyRef.current === null && typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    conversationKeyRef.current = crypto.randomUUID()
+  }
   const [showScrollBtn, setShowScrollBtn] = useState(false)
   const { position: fabPosition, containerRef: fabContainerRef, onPointerDown: onFabPointerDown, onClickCapture: onFabClickCapture } =
     useDraggableFloatingPosition("datagod_ai_widget_position")
@@ -166,7 +186,7 @@ export function AdminAIChatWidget() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${tokenRef.current}`,
         },
-        body: JSON.stringify({ messages: history, context: "admin" }),
+        body: JSON.stringify({ messages: history, context: "admin", ...(conversationKeyRef.current ? { conversationKey: conversationKeyRef.current } : {}) }),
       })
 
       if (!res.ok || !res.body) throw new Error("Request failed")
@@ -175,6 +195,7 @@ export function AdminAIChatWidget() {
       const decoder = new TextDecoder()
       let buffer = ""
       let assistantText = ""
+      const cards: CardData[] = []
 
       while (true) {
         const { done, value } = await reader.read()
@@ -197,6 +218,8 @@ export function AdminAIChatWidget() {
               setStreamingContent(assistantText)
             } else if (event.type === "action_buttons") {
               setActionButtons(event.buttons as ActionButton[])
+            } else if (event.type === "draft_card" && typeof event.draft_id === "string") {
+              cards.push({ draftId: event.draft_id, display: event.display, expires_at: event.expires_at, warnings: Array.isArray(event.warnings) ? event.warnings : [] })
             } else if (event.type === "done") {
               break
             }
@@ -204,8 +227,8 @@ export function AdminAIChatWidget() {
         }
       }
 
-      const finalText = assistantText || "Sorry, I couldn't get a response. Please try again."
-      const finalMessages = [...nextMessages, { role: "assistant" as const, content: finalText, timestamp: Date.now() }]
+      const finalText = assistantText || (cards.length > 0 ? "Please check the details below." : "Sorry, I couldn't get a response. Please try again.")
+      const finalMessages = [...nextMessages, { role: "assistant" as const, content: finalText, timestamp: Date.now(), ...(cards.length > 0 ? { cards } : {}) }]
       setMessages(finalMessages)
       persist(finalMessages)
     } catch {
@@ -273,7 +296,18 @@ export function AdminAIChatWidget() {
           <div className="flex-1 relative overflow-hidden">
             <div ref={scrollContainerRef} onScroll={handleScroll} className="h-full overflow-y-auto p-4 space-y-3 bg-transparent">
               {messages.map((msg, i) => (
-                <ChatMessage key={i} role={msg.role} content={msg.content} variant="dark" />
+                <div key={i} className="space-y-2">
+                  <ChatMessage role={msg.role} content={msg.content} variant="dark" />
+                  {msg.cards?.map((c) => (
+                    <DraftCard
+                      key={c.draftId}
+                      draftId={c.draftId}
+                      initial={{ display: c.display, expires_at: c.expires_at, warnings: c.warnings }}
+                      getToken={getAccessToken}
+                      onPrepareAgain={() => sendMessage("Please prepare that again.")}
+                    />
+                  ))}
+                </div>
               ))}
 
               {isStreaming && (
