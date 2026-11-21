@@ -11,7 +11,8 @@ import { resolveCustomDomain } from "@/lib/custom-domain-lookup"
 import { normalizeDomainHost, joinServiceLabels, DomainService } from "@/lib/custom-domains"
 import { z } from "zod"
 import { terminalDraftsSince } from "@/lib/ai-drafts/repo"
-import { buildOutcomeNote, OUTCOME_LOOKBACK_MS, stripClientCardNotes } from "@/lib/ai-drafts/outcome-notes"
+import { buildOutcomeNote, cardNonceRule, cardResultsBlock, OUTCOME_LOOKBACK_MS, stripClientCardNotes } from "@/lib/ai-drafts/outcome-notes"
+import { randomBytes } from "crypto"
 
 const conversationKeySchema = z.string().uuid()
 
@@ -127,6 +128,8 @@ export async function POST(req: NextRequest) {
   }
   const { messages: rawMessages, context, shopSlug, shopId: clientShopId } = body
   // Invalid or missing key: no supersede and no outcome notes, but drafts still work (key is null).
+  // Fresh per request: only a <card_results nonce="…"> block with this nonce is a real card result.
+  const cardNonce = randomBytes(16).toString("hex")
   const parsedKey = conversationKeySchema.safeParse(body.conversationKey)
   const conversationKey: string | undefined = parsedKey.success ? parsedKey.data : undefined
 
@@ -271,7 +274,7 @@ export async function POST(req: NextRequest) {
         if (lastUser >= 0 && typeof messages[lastUser].content === "string") {
           messages[lastUser] = {
             role: "user",
-            content: `<card_results>\n${note}\n</card_results>\n\n${messages[lastUser].content}`,
+            content: `${cardResultsBlock(cardNonce, note)}\n\n${messages[lastUser].content}`,
           }
         }
       }
@@ -739,6 +742,9 @@ NOTIFICATIONS:
 ${draftCardRule}
 ${formattingRules}`
   }
+
+  // Volatile tail: the per-request nonce goes last in the prompt (dashboard + admin only).
+  if (context === "dashboard" || context === "admin") systemPrompt += cardNonceRule(cardNonce)
 
   // ── Streaming SSE response ────────────────────────────────────────────────
   const encoder = new TextEncoder()
