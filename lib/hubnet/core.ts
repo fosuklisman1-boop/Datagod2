@@ -99,9 +99,16 @@ export function classifyStatusReply(httpStatus: number, body: unknown): StatusLo
   if (!isObj(body)) return { kind: "unknown" }
   if (httpStatus === 404) {
     const msg = typeof body.message === "string" ? body.message : ""
-    return /transaction.*not\s*found|no\s+transaction|invalid reference/i.test(msg)
-      ? { kind: "missing" }
-      : { kind: "unknown" }
+    if (/transaction.*not\s*found|no\s+transaction|invalid reference/i.test(msg)) return { kind: "missing" }
+    // Live probe 2026-11-21: Hubnet answers an unknown reference on check-transaction-status with
+    // 404 {event:"query.success", message:"Invalid path. ...", status:false, data:null}. Our status
+    // path is fixed and verified (no ?reference= gives 400; a wrong segment gives "Page not found."),
+    // so this exact shape means "not found". Safe even if misread: a re-placed ref that already
+    // exists is rejected by Hubnet as a duplicate (409), never charged twice.
+    if (/^invalid path/i.test(msg) && body.event === "query.success" && body.status === false && body.data === null) {
+      return { kind: "missing" }
+    }
+    return { kind: "unknown" }
   }
   if (httpStatus < 200 || httpStatus >= 300) return { kind: "unknown" }
   const words = statusWords(body)

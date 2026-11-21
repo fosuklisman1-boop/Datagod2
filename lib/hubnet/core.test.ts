@@ -141,6 +141,25 @@ describe("classifyStatusReply", () => {
   it("treats 404 with non-object body as unknown", () => {
     expect(classifyStatusReply(404, "Not Found")).toEqual({ kind: "unknown" })
   })
+  // Live probe 2026-11-21: check-transaction-status?reference=<unknown ref> answers exactly this.
+  // (A missing ?reference= gives 400; a wrong path segment gives 404 "Page not found.")
+  it("treats Hubnet's live 'Invalid path' not-found reply as missing", () => {
+    const live = {
+      event: "query.success",
+      ip: "172.68.42.128",
+      message: "Invalid path. Please provide a valid path: check_balance, check-transaction-status, refunds, or mtn-verification.",
+      status: false,
+      request_id: "c6490340-2507044",
+      data: null,
+    }
+    expect(classifyStatusReply(404, live)).toEqual({ kind: "missing" })
+  })
+  it("keeps a router-level 'Page not found.' 404 as unknown", () => {
+    expect(classifyStatusReply(404, { success: false, message: "Page not found." })).toEqual({ kind: "unknown" })
+  })
+  it("keeps an 'Invalid path' 404 that carries data as unknown", () => {
+    expect(classifyStatusReply(404, { event: "query.success", message: "Invalid path.", status: false, data: { x: 1 } })).toEqual({ kind: "unknown" })
+  })
   it("unknown when 200 has no status word", () => {
     expect(classifyStatusReply(200, { success: true })).toEqual({ kind: "unknown" })
   })
