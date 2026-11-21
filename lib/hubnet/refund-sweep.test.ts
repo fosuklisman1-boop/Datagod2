@@ -112,7 +112,22 @@ describe("sweepHubnetRefunds", () => {
     expect(writes).toEqual([])
     expect(alert).toHaveBeenCalledTimes(1)
     expect(JSON.stringify(alert.mock.calls[0])).not.toContain("0240000001")
-    expect(alert.mock.calls[0][4]).toBe(3600 * 1000)
+    expect(alert.mock.calls[0][4]).toBe(24 * 3600 * 1000)
+  })
+
+  it("alert text reflects what was written (processing vs completed vs other)", async () => {
+    for (const [status, want, notWant] of [
+      ["processing", "set back to pending", null],
+      ["completed", "Order is completed", "set back to pending"],
+      ["pending", "status unchanged", "set back to pending"],
+    ] as const) {
+      const airtime = [{ id: "a1", status, notes: `[hubnetRef:${DA}]` }]
+      const { db } = makeDb([], airtime)
+      const alert = vi.fn(async (..._a: any[]) => {})
+      await sweepHubnetRefunds(db, client([{ reference: DA }]), alert, deps([]))
+      expect(alert.mock.calls[0][2]).toContain(want)
+      if (notWant) expect(alert.mock.calls[0][2]).not.toContain(notWant)
+    }
   })
 
   it("second sweep is a no-op", async () => {

@@ -18,7 +18,7 @@ export type RefundSweepDeps = {
 export type RefundSweepResult = { seen: number; dataFailed: number; dataReversed: number; airtimeFlagged: number; reviewOnly: number }
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
-const HOUR_MS = 60 * 60 * 1000
+const DAY_MS = 24 * 60 * 60 * 1000
 const REFUNDED_MARKER = "[hubnetRefunded]"
 
 const TRACKING_COLUMNS = "id, mtn_order_id, status, shop_order_id, order_id, api_order_id, order_type, size_gb, provider, external_status"
@@ -72,6 +72,7 @@ export async function sweepHubnetRefunds(
         if (error) { console.error(`[HUBNET-REFUND] airtime lookup failed for ${ref}: ${error.message}`); continue }
         for (const row of rows ?? []) {
           const notes = String(row.notes ?? "")
+          const prevStatus = String(row.status)
           if (notes.includes(REFUNDED_MARKER)) continue
           const update: Record<string, unknown> = { notes: `${notes} ${REFUNDED_MARKER}`, updated_at: new Date().toISOString() }
           if (row.status === "processing") update.status = "pending"
@@ -81,7 +82,7 @@ export async function sweepHubnetRefunds(
           if (!done || done.length === 0) continue // moved meanwhile; next sweep re-checks
           out.airtimeFlagged++
           await alert(`airtime_hubnet_refunded:${ref}`, "Hubnet refunded an airtime order",
-            `Hubnet refunded airtime ${ref}. ${row.status === "completed" ? "Order is completed; refund the customer via /admin/refunds if needed." : "Order was set back to pending."}`,
+            `Hubnet refunded airtime ${ref}. ${prevStatus === "processing" ? "Order was set back to pending." : prevStatus === "completed" ? "Order is completed; refund the customer via /admin/refunds if needed." : `Marker recorded; status unchanged (${prevStatus}).`}`,
             "/admin/orders", WEEK_MS)
         }
       }
@@ -93,7 +94,7 @@ export async function sweepHubnetRefunds(
   if (out.reviewOnly > 0) {
     await alert("hubnet_refund_review_only", "Hubnet refunds need review",
       `${out.reviewOnly} Hubnet refund item(s) had no recognisable reference. Check the Hubnet dashboard.`,
-      "/admin/orders", HOUR_MS)
+      "/admin/orders", DAY_MS)
   }
   return out
 }

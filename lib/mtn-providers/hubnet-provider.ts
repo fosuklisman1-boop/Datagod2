@@ -204,6 +204,7 @@ export class HubnetProvider implements MTNProvider {
   }
 
   async checkBalance(): Promise<number | null> {
+    if (!this.configured()) return null
     try {
       return await this.c.getBalance()
     } catch {

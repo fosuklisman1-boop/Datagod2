@@ -50,6 +50,7 @@ export async function checkHubnetUnknownAttempts(
         const ref = hubnetRef("data", id, n)
         const res = await client.getStatus(ref)
         if (res.kind !== "found") continue // missing or unknown: not evidence
+        if (res.status === "failed") continue // failed/refunded attempt delivered nothing: no "do not re-send" alert
         await alert(
           `hubnet_unknown_found:${row.id}`,
           "Hubnet: order exists for an unknown attempt",

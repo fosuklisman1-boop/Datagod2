@@ -300,6 +300,12 @@ describe("HubnetProvider.checkOrderStatus", () => {
     expect(f.getStatus).not.toHaveBeenCalled()
   })
 
+  it("checkBalance returns null without a network call when unconfigured", async () => {
+    const f = fakeClient()
+    expect(await make(f.client, false).provider.checkBalance()).toBeNull()
+    expect(f.client.getBalance).not.toHaveBeenCalled()
+  })
+
   it("checkBalance returns the client balance", async () => {
     const f = fakeClient()
     expect(await make(f.client).provider.checkBalance()).toBe(12.5)

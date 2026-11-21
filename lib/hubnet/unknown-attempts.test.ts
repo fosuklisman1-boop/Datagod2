@@ -46,6 +46,27 @@ describe("checkHubnetUnknownAttempts", () => {
     expect(writes).toEqual([])
   })
 
+  it("a failed attempt is not alerted on; a later live attempt still is", async () => {
+    const { db } = makeDb([{ id: "t1", shop_order_id: U1, order_id: null, api_order_id: null, created_at: recent }])
+    const failedLk: StatusLookup = { kind: "found", status: "failed", refunded: false, raw: {} }
+    const getStatus = vi.fn(async (ref: string) =>
+      ref === hubnetRef("data", U1, 1) ? failedLk : ref === hubnetRef("data", U1, 2) ? found : missing)
+    const alert = vi.fn(async () => {})
+    const out = await checkHubnetUnknownAttempts(db, { getStatus } as any, alert, NOW)
+    expect(out).toEqual({ checked: 1, found: 1 })
+    expect(alert).toHaveBeenCalledTimes(1)
+    expect((alert.mock.calls[0] as any)[2]).toContain(hubnetRef("data", U1, 2))
+  })
+
+  it("only failed attempts => no alert", async () => {
+    const { db } = makeDb([{ id: "t1", shop_order_id: U1, order_id: null, api_order_id: null, created_at: recent }])
+    const failedLk: StatusLookup = { kind: "found", status: "failed", refunded: false, raw: {} }
+    const alert = vi.fn(async () => {})
+    const out = await checkHubnetUnknownAttempts(db, { getStatus: vi.fn(async () => failedLk) } as any, alert, NOW)
+    expect(out.found).toBe(0)
+    expect(alert).not.toHaveBeenCalled()
+  })
+
   it("all refs missing or unknown => no alert", async () => {
     const { db } = makeDb([{ id: "t1", shop_order_id: null, order_id: U1, api_order_id: null, created_at: recent }])
     let n = 0
