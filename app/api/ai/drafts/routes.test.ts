@@ -5,6 +5,7 @@ const h = vi.hoisted(() => ({
   user: { id: "user-1", user_metadata: {} as Record<string, unknown> } as { id: string; user_metadata: Record<string, unknown> } | null,
   role: "user" as string | null,
   roleError: null as unknown,
+  suspended: false,
   roleThrow: false,
   getUserThrow: false,
   getUser: vi.fn(),
@@ -34,7 +35,7 @@ vi.mock("@supabase/supabase-js", () => ({
           eq: () => ({
             maybeSingle: async () => {
               if (h.roleThrow) throw new Error("network")
-              return { data: h.role ? { role: h.role } : null, error: h.roleError }
+              return { data: h.role ? { role: h.role, is_suspended: h.suspended } : null, error: h.roleError }
             },
           }),
         }),
@@ -81,6 +82,7 @@ beforeEach(() => {
   h.user = { id: "user-1", user_metadata: {} }
   h.role = "user"
   h.roleError = null
+  h.suspended = false
   h.roleThrow = false
   h.getUserThrow = false
   h.allowed = true
@@ -219,5 +221,31 @@ describe("cancel", () => {
     h.cancelDraft.mockResolvedValue(null)
     h.getOwnDraft.mockResolvedValue(null)
     expect((await cancel(req("POST"), ctx())).status).toBe(404)
+  })
+})
+
+describe("suspension", () => {
+  it("suspended_confirm_403", async () => {
+    h.suspended = true
+    const res = await confirm(req("POST"), ctx())
+    expect(res.status).toBe(403)
+    expect(await res.json()).toEqual({ error: "Account suspended" })
+    expect(h.confirmDraft).not.toHaveBeenCalled()
+  })
+
+  it("suspended_recheck_403", async () => {
+    h.suspended = true
+    const res = await recheck(req("POST"), ctx())
+    expect(res.status).toBe(403)
+    expect(await res.json()).toEqual({ error: "Account suspended" })
+    expect(h.recheckDraft).not.toHaveBeenCalled()
+  })
+
+  it("suspended_get_allowed (and cancel)", async () => {
+    h.suspended = true
+    h.getOwnDraft.mockResolvedValue(draft())
+    expect((await GET(req("GET"), ctx())).status).toBe(200)
+    h.cancelDraft.mockResolvedValue(draft({ status: "cancelled" }))
+    expect((await cancel(req("POST"), ctx())).status).toBe(200)
   })
 })

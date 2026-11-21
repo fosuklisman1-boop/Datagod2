@@ -13,7 +13,7 @@ import { z } from "zod"
 import { terminalDraftsSince } from "@/lib/ai-drafts/repo"
 import { buildOutcomeNote, cardNonceRule, cardResultsBlock, OUTCOME_LOOKBACK_MS, stripClientCardNotes } from "@/lib/ai-drafts/outcome-notes"
 import { randomBytes } from "crypto"
-
+import { isSuspended } from "@/lib/auth/suspension"
 const conversationKeySchema = z.string().uuid()
 
 const supabaseAdmin = createClient(
@@ -183,6 +183,17 @@ export async function POST(req: NextRequest) {
     const { data: { user }, error } = await supabaseAdmin.auth.getUser(jwtToken)
     if (!error && user) {
       userId = user.id
+
+      // Suspended accounts get one fixed message: no provider call, no tools, no history load. Fails closed.
+      if (await isSuspended(supabaseAdmin, userId)) {
+        const enc = new TextEncoder()
+        const body =
+          `data: ${JSON.stringify({ type: "text", content: "Your account is suspended. Please contact support." })}\n\n` +
+          `data: ${JSON.stringify({ type: "done" })}\n\n`
+        return new Response(enc.encode(body), {
+          headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
+        })
+      }
 
       if (context === "admin") {
         const { data: profile } = await supabaseAdmin

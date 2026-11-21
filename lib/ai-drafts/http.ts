@@ -26,7 +26,9 @@ export const isUuid = (s: string): boolean => UUID_RE.test(s)
 
 export const notFound = () => NextResponse.json({ error: "Not found" }, { status: 404 })
 
-export type AuthResult = { ok: true; db: SupabaseClient; caller: ConfirmCaller } | { ok: false; res: NextResponse }
+export type AuthResult = { ok: true; db: SupabaseClient; caller: ConfirmCaller; suspended: boolean } | { ok: false; res: NextResponse }
+
+export const suspendedResponse = () => NextResponse.json({ error: "Account suspended" }, { status: 403 })
 
 /** Bearer JWT -> user id (only from auth.getUser), admin flag from a fresh users.role read. Fails closed. */
 export async function authenticate(req: NextRequest): Promise<AuthResult> {
@@ -48,16 +50,19 @@ export async function authenticate(req: NextRequest): Promise<AuthResult> {
 
   const unavailable = { ok: false as const, res: NextResponse.json({ error: "Service unavailable" }, { status: 503 }) }
   let isAdmin = false
+  let suspended = false
   try {
-    const { data: row, error: roleError } = await db.from("users").select("role").eq("id", userId).maybeSingle()
+    const { data: row, error: roleError } = await db.from("users").select("role, is_suspended").eq("id", userId).maybeSingle()
     if (roleError) return unavailable
-    isAdmin = (row as { role?: string } | null)?.role === "admin"
+    const r = row as { role?: string; is_suspended?: boolean | null } | null
+    isAdmin = r?.role === "admin"
+    suspended = r?.is_suspended === true
   } catch {
     console.error("ai_drafts: role read threw")
     return unavailable
   }
 
-  return { ok: true, db, caller: { userId, isAdmin, jwt, baseUrl: getBaseUrl() } }
+  return { ok: true, db, caller: { userId, isAdmin, jwt, baseUrl: getBaseUrl() }, suspended }
 }
 
 /** 10 requests / 60 s per user. Returns a 429 response when over the limit. */
