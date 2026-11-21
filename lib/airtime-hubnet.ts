@@ -35,7 +35,7 @@ const quiet = async (p: Promise<unknown>, what: string) => {
 export async function fulfillAirtimeViaHubnet(order: AirtimeOrderMinimal, deps: AirtimeHubnetDeps): Promise<boolean> {
   const tag = `${order.reference_code} (${order.network} GHS ${order.airtime_amount})`
   const notSent = async (why: string) => {
-    await quiet(deps.markOrder(order.id, { notes: `Hubnet: not sent - ${why}. Fulfil manually.` }), "markOrder")
+    await quiet(deps.markOrder(order.id, { notes: `Hubnet: not sent - ${why}. Fulfil manually.` }, ["pending"]), "markOrder")
     await quiet(deps.alert(`Airtime ${tag} needs manual fulfilment: Hubnet not sent - ${why}`, "manual"), "alert")
     return false
   }
@@ -195,16 +195,31 @@ function lastHubnetRef(notes: string | null | undefined): string | null {
 }
 
 /** Re-check `processing` airtime orders that carry a Hubnet reference and apply the result. */
+export const AIRTIME_SYNC_WINDOW_MS = 7 * 24 * 3600_000
+export const AIRTIME_STUCK_AFTER_MS = 6 * 3600_000
+const STUCK_ALERT_THROTTLE_MS = 24 * 3600_000
+
+type StuckAlertFn = (type: string, title: string, message: string, throttleMs: number) => Promise<void>
+
+async function defaultStuckAlert(type: string, title: string, message: string, throttleMs: number): Promise<void> {
+  const { notifyAdminsThrottled } = await import("@/lib/sms/notify")
+  await notifyAdminsThrottled(type, title, message, "/admin/airtime", throttleMs)
+}
+
 export async function syncHubnetAirtime(
   db: SupabaseClient,
   client: HubnetClient,
   limit = 50,
+  opts: { alert?: StuckAlertFn } = {},
 ): Promise<{ checked: number; updated: number }> {
+  const sendStuck = opts.alert ?? defaultStuckAlert
+  const nowMs = Date.now()
   const { data, error } = await db
     .from("airtime_orders")
-    .select("id, reference_code, notes")
+    .select("id, reference_code, notes, created_at")
     .eq("status", "processing")
     .like("notes", "%[hubnetRef:%")
+    .gte("created_at", new Date(nowMs - AIRTIME_SYNC_WINDOW_MS).toISOString())
     .order("updated_at", { ascending: true })
     .limit(limit)
   if (error) throw error
@@ -216,7 +231,25 @@ export async function syncHubnetAirtime(
     checked++
     try {
       const lk = await client.getStatus(ref)
-      if (await applyHubnetAirtimeStatus(db, row.id, lk)) updated++
+      if (await applyHubnetAirtimeStatus(db, row.id, lk)) {
+        updated++
+      } else {
+        // Unchanged: bump updated_at so the oldest-first read rotates past it (no starvation).
+        await db.from("airtime_orders").update({ updated_at: new Date().toISOString() })
+          .eq("id", row.id).eq("status", "processing")
+        const createdMs = Date.parse(row.created_at ?? "")
+        if (Number.isFinite(createdMs) && nowMs - createdMs > AIRTIME_STUCK_AFTER_MS) {
+          await quiet(
+            sendStuck(
+              `airtime_hubnet_stuck:${row.id}`,
+              "Hubnet airtime still processing",
+              `Airtime ${row.reference_code} has been processing at Hubnet for over 6 hours (ref ${ref}). Check Hubnet; do not resend.`,
+              STUCK_ALERT_THROTTLE_MS,
+            ),
+            "stuck alert",
+          )
+        }
+      }
     } catch (e: any) {
       console.error(`[AIRTIME-HUBNET] sync failed for ${row.reference_code}:`, e?.message ?? e)
     }

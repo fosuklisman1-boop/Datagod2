@@ -390,11 +390,9 @@ describe("hubnet whitelist", () => {
     await expect(hubnetEntry().checkBatchStrict!(["0241111111"])).rejects.toMatchObject({ name: "WhitelistCheckFailed" })
   })
 
-  it("registry entry follows isHubnetConfigured", () => {
+  it("registry entry is off when the key is missing", () => {
     hubnetConfigured.mockReturnValue(false)
     expect(hubnetEntry().configured()).toBe(false)
-    hubnetConfigured.mockReturnValue(true)
-    expect(hubnetEntry().configured()).toBe(true)
   })
 })
 

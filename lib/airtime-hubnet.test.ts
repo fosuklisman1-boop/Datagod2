@@ -163,6 +163,7 @@ describe("fulfillAirtimeViaHubnet", () => {
 // ---- fake db ---------------------------------------------------------------------------------
 function fakeDb(rows: any[]) {
   const notifications: any[] = []
+  const gteCalls: any[] = []
   const db: any = {
     from(table: string) {
       if (table === "notifications") return { insert: async (r: any) => { notifications.push(r); return { error: null } } }
@@ -173,6 +174,7 @@ function fakeDb(rows: any[]) {
         select: () => q,
         update: (p: any) => { patch = p; return q },
         eq: (c: string, v: any) => { filters.push(r => r[c] === v); return q },
+        gte: (c: string, v: any) => { gteCalls.push([c, v]); filters.push(r => String(r[c] ?? "") >= String(v)); return q },
         like: (c: string, p: string) => { const s = p.replace(/%/g, ""); filters.push(r => String(r[c] ?? "").includes(s)); return q },
         order: () => q,
         limit: (n: number) => { lim = n; return q },
@@ -186,11 +188,12 @@ function fakeDb(rows: any[]) {
       return q
     },
   }
-  return { db, notifications }
+  return { db, notifications, gteCalls }
 }
 const proc = (over: any = {}) => ({
   id: "o1", reference_code: "AT-1", network: "MTN", airtime_amount: 5, user_id: "u1",
-  beneficiary_phone: PHONE, status: "processing", notes: `Sent via Hubnet [hubnetRef:${REF1}]`, ...over,
+  beneficiary_phone: PHONE, status: "processing", notes: `Sent via Hubnet [hubnetRef:${REF1}]`,
+  created_at: new Date().toISOString(), updated_at: "2026-01-01T00:00:00.000Z", ...over,
 })
 
 describe("applyHubnetAirtimeStatus", () => {
@@ -267,5 +270,53 @@ describe("syncHubnetAirtime", () => {
     let i = 0
     const client: any = { getStatus: vi.fn(async () => { if (i++ === 0) throw new Error("boom"); return found("completed") }) }
     expect(await syncHubnetAirtime(db, client)).toEqual({ checked: 2, updated: 1 })
+  })
+
+  it("bumps updated_at on a row left unchanged so rows rotate", async () => {
+    const rows = [proc({ id: "a" })]
+    const { db } = fakeDb(rows)
+    const client: any = { getStatus: vi.fn(async () => found("processing")) }
+    await syncHubnetAirtime(db, client)
+    expect(rows[0].status).toBe("processing")
+    expect(rows[0].updated_at).not.toBe("2026-01-01T00:00:00.000Z")
+  })
+
+  it("does not bump a row that moved on", async () => {
+    const rows = [proc({ id: "a" })]
+    const { db } = fakeDb(rows)
+    const client: any = { getStatus: vi.fn(async () => found("completed")) }
+    await syncHubnetAirtime(db, client)
+    expect(rows[0].status).toBe("completed")
+  })
+
+  it("only reads rows created within 7 days", async () => {
+    const old = proc({ id: "old", created_at: new Date(Date.now() - 8 * 86400_000).toISOString() })
+    const fresh = proc({ id: "fresh" })
+    const { db, gteCalls } = fakeDb([old, fresh])
+    const client: any = { getStatus: vi.fn(async () => found("processing")) }
+    expect(await syncHubnetAirtime(db, client)).toEqual({ checked: 1, updated: 0 })
+    expect(gteCalls.some(([c]) => c === "created_at")).toBe(true)
+  })
+
+  it("sends one stuck alert (no phone) per order older than 6 hours", async () => {
+    const stale = proc({ id: "s1", created_at: new Date(Date.now() - 7 * 3600_000).toISOString() })
+    const young = proc({ id: "y1" })
+    const { db } = fakeDb([stale, young])
+    const client: any = { getStatus: vi.fn(async () => found("processing")) }
+    const alert = vi.fn(async () => {})
+    await syncHubnetAirtime(db, client, 50, { alert })
+    expect(alert).toHaveBeenCalledTimes(1)
+    const [type, , message] = (alert as any).mock.calls[0]
+    expect(type).toBe("airtime_hubnet_stuck:s1")
+    expect(message).not.toContain(PHONE)
+  })
+})
+
+describe("fulfillAirtimeViaHubnet notSent guard (Minor 3)", () => {
+  it("notSent notes write is restricted to pending rows", async () => {
+    const { deps } = mk({ place: { ok: false, response: { error_type: "VALIDATION" } } })
+    await fulfillAirtimeViaHubnet(order, deps)
+    const notesCall = (deps.markOrder as any).mock.calls.find((c: any[]) => c[1].notes.includes("not sent"))
+    expect(notesCall[2]).toEqual(["pending"])
   })
 })
