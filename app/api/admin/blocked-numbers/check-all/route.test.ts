@@ -103,3 +103,40 @@ describe("check-all route", () => {
     expect(checkAll).not.toHaveBeenCalled()
   })
 })
+
+describe("check-all route hardening", () => {
+  it("a recheck failure still returns the provider rows with flipped 0 and recheckFailed", async () => {
+    checkAll.mockResolvedValue(result([
+      { phone: "0241234567", byCheckout: true, outside: [] },
+      { phone: "0551234567", byCheckout: false, outside: [] },
+    ]))
+    recheck.mockRejectedValueOnce(new Error("db down"))
+    const res = await POST(req({ ids: [ID1, ID2] }))
+    expect(res.status).toBe(200)
+    const j = await res.json()
+    expect(j).toMatchObject({ success: true, flipped: 0, recheckFailed: true })
+    expect(j.rows).toHaveLength(2)
+  })
+
+  it("dedupes phones by normalised number before asking providers and maps results to every row", async () => {
+    handler = () => ({ data: [{ id: ID1, phone: "0241234567" }, { id: ID2, phone: "+233241234567" }] })
+    checkAll.mockResolvedValue(result([{ phone: "0241234567", byCheckout: true, outside: [] }]))
+    const res = await POST(req({ ids: [ID1, ID2] }))
+    expect(checkAll).toHaveBeenCalledWith(["0241234567"])
+    const j = await res.json()
+    expect(j.rows.map((r: { id: string; allowedByCheckout: boolean }) => [r.id, r.allowedByCheckout])).toEqual([[ID1, true], [ID2, true]])
+    expect(recheck).toHaveBeenCalledWith({ ids: [ID1, ID2], reopenExpired: true })
+  })
+
+  it("passes failedProviders through", async () => {
+    handler = () => ({ data: [{ id: ID1, phone: "0241234567" }] })
+    checkAll.mockResolvedValue({ ...result([{ phone: "0241234567", byCheckout: false, outside: [] }]), failedProviders: ["b"] })
+    const j = await (await POST(req({ ids: [ID1] }))).json()
+    expect(j.failedProviders).toEqual(["b"])
+  })
+
+  it("runs up to 300 s", async () => {
+    const mod = await import("./route")
+    expect(mod.maxDuration).toBe(300)
+  })
+})

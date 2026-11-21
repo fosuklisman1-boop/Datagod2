@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -51,6 +51,8 @@ type AllResult = {
   providers: string[]
   checkoutProviders: string[]
   flipped: number
+  failedProviders?: string[]
+  recheckFailed?: boolean
   rows: Array<{
     id: string
     phone: string
@@ -121,6 +123,7 @@ export default function BlockedNumbersPage() {
   const [supplier, setSupplier] = useState("")
   const [mark, setMark] = useState(false)
   const [unsubmitted, setUnsubmitted] = useState(true)
+  const allRequestRef = useRef(0)
   const [allOpen, setAllOpen] = useState(false)
   const [allResult, setAllResult] = useState<AllResult | null>(null)
 
@@ -186,18 +189,21 @@ export default function BlockedNumbersPage() {
   }
 
   const checkAll = async (ids: string[]) => {
+    const requestId = ++allRequestRef.current
     setBusy("checkall")
     setAllResult(null)
     setAllOpen(true)
     try {
       const j = (await post("/api/admin/blocked-numbers/check-all", { ids })) as AllResult
+      if (requestId !== allRequestRef.current) return // a newer check started; drop this stale answer
       setAllResult(j)
       if (j.flipped > 0) await load(true)
     } catch (e) {
+      if (requestId !== allRequestRef.current) return
       setAllOpen(false)
       toast.error(e instanceof Error ? e.message : "Check failed")
     } finally {
-      setBusy(null)
+      if (requestId === allRequestRef.current) setBusy(null)
     }
   }
 
@@ -561,6 +567,12 @@ export default function BlockedNumbersPage() {
                   </tbody>
                 </table>
               </div>
+              {(allResult.failedProviders ?? []).length > 0 && (
+                <p className="text-sm text-muted-foreground">{allResult.failedProviders!.join(", ")} did not answer — try again later.</p>
+              )}
+              {allResult.recheckFailed && (
+                <p className="text-sm text-destructive">Some numbers are allowed by a checkout provider but could not be moved to Ready. Use Re-check on them.</p>
+              )}
               {allResult.flipped > 0 && (
                 <p className="text-sm font-medium text-success">{allResult.flipped} became Ready</p>
               )}

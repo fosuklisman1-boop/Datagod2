@@ -5,10 +5,11 @@ import { verifyAdminAccess } from "@/lib/admin-auth"
 import { supabaseAdmin } from "@/lib/supabase"
 import { recheckBlockedNumbers } from "@/lib/blocked-numbers/recheck"
 import { checkAllProviders } from "@/lib/blocked-numbers/all-providers"
+import { normalizeGhanaPhone } from "@/lib/phone-format"
 import { isUuid } from "@/lib/blocked-numbers/admin-view"
 
 export const dynamic = "force-dynamic"
-export const maxDuration = 120
+export const maxDuration = 300
 
 const MAX_IDS = 100
 
@@ -29,24 +30,46 @@ export async function POST(request: NextRequest) {
     const found = (data ?? []) as Array<{ id: string; phone: string }>
     if (found.length === 0) return NextResponse.json({ error: "No matching numbers" }, { status: 404 })
 
-    const { providers, checkoutProviders, rows } = await checkAllProviders(found.map((r) => r.phone))
+    // Ask each distinct (normalised) number once; map the answer back to every row carrying it.
+    const keyOf = (phone: string) => normalizeGhanaPhone(phone) ?? phone
+    const distinct = new Map<string, string>()
+    for (const r of found) if (!distinct.has(keyOf(r.phone))) distinct.set(keyOf(r.phone), r.phone)
+    const { providers, checkoutProviders, failedProviders, rows } = await checkAllProviders([...distinct.values()])
+    const byKey = new Map(rows.map((r) => [keyOf(r.phone), r]))
 
-    const outRows = found.map((r, i) => ({
-      id: r.id,
-      phone: r.phone,
-      results: rows[i].results,
-      allowedByCheckout: rows[i].allowedByCheckout,
-      allowedOutsideCheckout: rows[i].allowedOutsideCheckout,
-    }))
+    const outRows = found.map((r) => {
+      const a = byKey.get(keyOf(r.phone))!
+      return {
+        id: r.id,
+        phone: r.phone,
+        results: a.results,
+        allowedByCheckout: a.allowedByCheckout,
+        allowedOutsideCheckout: a.allowedOutsideCheckout,
+      }
+    })
 
     const flipIds = outRows.filter((r) => r.allowedByCheckout).map((r) => r.id)
     let flipped = 0
+    let recheckFailed = false
     if (flipIds.length > 0) {
-      const res = await recheckBlockedNumbers({ ids: flipIds, reopenExpired: true })
-      flipped = res.allowed
+      try {
+        const res = await recheckBlockedNumbers({ ids: flipIds, reopenExpired: true })
+        flipped = res.allowed
+      } catch (err) {
+        recheckFailed = true
+        console.error("[BLOCKED-ADMIN] check-all recheck failed:", err instanceof Error ? err.name : "UnknownError")
+      }
     }
-    console.log(`[BLOCKED-ADMIN] check-all rows=${outRows.length} checkoutAllowed=${flipIds.length} flipped=${flipped}`)
-    return NextResponse.json({ success: true, providers, checkoutProviders, rows: outRows, flipped })
+    console.log(`[BLOCKED-ADMIN] check-all rows=${outRows.length} checkoutAllowed=${flipIds.length} flipped=${flipped} recheckFailed=${recheckFailed}`)
+    return NextResponse.json({
+      success: true,
+      providers,
+      checkoutProviders,
+      failedProviders: failedProviders ?? [],
+      rows: outRows,
+      flipped,
+      ...(recheckFailed ? { recheckFailed: true } : {}),
+    })
   } catch (err) {
     console.error("[BLOCKED-ADMIN] check-all failed:", err instanceof Error ? err.name : "UnknownError")
     return NextResponse.json({ error: "Check failed" }, { status: 500 })

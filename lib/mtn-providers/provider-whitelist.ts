@@ -240,7 +240,8 @@ async function checkKuntaniiBatch(
     } catch {
       // fail open for this chunk (unless strict, below)
     }
-    if (strict && rows.length === 0) throw new WhitelistCheckFailed("kuntanii")
+    // Strict: no answer OR fewer rows than phones means we cannot trust positions; never fail open.
+    if (strict && rows.length < chunk.length) throw new WhitelistCheckFailed("kuntanii")
     // Match by position; a missing row (failed chunk or short array) fails open.
     chunk.forEach((c, j) => {
       const r = rows[j]
@@ -376,6 +377,8 @@ export type WhitelistEntry = {
    * malformed response) THROWS instead of failing open to "allowed", so the
    * customer-facing check can move on to the next provider. Optional: entries
    * without it fall back to checkBatch.
+   * NOTE: every entry must define it; checkAllProviders treats an entry without it as "error"
+   * because checkBatch fails open to allowed (a test enforces this for the registry).
    */
   checkBatchStrict?: (msisdns: string[]) => Promise<Array<{ msisdn: string; allowed: boolean; reason?: string }>>
 }
