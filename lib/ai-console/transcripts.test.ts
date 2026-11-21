@@ -68,6 +68,24 @@ describe("recordTurn", () => {
     expect(db.t.ai_conversation_messages).toHaveLength(2)
   })
 
+  it("admin_turns_not_recorded", async () => {
+    const db = fakeDb()
+    await recordTurn(db as any, { ...base, context: "admin", userId: "a1" })
+    expect(db.t.ai_conversations).toHaveLength(0)
+    expect(db.t.ai_conversation_messages).toHaveLength(0)
+    // an existing admin row (legacy) is never flagged either
+    db.t.ai_conversations.push({ id: "x", conversation_key: K, context: "admin", user_id: "a1", shop_id: null, message_count: 0, flag_reasons: [], flagged: false })
+    expect(await flagConversation(db as any, K, "handoff")).toBe(false)
+    expect(db.t.ai_conversations[0].flagged).toBe(false)
+  })
+
+  it("does not append when the shop differs", async () => {
+    const db = fakeDb()
+    await recordTurn(db as any, { ...base, context: "storefront", shopId: "s1" })
+    await recordTurn(db as any, { ...base, context: "storefront", shopId: "s2" })
+    expect(db.t.ai_conversation_messages).toHaveLength(2)
+  })
+
   it("flags a refusal-like reply and merges extra reasons", async () => {
     const db = fakeDb()
     await recordTurn(db as any, { ...base, assistantText: "I'm sorry, I can't help with that.", extraReasons: ["error"] })

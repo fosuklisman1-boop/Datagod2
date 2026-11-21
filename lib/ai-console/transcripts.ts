@@ -39,14 +39,16 @@ function mergeReasons(existing: unknown, add: FlagReason[]): string[] {
 async function findConversation(db: SupabaseClient, key: string) {
   const { data, error } = await db
     .from("ai_conversations")
-    .select("id, user_id, context, message_count, flag_reasons")
+    .select("id, user_id, shop_id, context, message_count, flag_reasons")
     .eq("conversation_key", key)
     .maybeSingle()
   if (error) throw new Error("select")
-  return data as { id: string; user_id: string | null; context: string; message_count: number; flag_reasons: string[] | null } | null
+  return data as { id: string; user_id: string | null; shop_id: string | null; context: string; message_count: number; flag_reasons: string[] | null } | null
 }
 
 async function recordTurnInner(db: SupabaseClient, input: RecordTurnInput): Promise<void> {
+  // Ruling R4: admin answers summarise other users' names and balances, which redaction cannot remove. Never stored.
+  if (input.context === "admin") return
   const userId = input.userId ?? null
   let conv = await findConversation(db, input.conversationKey)
   if (!conv) {
@@ -59,7 +61,7 @@ async function recordTurnInner(db: SupabaseClient, input: RecordTurnInput): Prom
     if (!conv) throw new Error("create")
   }
   // A key belongs to the conversation that created it: another user or surface presenting it appends nothing.
-  if (conv.context !== input.context || (conv.user_id ?? null) !== userId) return
+  if (conv.context !== input.context || (conv.user_id ?? null) !== userId || (conv.shop_id ?? null) !== (input.shopId ?? null)) return
 
   const { error: mErr } = await db.from("ai_conversation_messages").insert([
     { conversation_id: conv.id, role: "user", text: redactTranscriptText(input.userText) || "(empty)" },
@@ -91,7 +93,7 @@ export async function recordTurn(db: SupabaseClient, input: RecordTurnInput): Pr
 export async function flagConversation(db: SupabaseClient, conversationKey: string, reason: FlagReason): Promise<boolean> {
   try {
     const conv = await findConversation(db, conversationKey)
-    if (!conv) return false
+    if (!conv || conv.context === "admin") return false
     const { error } = await db
       .from("ai_conversations")
       .update({ flagged: true, flag_reasons: mergeReasons(conv.flag_reasons, [reason]) })

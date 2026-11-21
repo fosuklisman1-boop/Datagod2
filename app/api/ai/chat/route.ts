@@ -477,10 +477,13 @@ export async function POST(req: NextRequest) {
       extraReasons,
     })
   }
-  try {
-    after(captureTranscript)
-  } catch {
-    void captureTranscript() // outside a request scope (tests): a plain un-awaited promise; recordTurn never throws
+  // Admin chats are never stored (ruling R4); recordTurn refuses them too.
+  if (context !== "admin") {
+    try {
+      after(captureTranscript)
+    } catch {
+      void captureTranscript() // outside a request scope (tests): a plain un-awaited promise; recordTurn never throws
+    }
   }
 
   // ── Streaming SSE response ────────────────────────────────────────────────
@@ -548,8 +551,10 @@ export async function POST(req: NextRequest) {
         } else if (status && status >= 500) {
           msg = "The AI service is temporarily unavailable. Please try again shortly."
         }
-        streamErrored = true
-        if (!streamText) streamText = msg
+        // A client that went away is not a server error: only real provider/server failures flag the chat.
+        const aborted = req.signal.aborted || (err as { name?: string } | null)?.name === "AbortError"
+        if (!aborted) streamErrored = true
+        if (!streamText && !aborted) streamText = msg
         send({ type: "error", content: msg })
       } finally {
         markStreamDone()
