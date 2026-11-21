@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Download, FileSpreadsheet, Loader2, RefreshCw, Settings } from "lucide-react"
+import { Copy, Download, FileSpreadsheet, Loader2, RefreshCw, Settings } from "lucide-react"
 import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
@@ -46,6 +46,19 @@ type Stats = {
 }
 
 type ListPayload = { rows: Row[]; total: number; page: number; pageSize: number; stats: Stats | null; suppliers: string[] }
+
+type AllResult = {
+  providers: string[]
+  checkoutProviders: string[]
+  flipped: number
+  rows: Array<{
+    id: string
+    phone: string
+    results: Record<string, "allowed" | "refused" | "error">
+    allowedByCheckout: boolean
+    allowedOutsideCheckout: string[]
+  }>
+}
 
 const STATUSES = ["blocked", "allowed", "expired", "handled"] as const
 const SELECT_CLASS =
@@ -108,6 +121,8 @@ export default function BlockedNumbersPage() {
   const [supplier, setSupplier] = useState("")
   const [mark, setMark] = useState(false)
   const [unsubmitted, setUnsubmitted] = useState(true)
+  const [allOpen, setAllOpen] = useState(false)
+  const [allResult, setAllResult] = useState<AllResult | null>(null)
 
   const filterParams = useMemo(() => {
     const p = new URLSearchParams()
@@ -167,6 +182,32 @@ export default function BlockedNumbersPage() {
       toast.error(e instanceof Error ? e.message : "Re-check failed")
     } finally {
       setBusy(null)
+    }
+  }
+
+  const checkAll = async (ids: string[]) => {
+    setBusy("checkall")
+    setAllResult(null)
+    setAllOpen(true)
+    try {
+      const j = (await post("/api/admin/blocked-numbers/check-all", { ids })) as AllResult
+      setAllResult(j)
+      if (j.flipped > 0) await load(true)
+    } catch (e) {
+      setAllOpen(false)
+      toast.error(e instanceof Error ? e.message : "Check failed")
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const copyAllowedBy = async (provider: string) => {
+    const phones = (allResult?.rows ?? []).filter((r) => r.results[provider] === "allowed").map((r) => r.phone)
+    try {
+      await navigator.clipboard.writeText(phones.join("\n"))
+      toast.success(`Copied ${phones.length} number(s)`)
+    } catch {
+      toast.error("Could not copy")
     }
   }
 
@@ -347,6 +388,9 @@ export default function BlockedNumbersPage() {
               <Button variant="outline" size="sm" disabled={selected.size === 0 || selected.size > 500 || busy !== null} onClick={() => recheck({ ids: [...selected] })}>
                 Re-check selected ({selected.size})
               </Button>
+              <Button variant="outline" size="sm" disabled={selected.size === 0 || selected.size > 100 || busy !== null} onClick={() => checkAll([...selected])}>
+                Check all providers ({selected.size})
+              </Button>
               <Button variant="outline" size="sm" disabled={selected.size === 0 || busy !== null} onClick={() => { setNote(""); setHandleTarget([...selected]) }}>
                 Mark handled
               </Button>
@@ -358,6 +402,7 @@ export default function BlockedNumbersPage() {
           </CardHeader>
           <CardContent>
             {selected.size > 500 && <p className="text-sm text-destructive mb-2">Select at most 500 numbers.</p>}
+            {selected.size > 100 && selected.size <= 500 && <p className="text-sm text-muted-foreground mb-2">Check all providers takes at most 100 numbers.</p>}
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -425,6 +470,9 @@ export default function BlockedNumbersPage() {
                             <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => recheck({ ids: [r.id] })}>Re-check</Button>
                           )}
                           {(r.status === "blocked" || r.status === "expired") && (
+                            <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => checkAll([r.id])}>All providers</Button>
+                          )}
+                          {(r.status === "blocked" || r.status === "expired") && (
                             <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => { setNote(""); setHandleTarget([r.id]) }}>Handled</Button>
                           )}
                           {(r.status === "handled" || r.status === "expired") && (
@@ -461,6 +509,86 @@ export default function BlockedNumbersPage() {
               {busy === "handle" && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Mark handled
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={allOpen} onOpenChange={(o) => { if (!o) { setAllOpen(false); setAllResult(null) } }}>
+        <DialogContent className="max-w-[calc(100vw-2rem)] lg:max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Check all providers</DialogTitle>
+            <DialogDescription>
+              Every configured provider was asked about the selected numbers. Only a provider in your checkout list can make a number Ready.
+            </DialogDescription>
+          </DialogHeader>
+          {!allResult && (
+            <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Asking every provider. This can take up to a minute.
+            </div>
+          )}
+          {allResult && (
+            <div className="space-y-4">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-muted-foreground border-b">
+                      <th className="py-2 pr-3">Phone</th>
+                      {allResult.providers.map((p) => (
+                        <th key={p} className="py-2 pr-3 whitespace-nowrap">
+                          {p}
+                          {allResult.checkoutProviders.includes(p) && <Badge className="ml-1 bg-primary text-primary-foreground text-[10px]">checkout</Badge>}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allResult.rows.map((r) => (
+                      <tr key={r.id} className="border-b">
+                        <td className="py-2 pr-3 font-mono">{r.phone}</td>
+                        {allResult.providers.map((p) => (
+                          <td key={p} className="py-2 pr-3">
+                            {r.results[p] === "allowed" ? (
+                              <Badge variant="outline" className="bg-success/10 text-success border-success/30">Allowed</Badge>
+                            ) : r.results[p] === "refused" ? (
+                              <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/30">Refused</Badge>
+                            ) : (
+                              <span className="text-muted-foreground">Error</span>
+                            )}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {allResult.flipped > 0 && (
+                <p className="text-sm font-medium text-success">{allResult.flipped} became Ready</p>
+              )}
+              {(() => {
+                const outside = allResult.rows.filter((r) => !r.allowedByCheckout && r.allowedOutsideCheckout.length > 0)
+                if (outside.length === 0) return null
+                const names = [...new Set(outside.flatMap((r) => r.allowedOutsideCheckout))].join(", ")
+                return (
+                  <p className="text-sm">
+                    {outside.length} number(s) allowed by {names}, not in your checkout list. Add the provider under{" "}
+                    <Link href="/admin/settings/mtn" className="text-primary underline">Settings → MTN</Link> to let these through checkout.
+                  </p>
+                )
+              })()}
+              <div className="flex flex-wrap gap-2">
+                {allResult.providers
+                  .filter((p) => allResult.rows.some((r) => r.results[p] === "allowed"))
+                  .map((p) => (
+                    <Button key={p} variant="outline" size="sm" onClick={() => copyAllowedBy(p)}>
+                      <Copy className="h-4 w-4 mr-2" />
+                      Copy numbers allowed by {p}
+                    </Button>
+                  ))}
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => { setAllOpen(false); setAllResult(null) }}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

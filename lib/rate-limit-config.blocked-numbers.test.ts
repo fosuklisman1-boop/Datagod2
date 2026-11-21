@@ -6,6 +6,7 @@ describe("blocked numbers admin wiring", () => {
   it("export and recheck are heavy admin operations", () => {
     expect(isHeavyAdminOperation("/api/admin/blocked-numbers/export")).toBe(true)
     expect(isHeavyAdminOperation("/api/admin/blocked-numbers/recheck")).toBe(true)
+    expect(isHeavyAdminOperation("/api/admin/blocked-numbers/check-all")).toBe(true)
     expect(isHeavyAdminOperation("/api/admin/blocked-numbers")).toBe(false)
   })
 
