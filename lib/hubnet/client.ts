@@ -3,7 +3,7 @@
 import { sendOrderRequest, type OrderRequestResult } from "@/lib/mtn-providers/outcome"
 import { classifyStatusReply, normalizeRefunds, type HubnetNet, type HubnetRefundItem, type StatusLookup } from "./core"
 
-const BASE = "https://hubnet.app"
+const DEFAULT_BASE = "https://hubnet.app"
 const TIMEOUT_MS = 30_000
 const WEBHOOK_BASE = "https://www.datagod.store/api/webhooks/mtn/hubnet"
 
@@ -35,7 +35,8 @@ export function createHubnetClient(opts: { fetch?: typeof fetch; env?: NodeJS.Pr
 
   const url = (path: string) => {
     const mode = envOf().HUBNET_MODE === "test" ? "test" : "live"
-    return `${BASE}/${mode}/api/context/business/transaction/${path}`
+    const base = (envOf().HUBNET_BASE_URL?.trim() || DEFAULT_BASE).replace(/\/+$/, "")
+    return `${base}/${mode}/api/context/business/transaction/${path}`
   }
   const headers = (json: boolean): Record<string, string> => {
     const h: Record<string, string> = { token: `Bearer ${envOf().HUBNET_API_KEY ?? ""}` }

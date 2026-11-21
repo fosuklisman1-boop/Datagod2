@@ -53,6 +53,18 @@ describe("hubnet client", () => {
     expect(b.calls[0].url).toContain("/test/api/context/business/transaction/")
   })
 
+  it("HUBNET_BASE_URL overrides the base and a trailing slash is stripped", async () => {
+    const a = fakeFetch(() => ({ body: {} }))
+    await createHubnetClient({
+      fetch: a.fn,
+      env: { ...baseEnv, HUBNET_BASE_URL: "https://staging.example.com/" } as any,
+    }).getBalance()
+    expect(a.calls[0].url.startsWith("https://staging.example.com/live/api/context/business/transaction/")).toBe(true)
+    const b = fakeFetch(() => ({ body: {} }))
+    await createHubnetClient({ fetch: b.fn, env: baseEnv }).getBalance()
+    expect(b.calls[0].url.startsWith("https://hubnet.app/live/api/context/business/transaction/")).toBe(true)
+  })
+
   it("placeData posts the right endpoint and body, webhook only when token set", async () => {
     const a = fakeFetch(() => ({ body: { event: "charge.success" } }))
     const r = await createHubnetClient({ fetch: a.fn, env: baseEnv }).placeData("big-time", {
@@ -134,14 +146,24 @@ describe("hubnet client", () => {
   it("never logs the key, token or a full phone", async () => {
     const spies = (["log", "info", "warn", "error", "debug"] as const).map((m) => vi.spyOn(console, m).mockImplementation(() => {}))
     const env = { HUBNET_API_KEY: "SECRETKEY", HUBNET_WEBHOOK_TOKEN: "SECRETTOKEN" } as any
-    const bad = fakeFetch(() => new Error("fail"))
-    const c = createHubnetClient({ fetch: bad.fn, env })
-    await c.placeData("mtn", { phone: "0241234567", volumeMb: 1000, reference: "DGq" })
-    await c.placeAirtime({ phone: "0241234567", amountGhs: 5, reference: "DAq" })
-    await c.getStatus("DGq")
-    await c.listRefunds()
-    await c.getBalance()
-    await c.verifyMtn("0241234567")
+    const echo = {
+      event: "charge.success",
+      status: "success",
+      phone: "0241234567",
+      key: "SECRETKEY",
+      token: "SECRETTOKEN",
+      data: { status: "verified", wallet_balance: 5, phone: "0241234567", key: "SECRETKEY", token: "SECRETTOKEN" },
+    }
+    for (const reply of [() => ({ body: echo }), () => new Error("fail")]) {
+      const f = fakeFetch(reply)
+      const c = createHubnetClient({ fetch: f.fn, env })
+      await c.placeData("mtn", { phone: "0241234567", volumeMb: 1000, reference: "DGq" })
+      await c.placeAirtime({ phone: "0241234567", amountGhs: 5, reference: "DAq" })
+      await c.getStatus("DGq")
+      await c.listRefunds()
+      await c.getBalance()
+      await c.verifyMtn("0241234567")
+    }
     const out = JSON.stringify(spies.flatMap((s) => s.mock.calls))
     expect(out).not.toContain("SECRETKEY")
     expect(out).not.toContain("SECRETTOKEN")
