@@ -12,12 +12,14 @@
 -- If the client keeps the session open, send ROLLBACK.
 --
 -- Checks: both tables exist with RLS on and no anon / authenticated privilege; invalid context / role are refused; the
--- conversation key is unique; messages cascade with their conversation; deleting a user cascades their conversations.
+-- conversation key is unique; messages cascade with their conversation; the user_id / reviewed_by foreign keys have the
+-- intended delete rules (checked in the catalog, never by deleting a user — prod users rows are tied to auth.users).
+-- It never inserts or deletes public.users rows: it reuses an existing user id if one exists, else uses NULL.
 
 DO $selftest$
 DECLARE
   v_n    int;
-  v_u    uuid := gen_random_uuid();
+  v_u    uuid;
   v_key  uuid := gen_random_uuid();
   v_c    uuid;
   v_t    text;
@@ -33,7 +35,7 @@ BEGIN
     IF NOT has_table_privilege('service_role', 'public.' || v_t, 'INSERT') THEN RAISE EXCEPTION 'FAIL service_role_priv %', v_t; END IF;
   END LOOP;
 
-  INSERT INTO public.users(id) VALUES (v_u);
+  SELECT id INTO v_u FROM public.users ORDER BY id LIMIT 1;   -- existing row or NULL; never created or deleted here
   INSERT INTO public.ai_conversations(conversation_key, context, user_id) VALUES (v_key, 'dashboard', v_u) RETURNING id INTO v_c;
 
   <<b_ctx>>
@@ -65,10 +67,22 @@ BEGIN
   SELECT count(*) INTO v_n FROM public.ai_conversation_messages WHERE conversation_id = v_c;
   IF v_n <> 0 THEN RAISE EXCEPTION 'FAIL messages_not_cascaded'; END IF;
 
-  INSERT INTO public.ai_conversations(conversation_key, context, user_id) VALUES (gen_random_uuid(), 'dashboard', v_u);
-  DELETE FROM public.users WHERE id = v_u;
-  SELECT count(*) INTO v_n FROM public.ai_conversations WHERE user_id = v_u;
-  IF v_n <> 0 THEN RAISE EXCEPTION 'FAIL user_not_cascaded'; END IF;
+  SELECT count(*) INTO v_n FROM pg_constraint c
+   WHERE c.conrelid = 'public.ai_conversations'::regclass AND c.contype = 'f' AND c.confdeltype = 'c'
+     AND c.confrelid = 'public.users'::regclass
+     AND c.conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = 'public.ai_conversations'::regclass AND attname = 'user_id')];
+  IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL user_fk_not_cascade'; END IF;
+
+  SELECT count(*) INTO v_n FROM pg_constraint c
+   WHERE c.conrelid = 'public.ai_conversations'::regclass AND c.contype = 'f' AND c.confdeltype = 'n'
+     AND c.confrelid = 'public.users'::regclass
+     AND c.conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = 'public.ai_conversations'::regclass AND attname = 'reviewed_by')];
+  IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL reviewer_fk_not_set_null'; END IF;
+
+  SELECT count(*) INTO v_n FROM pg_constraint c
+   WHERE c.conrelid = 'public.ai_conversation_messages'::regclass AND c.contype = 'f' AND c.confdeltype = 'c'
+     AND c.confrelid = 'public.ai_conversations'::regclass;
+  IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL messages_fk_not_cascade'; END IF;
 
   RAISE EXCEPTION 'SELFTEST_OK 0189 (rolled back)';
 END $selftest$;

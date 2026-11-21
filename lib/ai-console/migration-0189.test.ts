@@ -54,7 +54,10 @@ const ROLES = `
   CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE service_role NOLOGIN BYPASSRLS;
   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
 `
-const STUBS = `CREATE TABLE public.users(id uuid PRIMARY KEY);`
+// Prod-shaped stub: email is NOT NULL without a default (like prod), so a selftest that inserted a bare users row would
+// fail here exactly as it would on the prod dry run. One existing row lets the selftest exercise the user_id link.
+const STUBS = `CREATE TABLE public.users(id uuid PRIMARY KEY, email text NOT NULL);
+  INSERT INTO public.users(id, email) VALUES ('00000000-0000-4000-8000-000000000001', 'stub@example.invalid');`
 async function fresh(): Promise<any> {
   const db = new PGliteCtor()
   await db.exec(ROLES)
