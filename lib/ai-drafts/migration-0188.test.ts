@@ -94,13 +94,26 @@ const seed = `
 `
 
 describe.skipIf(!PGliteCtor)("0188 in PGlite", () => {
-  it("the self-rolling-back run string reports SELFTEST_OK and leaves nothing behind", async () => {
+  it("selftest_ok_when_client_has_write_grants: the self-rolling-back run string reports SELFTEST_OK and leaves nothing behind", async () => {
     const db = await fresh()
     await db.exec(seed)
     await expect(db.exec(buildRunString(migration(), read(SELFTEST_FILE)))).rejects.toThrow(/^SELFTEST_OK 0188/)
     await db.exec("ROLLBACK")
     expect((await db.query("SELECT to_regclass('public.ai_drafts') AS t")).rows[0].t).toBeNull()
     expect((await rows(db, "SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'idempotency_key'"))[0].n).toBe(0)
+  }, 60_000)
+
+  // Production: authenticated has SELECT only on ai_scheduled_tasks, anon nothing, service_role everything.
+  it("selftest_ok_when_client_has_select_only", async () => {
+    const db = await fresh()
+    await db.exec(seed)
+    await db.exec(`
+      REVOKE ALL ON public.ai_scheduled_tasks FROM anon, authenticated;
+      GRANT SELECT ON public.ai_scheduled_tasks TO authenticated;
+    `)
+    await expect(db.exec(buildRunString(migration(), read(SELFTEST_FILE)))).rejects.toThrow(/^SELFTEST_OK 0188/)
+    await db.exec("ROLLBACK")
+    expect((await db.query("SELECT to_regclass('public.ai_drafts') AS t")).rows[0].t).toBeNull()
   }, 60_000)
 
   it("applies twice without error", async () => {

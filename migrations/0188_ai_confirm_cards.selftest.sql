@@ -130,7 +130,8 @@ BEGIN
     RAISE EXCEPTION 'FAIL client_insert_standing_order_accepted';
   EXCEPTION WHEN insufficient_privilege THEN
     RESET ROLE;
-    IF SQLERRM NOT LIKE 'STANDING_ORDER_SERVER_ONLY%' THEN RAISE EXCEPTION 'FAIL insert_refused_by_other_than_guard: %', SQLERRM; END IF;
+    -- the guard, or (prod: authenticated has SELECT only on this table) a plain privilege refusal; both are a refusal
+    IF SQLERRM NOT LIKE 'STANDING_ORDER_SERVER_ONLY%' AND SQLERRM NOT LIKE 'permission denied%' THEN RAISE EXCEPTION 'FAIL insert_refused_by_other_than_guard: %', SQLERRM; END IF;
   END b_guard_ins;
   IF v_task IS NOT NULL THEN
     -- a client UPDATE of a server-only column: refused by the guard, or the row is hidden by RLS (0 rows, nothing changed)
@@ -143,7 +144,7 @@ BEGIN
       IF v_n > 0 THEN RAISE EXCEPTION 'FAIL client_update_standing_order_accepted'; END IF;
     EXCEPTION WHEN insufficient_privilege THEN
       RESET ROLE;
-      IF SQLERRM NOT LIKE 'STANDING_ORDER_SERVER_ONLY%' THEN RAISE EXCEPTION 'FAIL update_refused_by_other_than_guard: %', SQLERRM; END IF;
+      IF SQLERRM NOT LIKE 'STANDING_ORDER_SERVER_ONLY%' AND SQLERRM NOT LIKE 'permission denied%' THEN RAISE EXCEPTION 'FAIL update_refused_by_other_than_guard: %', SQLERRM; END IF;
     END b_guard_upd;
     -- a client UPDATE of an unrelated column is never blocked by the guard (RLS or grants may still refuse it)
     <<b_guard_other>>
