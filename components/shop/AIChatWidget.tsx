@@ -5,9 +5,10 @@ import { Sparkles, X, ChevronDown, RefreshCw, EyeOff } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import { useDraggableFloatingPosition } from "@/hooks/use-draggable-floating-position"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
-import { ChatWelcome, ChatInput, HandoffButton, MessageText, CopyAnnounceProvider, SuggestionChips, TypingIndicator } from "@/components/ai/chat"
+import { ChatWelcome, ChatInput, HandoffButton, MessageText, CopyAnnounceProvider, SuggestionChips, TypingIndicator, useAssistantProfile } from "@/components/ai/chat"
 import { whatsappHref } from "@/lib/ai-chat-ui/handoff"
 import { createIdleTimeout } from "@/lib/ai-chat-ui/idle-timeout"
+import { widgetVisible, isAssistantOffResponse, ASSISTANT_OFF_MESSAGE } from "@/lib/ai-chat-ui/widget-visibility"
 import { followupsFor } from "@/lib/ai-chat-ui/suggestions"
 import { safeLoad, safeSave, safeClear, trimHistory } from "@/lib/ai-chat-ui/history"
 
@@ -88,6 +89,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }
   const [platformWhatsapp, setPlatformWhatsapp] = useState<string | null>(null)
   const whatsapp = whatsappHref(whatsappLink) ? whatsappLink : platformWhatsapp
   const [isOpen, setIsOpen] = useState(false)
+  const { audiences } = useAssistantProfile()
   const [hidden, setHidden] = useState(() => {
     try {
       return typeof window !== "undefined" && localStorage.getItem(HIDDEN_KEY) === "1"
@@ -245,6 +247,10 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }
         body: JSON.stringify({ messages: history, context: "storefront", shopSlug }),
       })
 
+      if (!res.ok && (await isAssistantOffResponse(res))) {
+        setMessages(prev => [...prev, { role: "assistant", content: ASSISTANT_OFF_MESSAGE, timestamp: Date.now() }])
+        return
+      }
       if (!res.ok || !res.body) throw new Error("Request failed")
 
       const reader = res.body.getReader()
@@ -327,7 +333,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }
     return "px-3 py-1.5 rounded-xl text-xs font-medium border border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 transition-colors"
   }
 
-  if (!adminEnabled) return null
+  if (!adminEnabled || !widgetVisible("storefront", audiences)) return null
 
   return (
     <>

@@ -7,9 +7,10 @@ import { useDraggableFloatingPosition } from "@/hooks/use-draggable-floating-pos
 import { DraftCard } from "@/components/ai/DraftCard"
 import { usePathname, useRouter } from "next/navigation"
 import { parseReapproveParams } from "@/lib/ai-drafts/deep-link"
-import { ChatWelcome, ChatInput, HandoffButton, SuggestionChips, TypingIndicator, useAssistantName } from "@/components/ai/chat"
+import { ChatWelcome, ChatInput, HandoffButton, SuggestionChips, TypingIndicator, useAssistantProfile } from "@/components/ai/chat"
 import { AssistantMarkdown } from "@/components/ai/chat/AssistantMarkdown"
 import { createIdleTimeout } from "@/lib/ai-chat-ui/idle-timeout"
+import { widgetVisible, isAssistantOffResponse, ASSISTANT_OFF_MESSAGE } from "@/lib/ai-chat-ui/widget-visibility"
 import { followupsFor } from "@/lib/ai-chat-ui/suggestions"
 import { safeClear, safeLoad, safeSave, trimHistory } from "@/lib/ai-chat-ui/history"
 
@@ -74,7 +75,7 @@ export function DashboardAIChatWidget() {
   const [phone, setPhone] = useState<string | null>(null)
   const [whatsapp, setWhatsapp] = useState<string | null>(null)
   const [historyLoaded, setHistoryLoaded] = useState(false)
-  const assistantName = useAssistantName()
+  const { name: assistantName, audiences } = useAssistantProfile()
   const [balance, setBalance] = useState<string | null>(null)
   const [hintIndex, setHintIndex] = useState(0)
   const [hintVisible, setHintVisible] = useState(true)
@@ -263,6 +264,10 @@ export function DashboardAIChatWidget() {
         body: JSON.stringify({ messages: history, context: "dashboard", ...(conversationKeyRef.current ? { conversationKey: conversationKeyRef.current } : {}) }),
       })
 
+      if (!res.ok && (await isAssistantOffResponse(res))) {
+        setMessages(prev => [...prev, { role: "assistant", content: ASSISTANT_OFF_MESSAGE, timestamp: Date.now() }])
+        return
+      }
       if (!res.ok || !res.body) throw new Error("Request failed")
 
       const reader = res.body.getReader()
@@ -342,7 +347,7 @@ export function DashboardAIChatWidget() {
     return "px-3 py-1.5 rounded-xl text-xs font-medium border border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 transition-colors"
   }
 
-  if (!adminEnabled) return null
+  if (!adminEnabled || !widgetVisible("dashboard", audiences)) return null
 
   return (
     <>

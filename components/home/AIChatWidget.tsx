@@ -4,8 +4,9 @@ import { useState, useRef, useEffect, useCallback } from "react"
 import { Sparkles, X, ChevronDown, RefreshCw } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import { useDraggableFloatingPosition } from "@/hooks/use-draggable-floating-position"
-import { ChatWelcome, ChatInput, HandoffButton, MessageText, CopyAnnounceProvider, SuggestionChips, TypingIndicator, useAssistantName } from "@/components/ai/chat"
+import { ChatWelcome, ChatInput, HandoffButton, MessageText, CopyAnnounceProvider, SuggestionChips, TypingIndicator, useAssistantProfile } from "@/components/ai/chat"
 import { createIdleTimeout } from "@/lib/ai-chat-ui/idle-timeout"
+import { widgetVisible, isAssistantOffResponse, ASSISTANT_OFF_MESSAGE } from "@/lib/ai-chat-ui/widget-visibility"
 import { followupsFor } from "@/lib/ai-chat-ui/suggestions"
 import { historyKey, safeClear, safeLoad, safeSave, trimHistory } from "@/lib/ai-chat-ui/history"
 
@@ -66,7 +67,7 @@ export function HomeAIChatWidget() {
   const [showScrollBtn, setShowScrollBtn] = useState(false)
   const [whatsapp, setWhatsapp]         = useState<string | null>(null)
   const [historyLoaded, setHistoryLoaded] = useState(false)
-  const assistantName = useAssistantName()
+  const { name: assistantName, audiences } = useAssistantProfile()
 
   useEffect(() => {
     const saved = safeLoad(getStorage(), HISTORY_KEY)
@@ -177,6 +178,10 @@ export function HomeAIChatWidget() {
         body: JSON.stringify({ messages: history, context: "home" }),
       })
 
+      if (!res.ok && (await isAssistantOffResponse(res))) {
+        setMessages(prev => [...prev, { role: "assistant", content: ASSISTANT_OFF_MESSAGE, timestamp: Date.now() }])
+        return
+      }
       if (!res.ok || !res.body) throw new Error("Request failed")
 
       const reader  = res.body.getReader()
@@ -233,6 +238,8 @@ export function HomeAIChatWidget() {
       sendingRef.current = false
     }
   }, [sendMessageInner])
+
+  if (!widgetVisible("home", audiences)) return null
 
   return (
     <>
