@@ -73,6 +73,8 @@ export const GATED_ROUTES: Readonly<Record<string, Capability>> = {
 }
 
 export const UNGATED_SESSION_ROUTES: Readonly<Record<string, string>> = {
+  // Ungated on purpose: people WITHOUT API access use it to ask for it.
+  "user/v2-api-access": "asking for API access is the point; grants are admin-decided",
   // Shared with public / customer-facing flows: keep selling.
   "payments/initialize": "shared checkout used by public storefront forms, wallet top-up, dealer upgrade and bots; gating would break customer payments",
   "shop/orders/create": "customer-facing storefront order route; its authenticated branch is a sub-agent stock purchase (sub_agent always passes)",

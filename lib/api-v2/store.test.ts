@@ -74,9 +74,9 @@ describe("getConfig", () => {
 })
 
 describe("createKey", () => {
-  it("revokes the prior pending/active key before inserting", async () => {
+  it("test env: revokes the prior pending/active key before inserting (live keeps its active key, see below)", async () => {
     const { client, ops } = makeFake()
-    const r = await createKey(client, { userId: "u1", type: "standard", env: "live", name: "n" })
+    const r = await createKey(client, { userId: "u1", type: "standard", env: "test", name: "n" })
     expect(r.ok).toBe(true)
     const updIdx = ops.findIndex((o) => o.op === "update")
     const insIdx = ops.findIndex((o) => o.op === "insert")
@@ -87,7 +87,7 @@ describe("createKey", () => {
     expect(upd.payload.revoked_at).toBeTruthy()
     expect(upd.filters).toContainEqual(["user_id", "eq", "u1"])
     expect(upd.filters).toContainEqual(["key_type", "eq", "standard"])
-    expect(upd.filters).toContainEqual(["environment", "eq", "live"])
+    expect(upd.filters).toContainEqual(["environment", "eq", "test"])
     expect(upd.filters).toContainEqual(["status", "in", ["pending", "active"]])
   })
 
@@ -350,5 +350,85 @@ describe("logRequest error_reason", () => {
     const { client, ops } = makeFake({ insertError: { code: "23503" } })
     await logRequest(client, { ...base, errorReason: "key_pending" })
     expect(ops.filter((o) => o.op === "insert")).toHaveLength(1)
+  })
+})
+
+describe("createKey approval behaviour", () => {
+  /** Records calls; `inserts` queues insert results; `active` answers the active-key probe. */
+  function slotFake(o: { inserts?: Array<{ error?: any }>; active?: boolean } = {}) {
+    const calls: any[] = []
+    const inserts = [...(o.inserts ?? [{}])]
+    const client = {
+      from(table: string) {
+        const rec: any = { table, op: "select", filters: [] as any[] }
+        calls.push(rec)
+        const result = () => {
+          if (rec.op === "insert") {
+            const r = inserts.shift() ?? {}
+            return r.error
+              ? { data: null, error: r.error }
+              : { data: { id: "k-new", ...rec.payload, created_at: "t", last_used_at: null, rate_limits: null }, error: null }
+          }
+          if (rec.op === "update") return { data: null, error: null }
+          return { data: o.active ? [{ id: "k-old" }] : [], error: null }
+        }
+        const b: any = {
+          select(c: string) { if (rec.op === "select") rec.cols = c; else rec.returning = c; return b },
+          insert(p: any) { rec.op = "insert"; rec.payload = p; return b },
+          update(p: any) { rec.op = "update"; rec.payload = p; return b },
+          eq(c: string, v: any) { rec.filters.push(["eq", c, v]); return b },
+          in(c: string, v: any) { rec.filters.push(["in", c, v]); return b },
+          limit() { return b },
+          single() { return Promise.resolve(result()) },
+          then(res: any, rej: any) { return Promise.resolve(result()).then(res, rej) },
+        }
+        return b
+      },
+    }
+    return { client, calls }
+  }
+  const revokeStatusFilters = (calls: any[]) =>
+    calls.filter((c) => c.op === "update").map((c) => c.filters.find((f: any) => f[1] === "status"))
+  const CODE_DUP = { error: { code: "23505", message: 'duplicate key value violates unique constraint "api_v2_keys_request_code_key"' } }
+  const SLOT_DUP = { error: { code: "23505", message: 'duplicate key value violates unique constraint "api_v2_keys_one_pending_per_slot"' } }
+
+  it("live: revokes only a pending key, so the active key keeps working, and reports the active key", async () => {
+    const { client, calls } = slotFake({ active: true })
+    const r = await createKey(client, { userId: "u1", type: "standard", env: "live" })
+    expect(r.ok).toBe(true)
+    expect(revokeStatusFilters(calls)).toEqual([["eq", "status", "pending"]])
+    expect(r.ok && r.hadActive).toBe(true)
+  })
+
+  it("test: revokes pending and active, as before", async () => {
+    const { client, calls } = slotFake()
+    const r = await createKey(client, { userId: "u1", type: "standard", env: "test" })
+    expect(revokeStatusFilters(calls)).toEqual([["in", "status", ["pending", "active"]]])
+    expect(r.ok && r.hadActive).toBe(false)
+  })
+
+  it("live keys get a request code; test keys do not", async () => {
+    const live = slotFake()
+    const r = await createKey(live.client, { userId: "u1", type: "standard", env: "live" }, () => "API-BBBBBB")
+    expect(live.calls.find((c) => c.op === "insert").payload.request_code).toBe("API-BBBBBB")
+    expect(r.ok && r.row.request_code).toBe("API-BBBBBB")
+    const t = slotFake()
+    await createKey(t.client, { userId: "u1", type: "standard", env: "test" })
+    expect("request_code" in t.calls.find((c) => c.op === "insert").payload).toBe(false)
+  })
+
+  it("retries a request_code collision (max 3 attempts), then 500", async () => {
+    expect((await createKey(slotFake({ inserts: [CODE_DUP, {}] }).client, { userId: "u1", type: "standard", env: "live" })).ok).toBe(true)
+    expect(await createKey(slotFake({ inserts: [CODE_DUP, CODE_DUP, CODE_DUP] }).client, { userId: "u1", type: "standard", env: "live" })).toEqual({
+      ok: false,
+      status: 500,
+    })
+  })
+
+  it("a slot collision is 409 at once and never revokes the active key", async () => {
+    const { client, calls } = slotFake({ inserts: [SLOT_DUP], active: true })
+    expect(await createKey(client, { userId: "u1", type: "standard", env: "live" })).toEqual({ ok: false, status: 409 })
+    expect(calls.filter((c) => c.op === "insert")).toHaveLength(1)
+    expect(revokeStatusFilters(calls)).toEqual([["eq", "status", "pending"]])
   })
 })

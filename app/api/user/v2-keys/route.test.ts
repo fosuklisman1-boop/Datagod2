@@ -10,9 +10,19 @@ const h = vi.hoisted(() => ({
     row: { id: "k1", key_type: "standard", environment: "live", status: "pending", key_prefix: "p", created_at: "x" },
   })),
   smsAccount: vi.fn(async (_id: string): Promise<unknown> => ({ id: "sms-1" })),
+  alertAdmins: vi.fn(async (..._a: any[]): Promise<unknown> => []),
+  notifyUser: vi.fn(async (..._a: any[]): Promise<unknown> => []),
+  shouldAlert: vi.fn(async (..._a: any[]): Promise<boolean> => true),
+  support: vi.fn(async (): Promise<string | null> => null),
 }))
 
 vi.mock("@/lib/rate-limiter", () => ({ applyRateLimit: async () => ({ allowed: true }) }))
+vi.mock("@/lib/admin-actions", () => ({
+  alertAdminsOfRequest: (...a: any[]) => h.alertAdmins(...a),
+  notifyUserOfOutcome: (...a: any[]) => h.notifyUser(...a),
+}))
+vi.mock("@/lib/api-v2/access-requests", () => ({ shouldAlertForKey: (...a: any[]) => h.shouldAlert(...a) }))
+vi.mock("@/lib/text-to-buy/call/support", () => ({ readSupportWhatsapp: () => h.support() }))
 vi.mock("@/lib/roles/require-capability", () => ({
   requireCapability: async () => {
     const c = h.world.cap
@@ -34,13 +44,22 @@ vi.mock("@/lib/api-v2/store", async () => {
         h.recs.push(rec)
         const w = h.world
         const result = () => {
-          if (table === "users") return { data: { role: w.role, is_suspended: w.suspended ?? false }, error: null }
-          if (table === "api_v2_config") return { data: { enabled: w.enabled ?? true, allowed_roles: w.allowed ?? ["dealer"] }, error: null }
+          if (table === "users") {
+            return { data: { role: w.role, is_suspended: w.suspended ?? false, email: "ama@example.com", first_name: "Ama", last_name: "K" }, error: null }
+          }
+          if (table === "api_v2_config") {
+            if (rec.cols === "approval_whatsapp") {
+              if (w.contact === "throw") throw new Error("contact read failed")
+              return { data: { approval_whatsapp: w.contact ?? null }, error: null }
+            }
+            return { data: { enabled: w.enabled ?? true, allowed_roles: w.allowed ?? ["dealer"] }, error: null }
+          }
+          if (table === "api_v2_access_requests") return { data: w.requests ?? [], error: null }
           if (table === "api_v2_access_grants") {
             return w.grant === "error" ? { data: null, error: { message: "x" } } : { data: w.grant ? { user_id: "u1" } : null, error: null }
           }
           if (table === "sms_accounts") return { data: w.smsRow ?? null, error: null }
-          if (table === "api_v2_keys") return { data: [], error: null }
+          if (table === "api_v2_keys") return { data: rec.cols?.includes("reject_reason") ? (w.rejections ?? []) : (w.keys ?? []), error: null }
           return { data: null, error: null }
         }
         const b: any = {
@@ -48,6 +67,7 @@ vi.mock("@/lib/api-v2/store", async () => {
           eq() { return b },
           in() { return b },
           order() { return b },
+          limit() { return b },
           maybeSingle() { return Promise.resolve(result()) },
           then(res: any, rej: any) { return Promise.resolve(result()).then(res, rej) },
         }
@@ -71,6 +91,14 @@ beforeEach(() => {
   h.recs.length = 0
   h.createKey.mockClear()
   h.smsAccount.mockClear()
+  h.alertAdmins.mockReset()
+  h.alertAdmins.mockResolvedValue([])
+  h.notifyUser.mockReset()
+  h.notifyUser.mockResolvedValue([])
+  h.shouldAlert.mockReset()
+  h.shouldAlert.mockResolvedValue(true)
+  h.support.mockReset()
+  h.support.mockResolvedValue(null)
   world()
 })
 
@@ -177,5 +205,91 @@ describe("POST /api/user/v2-keys", () => {
     world({ role: "user", grant: "error" })
     expect((await post({ environment: "live", key_type: "bogus" })).status).toBe(400)
     expect(grantReads()).toBe(0)
+  })
+})
+
+const liveRow = (over: any = {}) => ({
+  ok: true as const,
+  key: "dg2_live_secret",
+  hadActive: false,
+  row: { id: "k1", key_type: "standard", environment: "live", status: "pending", key_prefix: "p", created_at: "x", request_code: "API-7K3Q9M" },
+  ...over,
+})
+
+describe("POST /api/user/v2-keys approval request", () => {
+  it("returns the request code and alerts admins and the owner with it, never with the key", async () => {
+    h.createKey.mockResolvedValueOnce(liveRow() as any)
+    const res = await post()
+    expect(res.status).toBe(201)
+    expect((await res.json()).request_code).toBe("API-7K3Q9M")
+    expect(h.alertAdmins).toHaveBeenCalledTimes(1)
+    const [flow, ctx] = h.alertAdmins.mock.calls[0]
+    expect(flow).toBe("api_access")
+    expect(ctx).toMatchObject({ kind: "key", code: "API-7K3Q9M", keyType: "standard" })
+    expect(JSON.stringify(ctx)).not.toContain("dg2_")
+    expect(h.notifyUser).toHaveBeenCalledWith("api_access", "requested", expect.objectContaining({ userId: "u1" }), expect.objectContaining({ kind: "key", code: "API-7K3Q9M" }))
+  })
+  it("a request that replaces an active key is a swap", async () => {
+    h.createKey.mockResolvedValueOnce(liveRow({ hadActive: true }) as any)
+    await post()
+    expect(h.alertAdmins.mock.calls[0][1]).toMatchObject({ kind: "swap" })
+  })
+  it("a notifier failure still answers 201 with exactly one key created", async () => {
+    h.createKey.mockResolvedValueOnce(liveRow() as any)
+    h.alertAdmins.mockRejectedValueOnce(new Error("email down"))
+    expect((await post()).status).toBe(201)
+    expect(h.createKey).toHaveBeenCalledTimes(1)
+  })
+  it("a second request in the slot within 24 h sends no admin alert and no owner notice", async () => {
+    h.createKey.mockResolvedValueOnce(liveRow() as any)
+    h.shouldAlert.mockResolvedValueOnce(false)
+    expect((await post()).status).toBe(201)
+    expect(h.alertAdmins).not.toHaveBeenCalled()
+    expect(h.notifyUser).not.toHaveBeenCalled()
+  })
+  it("test keys send no alerts", async () => {
+    h.createKey.mockResolvedValueOnce({ ok: true, key: "dg2_test_x", hadActive: false, row: { id: "k2", key_type: "standard", environment: "test", status: "active", key_prefix: "p", created_at: "x" } } as any)
+    expect((await post({ environment: "test", key_type: "standard" })).status).toBe(201)
+    expect(h.alertAdmins).not.toHaveBeenCalled()
+    expect(h.shouldAlert).not.toHaveBeenCalled()
+  })
+})
+
+describe("GET /api/user/v2-keys approval details", () => {
+  it("returns the approval contact (configured wins, support as fallback) and the account email", async () => {
+    world({ contact: "233559919037" })
+    expect((await (await get()).json()).approval).toEqual({ contact: "233559919037", email: "ama@example.com" })
+    world({ contact: null })
+    h.support.mockResolvedValueOnce("0241234567")
+    expect((await (await get()).json()).approval.contact).toBe("233241234567")
+  })
+  it("a contact read that throws still answers 200 with contact null", async () => {
+    world({ contact: "throw" })
+    const res = await get()
+    expect(res.status).toBe(200)
+    expect((await res.json()).approval.contact).toBeNull()
+  })
+  it("lists the latest rejection per key type, dropping one superseded by a newer request", async () => {
+    world({
+      keys: [{ id: "k9", key_type: "commission", environment: "live", status: "pending", created_at: "2026-11-22T10:00:00Z" }],
+      rejections: [
+        { key_type: "standard", reject_reason: "Need more history", rejected_at: "2026-11-21T10:00:00Z" },
+        { key_type: "standard", reject_reason: "older", rejected_at: "2026-11-20T10:00:00Z" },
+        { key_type: "commission", reject_reason: "superseded", rejected_at: "2026-11-21T09:00:00Z" },
+      ],
+    })
+    expect((await (await get()).json()).rejections).toEqual([{ key_type: "standard", reason: "Need more history", at: "2026-11-21T10:00:00Z" }])
+  })
+  it("shows an open access request, and a rejected one with its retry time", async () => {
+    world({ role: "user", requests: [{ request_code: "API-M4T8WX", status: "pending", reason: null, decided_at: null, created_at: "t" }] })
+    expect((await (await get()).json()).accessRequest).toEqual({ code: "API-M4T8WX", status: "pending", reason: null, retryAt: null })
+    world({ role: "user", requests: [{ request_code: "API-M4T8WX", status: "rejected", reason: "No", decided_at: "2026-11-22T10:00:00Z", created_at: "t" }] })
+    expect((await (await get()).json()).accessRequest).toEqual({ code: "API-M4T8WX", status: "rejected", reason: "No", retryAt: "2026-11-23T10:00:00.000Z" })
+  })
+  it("a role that became allowed while a request is open can generate", async () => {
+    world({ role: "dealer", requests: [{ request_code: "API-M4T8WX", status: "pending", reason: null, decided_at: null, created_at: "t" }] })
+    const body = await (await get()).json()
+    expect(body.access.canGenerate).toBe(true)
+    expect(body.accessRequest.status).toBe("pending")
   })
 })

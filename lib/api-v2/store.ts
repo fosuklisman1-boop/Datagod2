@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { generateV2Key, type Environment, type KeyStatus, type KeyType } from "./keys"
 import { initialStatus } from "./lifecycle"
+import { newRequestCode } from "./request-code"
 
 /**
  * Minimal structural type: the real service-role Supabase client satisfies it,
@@ -23,6 +24,8 @@ export interface V2KeyRow {
   rate_limits: unknown
   last_used_at: string | null
   created_at: string
+  /** Live keys only, returned by createKey (migration 0194). Never selected on the request hot path. */
+  request_code?: string | null
 }
 
 const KEY_COLUMNS =
@@ -145,27 +148,53 @@ export async function listActiveRoles(client: SupabaseLike): Promise<Array<{ slu
   }
 }
 
+const CODE_ATTEMPTS = 3
+
+/** A unique violation on request_code (retry with a new code), as opposed to a slot collision (409). */
+function isCodeCollision(error: { code?: string; message?: string; details?: string }): boolean {
+  return error.code === "23505" && /request_code/.test(`${error.message ?? ""} ${error.details ?? ""}`)
+}
+
+/**
+ * Issues a key. Test keys replace the slot's pending and active key, as before. A live key replaces only a
+ * pending one: the active key keeps working until an admin approves the new key (api_v2_approve_key revokes
+ * it then). `hadActive` tells the caller this live request is a swap. Live keys carry a request code.
+ */
 export async function createKey(
   client: SupabaseLike,
-  p: { userId: string; type: KeyType; env: Environment; name?: string }
-): Promise<{ ok: true; key: string; row: V2KeyRow } | { ok: false; status: 409 | 500 }> {
+  p: { userId: string; type: KeyType; env: Environment; name?: string },
+  newCode: () => string = newRequestCode
+): Promise<{ ok: true; key: string; row: V2KeyRow; hadActive: boolean } | { ok: false; status: 409 | 500 }> {
   try {
     const now = new Date().toISOString()
-    // Revoke any existing pending/active key for this (user, type, env) first.
-    const { error: revokeError } = await client
+    const live = p.env === "live"
+
+    let hadActive = false
+    if (live) {
+      const { data: active, error: activeError } = await client
+        .from("api_v2_keys")
+        .select("id")
+        .eq("user_id", p.userId)
+        .eq("key_type", p.type)
+        .eq("environment", p.env)
+        .eq("status", "active")
+      if (activeError) return { ok: false, status: 500 }
+      hadActive = Array.isArray(active) && active.length > 0
+    }
+
+    const revoke = client
       .from("api_v2_keys")
       .update({ status: "revoked", revoked_at: now, updated_at: now })
       .eq("user_id", p.userId)
       .eq("key_type", p.type)
       .eq("environment", p.env)
-      .in("status", ["pending", "active"])
+    const { error: revokeError } = await (live ? revoke.eq("status", "pending") : revoke.in("status", ["pending", "active"]))
     if (revokeError) return { ok: false, status: 500 }
 
     const { key, prefix, hash } = generateV2Key(p.type, p.env)
-    const name = p.name || `${p.env === "live" ? "Live" : "Test"} ${p.type} key`
-    const { data, error } = await client
-      .from("api_v2_keys")
-      .insert({
+    const name = p.name || `${live ? "Live" : "Test"} ${p.type} key`
+    for (let attempt = 1; attempt <= CODE_ATTEMPTS; attempt++) {
+      const insert: Record<string, unknown> = {
         user_id: p.userId,
         key_type: p.type,
         environment: p.env,
@@ -173,15 +202,24 @@ export async function createKey(
         name,
         key_hash: hash,
         key_prefix: prefix,
-      })
-      .select(KEY_COLUMNS)
-      .single()
-    if (error) return { ok: false, status: error.code === "23505" ? 409 : 500 }
-    if (!data) return { ok: false, status: 500 }
-    // Defensive: never hand key_hash back, whatever the client returned.
-    const { key_hash: _omit, ...row } = data as V2KeyRow & { key_hash?: string }
-    void _omit
-    return { ok: true, key, row }
+      }
+      if (live) insert.request_code = newCode()
+      const { data, error } = await client
+        .from("api_v2_keys")
+        .insert(insert)
+        .select(live ? `${KEY_COLUMNS}, request_code` : KEY_COLUMNS)
+        .single()
+      if (error) {
+        if (live && isCodeCollision(error)) continue
+        return { ok: false, status: error.code === "23505" ? 409 : 500 }
+      }
+      if (!data) return { ok: false, status: 500 }
+      // Defensive: never hand key_hash back, whatever the client returned.
+      const { key_hash: _omit, ...row } = data as V2KeyRow & { key_hash?: string }
+      void _omit
+      return { ok: true, key, row, hadActive }
+    }
+    return { ok: false, status: 500 }
   } catch {
     return { ok: false, status: 500 }
   }
