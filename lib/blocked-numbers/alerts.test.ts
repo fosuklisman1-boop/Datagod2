@@ -42,7 +42,7 @@ describe("buildDigest", () => {
 
   it("flags unchecked and deferred numbers when there are any", () => {
     const d = buildDigest({ ...STATS, deferred: 5 })
-    expect(d.html).toMatch(/deferred/i)
+    expect(d.html).toMatch(/5 numbers were not fully checked/i)
   })
 })
 
@@ -168,7 +168,7 @@ describe("sendDailyDigest", () => {
     expect(stampDigestDay).toHaveBeenCalledWith("2026-11-15", NOW.toISOString())
     expect(loadStats).toHaveBeenCalledWith("2026-11-15T00:00:00.000Z", "2026-11-16T00:00:00.000Z")
     const html = (email.mock.calls[0] as unknown as [string, string])[1]
-    expect(html).toMatch(/deferred/i)
+    expect(html).toMatch(/1 numbers were not fully checked/i)
     expect(push).toHaveBeenCalledTimes(1)
   })
 })

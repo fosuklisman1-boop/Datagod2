@@ -14,9 +14,12 @@ const supabase = createClient(
 
 const SETTINGS_KEY = "ai_provider_config"
 
-function maskKey(key: string | undefined): string {
-  if (!key || key.length < 8) return ""
-  return key.slice(0, 12) + "****"
+// Below this length 4 characters is too much of the key to show.
+const MIN_MASKABLE_KEY_LENGTH = 16
+
+function maskKey(key: unknown): string {
+  const k = typeof key === "string" ? key.trim() : ""
+  return k.length < MIN_MASKABLE_KEY_LENGTH ? "" : `ends in ${k.slice(-4)}`
 }
 
 export async function GET(request: NextRequest) {

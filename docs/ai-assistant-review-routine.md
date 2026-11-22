@@ -25,7 +25,12 @@ npx tsx scripts/ai-eval/run.ts --provider <anthropic|openai|gemini|deepseek|groq
 
 ## Monthly
 
-- Set `AI_CACHE_DEBUG=1` in Vercel for about an hour, then check the logs: the cache **read** number should be greater than 0. If it is always 0, prompt caching is not working and every message is costing more than it should. Turn the setting off again afterwards.
+- Set `AI_CACHE_DEBUG=1` in Vercel and redeploy (a changed setting only applies to a new deployment). After about an hour, search the logs for `[AI-CACHE]`:
+  - DeepSeek, OpenAI and Groq show `read` (served from cache), `miss` (not from cache) and `input` (both together). Share from cache = `read` divided by `input`.
+  - Anthropic shows `read`, `write` and `input` (here `input` is only the uncached part). Share from cache = `read` divided by (`read` + `write` + `input`).
+  - Gemini is not logged.
+- The first message after a quiet spell can show `read=0`. If it stays 0 across many messages, caching is not working. All zeros, including `input`, means the provider sent no usage numbers.
+- Remove the setting and redeploy afterwards.
 
 ## Quarterly
 

@@ -1,6 +1,7 @@
 /**
  * Re-check engine for blocked MTN numbers. Asks the checkout providers (the admin's order, strict batch calls)
- * whether a refused number is now allowed, and moves each row through the state machine.
+ * whether a refused number is now allowed, then every other whitelist provider for the ones still refused,
+ * and moves each row through the state machine.
  * Logs and results carry counts only, never phone numbers.
  */
 
@@ -16,14 +17,23 @@ import {
 import { WHITELIST_REGISTRY, type WhitelistEntry } from "@/lib/mtn-providers/provider-whitelist"
 import { setCachedVerdicts } from "@/lib/mtn-providers/verdict-cache"
 import { getBlockedNumbersSettings } from "./settings"
+import { checkAllProviders, type AllProvidersResult } from "./all-providers"
+import { markAllowedByAdminCheck, type AdminAllowRow } from "./admin-allow"
 
 const TABLE = "mtn_blocked_numbers"
 const DAY_MS = 86_400_000
 const CHUNK = 500
+const OUTSIDE_BATCH = 100
+/** No outside-provider batch starts after this long from run start (leaves the cron its notify window). */
+export const OUTSIDE_START_DEADLINE_MS = 150_000
+/** Cumulative time the outside pass may spend; no new batch starts once spent. */
+export const OUTSIDE_BUDGET_MS = 90_000
 const DEFAULT_LIMIT = 2000
 const EXPIRE_LIMIT = 2000
 const RESOLVER_TIMEOUT_MS = 60_000
 const RUN_DEADLINE_MS = 200_000
+/** The cron never starts at the same second, so "now + 1 day" lands just after tomorrow's start without this. */
+const DUE_GRACE_MS = 2 * 3_600_000
 
 export type Patch = Record<string, string | number>
 
@@ -47,7 +57,7 @@ export type RecheckResult = {
   stillBlocked: number
   unchecked: number
   expired: number
-  /** Rows not started because the run deadline passed; they stay due. */
+  /** Rows not fully checked (run deadline, or outside-provider budget); they stay due. */
   deferred: number
   newlyAllowedIds: string[]
 }
@@ -63,6 +73,9 @@ export type RecheckDeps = {
   detailed: typeof checkCustomerFacingVerificationDetailed
   resolve: typeof resolveVerdicts
   setCache: typeof setCachedVerdicts
+  /** Ask every configured provider (incl. outside the checkout list). Optional: absent = no outside pass. */
+  checkAll?: (phones: string[]) => Promise<AllProvidersResult>
+  markAllowed?: (rows: AdminAllowRow[]) => Promise<{ updatedIds: string[]; failed: boolean; cacheFailed: number }>
 }
 
 const realDeps = (): RecheckDeps => ({
@@ -75,6 +88,8 @@ const realDeps = (): RecheckDeps => ({
   detailed: checkCustomerFacingVerificationDetailed,
   resolve: resolveVerdicts,
   setCache: setCachedVerdicts,
+  checkAll: (phones) => checkAllProviders(phones),
+  markAllowed: (rows) => markAllowedByAdminCheck(rows),
 })
 
 type DueRow = { id: string; phone: string; recheck_count: number; status: string }
@@ -123,10 +138,11 @@ export async function recheckBlockedNumbers(opts: RecheckOpts = {}, deps: Rechec
       rows.push(...((data ?? []) as DueRow[]))
     }
   } else {
+    const dueBy = new Date(now.getTime() + DUE_GRACE_MS).toISOString()
     let q = db.from(TABLE).select(cols)
     q = reopen
-      ? q.or(`and(status.eq.blocked,next_recheck_at.lte.${nowIso}),status.eq.expired`)
-      : q.in("status", statuses).lte("next_recheck_at", nowIso)
+      ? q.or(`and(status.eq.blocked,next_recheck_at.lte.${dueBy}),status.eq.expired`)
+      : q.in("status", statuses).lte("next_recheck_at", dueBy)
     const { data, error } = await q.order("next_recheck_at", { ascending: true, nullsFirst: true }).limit(limit)
     if (error) throw new Error(`select failed: ${error.code ?? "db"}`)
     rows = (data ?? []) as DueRow[]
@@ -136,6 +152,8 @@ export async function recheckBlockedNumbers(opts: RecheckOpts = {}, deps: Rechec
   const settings = await deps.getSettings()
   const retentionDays = reopen ? (await deps.getBlockedSettings()).retention_days : 0
   const reopenExpiresAt = new Date(now.getTime() + retentionDays * DAY_MS).toISOString()
+
+  const refusedRows: DueRow[] = [] // definite checkout refusals (never null/outage), for the outside pass
 
   // 3. Resolve verdicts in chunks of 500, 60 s timeout each; stop starting chunks after the run deadline.
   for (const part of chunked(rows, CHUNK)) {
@@ -155,6 +173,8 @@ export async function recheckBlockedNumbers(opts: RecheckOpts = {}, deps: Rechec
       },
     }
     const verdicts = await deps.resolve(part.map((r) => r.phone), io)
+
+    for (const row of part) if (verdicts.get(row.phone) === false) refusedRows.push(row)
 
     const flips = new Map<string, DueRow[]>() // `${allowed_by}|${status}` -> rows
     const stills = new Map<string, DueRow[]>() // `${new count}|${status}` -> rows
@@ -231,6 +251,74 @@ export async function recheckBlockedNumbers(opts: RecheckOpts = {}, deps: Rechec
         await deps.setCache(allowedPhones, settings.providers)
       } catch {
         console.error("[BLOCKED-RECHECK] verdict cache write failed")
+      }
+    }
+  }
+
+  // 4. Outside pass, AFTER every checkout part so it can never defer them. Rows the checkout list refused are
+  // asked of all providers (batches of <=100); an approval flips through markAllowedByAdminCheck (verdict
+  // written and read back first, then guarded flip). No batch starts after 150 s from run start or once 90 s
+  // of outside time has been spent. The row was already scheduled above, so a flip moves it from stillBlocked.
+  if (deps.checkAll && deps.markAllowed && refusedRows.length > 0) {
+    let outsideSpent = 0
+    const keepDue: DueRow[] = [] // refused rows the outside pass did not really check
+    const batches = chunked(refusedRows, OUTSIDE_BATCH)
+    for (let b = 0; b < batches.length; b++) {
+      const batch = batches[b]
+      if (deps.clock() - startedAt >= OUTSIDE_START_DEADLINE_MS || outsideSpent >= OUTSIDE_BUDGET_MS) {
+        for (const rest of batches.slice(b)) keepDue.push(...rest)
+        break
+      }
+      const batchStart = deps.clock()
+      try {
+        const all = await deps.checkAll(batch.map((row) => row.phone))
+        const outside = all.providers.filter((n) => !all.checkoutProviders.includes(n))
+        if (outside.length > 0 && outside.every((n) => all.failedProviders.includes(n))) {
+          keepDue.push(...batch) // every outside provider failed: nothing was learned about these rows
+          continue
+        }
+        const byPhone = new Map(all.rows.map((x) => [x.phone, x]))
+        const candidates = batch.flatMap((row) => {
+          const by = byPhone.get(row.phone)?.allowedOutsideCheckout?.[0]
+          return by ? [{ id: row.id, phone: row.phone, allowedBy: by }] : []
+        })
+        if (candidates.length > 0) {
+          const done = await deps.markAllowed(candidates)
+          for (const id of done.updatedIds) {
+            result.newlyAllowedIds.push(id)
+            result.allowed++
+            result.stillBlocked = Math.max(0, result.stillBlocked - 1)
+          }
+        }
+      } catch {
+        console.error("[BLOCKED-RECHECK] outside provider check failed")
+        keepDue.push(...batch)
+      } finally {
+        outsideSpent += deps.clock() - batchStart
+      }
+    }
+
+    // Rows the outside pass did not really check (budget/deadline, a thrown batch, or every outside provider
+    // failing) were scheduled as if fully checked. Undo that: original count and due now, so they sort ahead of
+    // everything else on the next run instead of waiting a day.
+    const byCount = new Map<number, DueRow[]>()
+    for (const row of keepDue) byCount.set(row.recheck_count, [...(byCount.get(row.recheck_count) ?? []), row])
+    for (const [count, group] of byCount) {
+      for (const rowChunk of chunked(group, CHUNK)) {
+        const { data, error } = await db
+          .from(TABLE)
+          .update({ recheck_count: count, next_recheck_at: nowIso, updated_at: nowIso })
+          .in("id", rowChunk.map((r) => r.id))
+          .eq("status", "blocked")
+          .select("id")
+        if (error) {
+          console.error("[BLOCKED-RECHECK] keep-due update failed:", error.code ?? "db")
+          continue
+        }
+        const n = data?.length ?? 0
+        result.deferred += n
+        result.stillBlocked = Math.max(0, result.stillBlocked - n)
+        result.checked = Math.max(0, result.checked - n)
       }
     }
   }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { maskBuyerEmail, maskBuyerName, maskBuyerPhone } from "@/lib/shop-order-privacy"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -40,14 +41,29 @@ export async function GET(
       supabase.from("shop_settings").select("whatsapp_link").eq("shop_id", order.shop_id).single(),
     ])
 
+    // Public by order id: built field by field, buyer details masked.
+    const o = order as Record<string, any>
     return NextResponse.json({
       success: true,
-      order,
+      order: {
+        id: o.id,
+        reference_code: o.reference_code,
+        order_status: o.order_status,
+        payment_status: o.payment_status,
+        customer_name: maskBuyerName(o.customer_name),
+        customer_email: maskBuyerEmail(o.customer_email),
+        customer_phone: maskBuyerPhone(o.customer_phone),
+        network: o.network,
+        volume_gb: o.volume_gb,
+        total_price: o.total_price,
+        created_at: o.created_at,
+        shop_id: o.shop_id,
+      },
       shopName: shop?.shop_name ?? null,
       shopWhatsapp: settings?.whatsapp_link || null,
     })
   } catch (error) {
-    console.error("[SHOP-ORDER-GET] ✗ Error:", error)
+    console.error("[SHOP-ORDER-GET] ✗ Error:", error instanceof Error ? error.message : "unknown")
     return NextResponse.json(
       { error: "Failed to load order details. Please try again." },
       { status: 500 }

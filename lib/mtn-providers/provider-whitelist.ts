@@ -317,7 +317,14 @@ async function checkHubnetBatch(
   }
   await Promise.all(Array.from({ length: Math.min(HUBNET_BATCH_CONCURRENCY, msisdns.length) }, worker))
   if (failed) throw new WhitelistCheckFailed("hubnet")
-  return out
+  // Strict (checkout gate, re-checks): "queued" means Hubnet has not checked the number yet, so it is no
+  // answer for that number, never an approval (owner decision 2026-11-22). Non-strict keeps failing open.
+  if (!strict) return out
+  const answered = out.filter((r) => r.reason !== "queued")
+  // Nothing definite at all = Hubnet did not answer: throw so the gate treats it like an outage (an outage
+  // never blocks a customer), instead of counting as an answer that could tip an unknown number to blocked.
+  if (answered.length === 0 && out.length > 0) throw new WhitelistCheckFailed("hubnet")
+  return answered
 }
 
 // Apex Prime's own MTN Pre-Check & Approval Note (confirmed with them 2026-09-05):

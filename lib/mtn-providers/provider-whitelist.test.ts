@@ -392,6 +392,26 @@ describe("hubnet whitelist", () => {
     expect(max).toBeLessThanOrEqual(5)
   })
 
+  it("strict batch leaves queued numbers out (not yet checked = no answer), keeps the rest", async () => {
+    hubnetVerify.mockImplementation(async (n: string) => (n === "0241111111" ? "queued" : n === "0242222222" ? "verified" : "unverified"))
+    const out = await hubnetEntry().checkBatchStrict!(["0241111111", "0242222222", "0243333333"])
+    expect(out).toEqual([
+      { msisdn: "0242222222", allowed: true },
+      { msisdn: "0243333333", allowed: false, reason: "unverified" },
+    ])
+  })
+
+  it("strict batch where every number is queued counts as no answer at all (throws, like an outage)", async () => {
+    // So a single-number checkout with Hubnet "queued" and the other provider down still fails open.
+    hubnetVerify.mockResolvedValue("queued")
+    await expect(hubnetEntry().checkBatchStrict!(["0241111111", "0242222222"])).rejects.toThrow()
+  })
+
+  it("non-strict batch still counts queued as allowed (fulfilment gate unchanged)", async () => {
+    hubnetVerify.mockResolvedValue("queued")
+    expect(await hubnetEntry().checkBatch(["0241111111"])).toEqual([{ msisdn: "0241111111", allowed: true, reason: "queued" }])
+  })
+
   it("non-strict batch fails open on null/throw", async () => {
     hubnetVerify.mockResolvedValueOnce(null).mockRejectedValueOnce(new Error("x"))
     const out = await hubnetEntry().checkBatch(["0241111111", "0242222222"])

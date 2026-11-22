@@ -70,6 +70,43 @@ describe("cache usage debug log", () => {
   })
 })
 
+describe("cache usage debug log, OpenAI-compatible providers", () => {
+  afterEach(() => { delete process.env.AI_CACHE_DEBUG; vi.restoreAllMocks() })
+
+  async function logged(provider: "deepseek" | "openai" | "groq", usage: unknown, enabled = true) {
+    if (enabled) process.env.AI_CACHE_DEBUG = "1"
+    const log = vi.spyOn(console, "debug").mockImplementation(() => {})
+    h.openaiCreate.mockResolvedValue({ choices: [{ message: { content: "SECRET REPLY" }, finish_reason: "stop" }], usage })
+    const res = await getProvider(provider, "SECRET KEY").createMessage({ ...base, system: "SECRET PROMPT" })
+    expect(res.text).toBe("SECRET REPLY")
+    expect(JSON.stringify(log.mock.calls)).not.toContain("SECRET")
+    return log.mock.calls
+  }
+
+  it("logs DeepSeek hit and miss tokens", async () => {
+    const usage = { prompt_tokens: 1000, prompt_cache_hit_tokens: 768, prompt_cache_miss_tokens: 232 }
+    expect(await logged("deepseek", usage)).toEqual([["[AI-CACHE] model=m read=768 miss=232 input=1000"]])
+  })
+
+  it("keeps a real zero hit", async () => {
+    const usage = { prompt_tokens: 50, prompt_cache_hit_tokens: 0, prompt_cache_miss_tokens: 50 }
+    expect(await logged("deepseek", usage)).toEqual([["[AI-CACHE] model=m read=0 miss=50 input=50"]])
+  })
+
+  it.each(["openai", "groq"] as const)("reads cached_tokens for %s", async (provider) => {
+    const usage = { prompt_tokens: 900, prompt_tokens_details: { cached_tokens: 600 } }
+    expect(await logged(provider, usage)).toEqual([["[AI-CACHE] model=m read=600 miss=300 input=900"]])
+  })
+
+  it.each([undefined, null, {}, { prompt_tokens: "SECRET", prompt_tokens_details: null }])("logs zeros and still replies for unusable usage %j", async (usage) => {
+    expect(await logged("deepseek", usage)).toEqual([["[AI-CACHE] model=m read=0 miss=0 input=0"]])
+  })
+
+  it("is silent when disabled", async () => {
+    expect(await logged("deepseek", { prompt_tokens: 10 }, false)).toEqual([])
+  })
+})
+
 describe("system prompt shapes", () => {
   it("anthropic_two_system_blocks_cache_first", async () => {
     await getProvider("anthropic", "k").createMessage({ ...base, system: SPLIT })

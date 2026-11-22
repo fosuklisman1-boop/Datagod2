@@ -208,6 +208,17 @@ class OpenAIAdapter implements AIProvider {
       messages: openaiMessages,
     })
 
+    // Same opt-in log. DeepSeek reports hit/miss; OpenAI and Groq report cached_tokens inside prompt_tokens.
+    if (process.env.AI_CACHE_DEBUG === "1") {
+      const u = ((response as unknown as { usage?: Record<string, unknown> }).usage ?? {}) as Record<string, unknown>
+      const details = (u.prompt_tokens_details ?? {}) as Record<string, unknown>
+      const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0)
+      const input = n(u.prompt_tokens)
+      const read = n(u.prompt_cache_hit_tokens ?? details.cached_tokens)
+      const miss = n(u.prompt_cache_miss_tokens ?? Math.max(0, input - read))
+      console.debug(`[AI-CACHE] model=${model} read=${read} miss=${miss} input=${input}`)
+    }
+
     const choice = response.choices[0]
     const text = choice.message.content ?? ""
     const rawToolCalls = choice.message.tool_calls ?? []
