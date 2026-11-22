@@ -183,7 +183,9 @@ export async function drainFulfillmentQueue(supabase: SupabaseClient): Promise<D
       const isUssd = row.order_type === "ussd" || row.order_type === "ussd_shop"
       let order: any = null
       if (source) {
-        const cols = isUssd ? `id, network, recipient_phone, package_size, ${source.statusCol}` : source.statusCol
+        const base = isUssd ? `id, network, recipient_phone, package_size, ${source.statusCol}` : source.statusCol
+        // Automatic rows also re-check payment at send time (admin rows are unchanged).
+        const cols = isAuto && source.paidCol ? `${base}, ${source.paidCol}` : base
         const { data, error } = await supabase.from(source.table).select(cols).eq("id", row.order_id).maybeSingle()
         if (error) {
           await skipRow(supabase, row, NON_SEND_UNREADABLE)
@@ -203,6 +205,12 @@ export async function drainFulfillmentQueue(supabase: SupabaseClient): Promise<D
       if (orderStatus !== "pending") {
         await skipRow(supabase, row, `${NON_SEND_NOT_PENDING_PREFIX} (${orderStatus || "unknown"})`)
         if (isAuto) await recordAttempt(supabase, row, "skipped")
+        failed++
+        continue
+      }
+      if (isAuto && source.paidCol && String(order[source.paidCol] ?? "").trim().toLowerCase() !== "completed") {
+        await skipRow(supabase, row, `${NON_SEND_NOT_PENDING_PREFIX} (payment not completed)`)
+        await recordAttempt(supabase, row, "skipped")
         failed++
         continue
       }

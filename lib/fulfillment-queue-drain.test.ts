@@ -76,6 +76,7 @@ function fakeSupabase(
                       package_size: "1GB",
                       status: "pending",
                       order_status: "pending",
+                      payment_status: "completed",
                       ...orders[id],
                     },
                     error: null,
@@ -215,6 +216,48 @@ const queueUpdate = (sb: any, queueId: string) =>
 const attemptUpdates = (sb: any) => sb.updates.filter((u: Call) => u.table === "auto_fulfil_attempts")
 const attemptFor = (sb: any, queueId: string) =>
   attemptUpdates(sb).find((u: Call) => u.filters.some((f) => f.col === "queue_id" && f.val === queueId))
+
+describe("drainFulfillmentQueue — S2 payment re-check for auto rows", () => {
+  it("auto shop row whose payment is not completed: no supplier call, 'order no longer pending (payment not completed)', attempt skipped", async () => {
+    const sb = fakeSupabase([{ id: "q1", order_id: "s1", order_type: "shop", provider: null, source: "auto" }], { s1: { payment_status: "pending" } }, () => false, { settings: ON })
+    const r = await drainFulfillmentQueue(sb)
+    expect(processManualFulfillment).not.toHaveBeenCalled()
+    expect(r).toMatchObject({ completed: 0, failed: 1 })
+    expect(queueUpdate(sb, "q1").values).toEqual({ status: "failed", error_message: `${NON_SEND_NOT_PENDING_PREFIX} (payment not completed)` })
+    expect(attemptFor(sb, "q1").values).toMatchObject({ outcome: "skipped" })
+    expect(sb.reads[0].cols).toContain("payment_status")
+  })
+
+  it("auto ussd row with a missing payment status is skipped too; a completed one is sent", async () => {
+    const sb = fakeSupabase(
+      [
+        { id: "q1", order_id: "u1", order_type: "ussd", provider: null, source: "auto" },
+        { id: "q2", order_id: "u2", order_type: "ussd_shop", provider: null, source: "auto" },
+      ],
+      { u1: { payment_status: null } },
+      () => false,
+      { settings: ON },
+    )
+    await drainFulfillmentQueue(sb)
+    expect(fulfillUssdOrder).toHaveBeenCalledTimes(1)
+    expect(fulfillUssdOrder.mock.calls[0][0]).toBe("u2")
+    expect(queueUpdate(sb, "q1").values.error_message).toBe(`${NON_SEND_NOT_PENDING_PREFIX} (payment not completed)`)
+  })
+
+  it("auto bulk row (no payment column) is unaffected", async () => {
+    const sb = fakeSupabase([{ id: "q1", order_id: "b1", order_type: "bulk", provider: null, source: "auto" }], { b1: { payment_status: "pending" } }, () => false, { settings: ON })
+    const r = await drainFulfillmentQueue(sb)
+    expect(r).toMatchObject({ completed: 1, failed: 0 })
+    expect(sb.reads[0].cols).not.toContain("payment_status")
+  })
+
+  it("admin rows are exactly as before: no payment check, payment column not read", async () => {
+    const sb = fakeSupabase([{ id: "q1", order_id: "s1", order_type: "shop", provider: null, source: "admin" }], { s1: { payment_status: "pending" } })
+    const r = await drainFulfillmentQueue(sb)
+    expect(r).toMatchObject({ completed: 1, failed: 0 })
+    expect(sb.reads).toEqual([{ table: "shop_orders", cols: "order_status", id: "s1" }])
+  })
+})
 
 describe("drainFulfillmentQueue — split claim and auto rows", () => {
   it("claims via claim_fulfillment_queue_split(20, 5)", async () => {
