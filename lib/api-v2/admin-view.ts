@@ -1,6 +1,5 @@
 import { DEFAULT_LIMITS, parseLimitOverrides, type LimitGroup } from "./limits"
 import type { KeyType, Environment, KeyStatus } from "./keys"
-import { V2_ROLES } from "./lifecycle"
 
 interface OwnerUser {
   email?: string | null
@@ -234,17 +233,45 @@ export function roleOptions(keys: ConsoleKey[]): string[] {
   return roles.sort((a, b) => roleLabel(a).localeCompare(roleLabel(b)))
 }
 
-/** Toggle a role in the allowed list, keeping V2_ROLES order and no duplicates. */
+/** Display order for role choices: the built-in ladder first, then custom roles. */
+const ROLE_ORDER: readonly string[] = ["user", "sub_agent", "dealer", "admin"]
+
+function byRoleOrder(a: string, b: string): number {
+  const ia = ROLE_ORDER.indexOf(a)
+  const ib = ROLE_ORDER.indexOf(b)
+  if (ia !== -1 || ib !== -1) return (ia === -1 ? ROLE_ORDER.length : ia) - (ib === -1 ? ROLE_ORDER.length : ib)
+  return a.localeCompare(b)
+}
+
+/** Toggle a role in the allowed list: user, sub_agent, dealer, admin first, then custom roles; no duplicates. */
 export function toggleRole(selected: readonly string[], role: string): string[] {
   const set = new Set(selected)
   if (set.has(role)) set.delete(role)
   else set.add(role)
-  const order = V2_ROLES
-  return Array.from(set).sort((a, b) => {
-    const ia = order.indexOf(a)
-    const ib = order.indexOf(b)
-    return (ia === -1 ? order.length : ia) - (ib === -1 ? order.length : ib)
-  })
+  return Array.from(set).sort(byRoleOrder)
+}
+
+export interface RoleChoice {
+  slug: string
+  label: string
+}
+
+/**
+ * What the Allowed roles control offers. `roles` is the server's active-role list, or null when it could
+ * not be loaded: then only the currently allowed roles are shown (so they can still be unticked) and the
+ * caller shows a note. Built-in roles keep their familiar labels; custom roles show their name.
+ */
+export function roleChoices(
+  roles: ReadonlyArray<{ slug: string; name: string }> | null,
+  allowed: readonly string[]
+): RoleChoice[] {
+  const names = new Map<string, string>()
+  for (const r of roles ?? []) names.set(r.slug, r.name)
+  const slugs = roles === null ? Array.from(new Set(allowed)) : Array.from(new Set([...names.keys(), ...allowed]))
+  return slugs.sort(byRoleOrder).map((slug) => ({
+    slug,
+    label: ROLE_LABELS[slug] ?? names.get(slug) ?? roleLabel(slug),
+  }))
 }
 
 /**

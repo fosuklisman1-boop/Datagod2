@@ -4,7 +4,7 @@ import { accessSummary, canIssue, isIssuableType, legacyDefaultOpen, offersSmsKe
 const allowedRoles = ["dealer", "admin"]
 
 describe("canIssue", () => {
-  const on = { enabled: true, allowedRoles, suspended: false }
+  const on = { enabled: true, allowedRoles, suspended: false, hasGrant: false, hasApiCapability: true }
 
   it("allows a standard key for an allowed role", () => {
     expect(canIssue({ ...on, type: "standard", role: "dealer" })).toEqual({ ok: true })
@@ -23,7 +23,7 @@ describe("canIssue", () => {
   })
 
   it("checks enabled before anything else (bad type, suspended, disallowed role)", () => {
-    const r = canIssue({ enabled: false, type: "bogus", role: "user", allowedRoles: [], suspended: true })
+    const r = canIssue({ enabled: false, type: "bogus", role: "user", allowedRoles: [], suspended: true, hasGrant: false, hasApiCapability: false })
     expect(r).toMatchObject({ ok: false, status: 503 })
   })
 
@@ -94,8 +94,26 @@ describe("canIssue", () => {
   })
 })
 
+describe("canIssue with a grant", () => {
+  const base = { enabled: true, allowedRoles, suspended: false, hasGrant: true, hasApiCapability: false }
+  it("a grant satisfies both the role and the capability requirement", () => {
+    expect(canIssue({ ...base, type: "standard", role: "user" })).toEqual({ ok: true })
+  })
+  it("an allowed role without the capability and without a grant is refused", () => {
+    expect(canIssue({ ...base, hasGrant: false, type: "standard", role: "dealer" })).toMatchObject({ ok: false, status: 403 })
+  })
+  it("a grant never beats disabled or suspended", () => {
+    expect(canIssue({ ...base, enabled: false, type: "standard", role: "user" })).toMatchObject({ status: 503 })
+    expect(canIssue({ ...base, suspended: true, type: "standard", role: "user" })).toMatchObject({ status: 403, message: "This account is suspended" })
+  })
+  it("a grant plus sms with no SMS account is refused", () => {
+    expect(canIssue({ ...base, type: "sms", role: "user", hasSmsAccess: false })).toMatchObject({ ok: false, status: 403, message: "SMS isn't enabled for this account type" })
+    expect(canIssue({ ...base, type: "sms", role: "user", hasSmsAccess: true })).toEqual({ ok: true })
+  })
+})
+
 describe("accessSummary", () => {
-  const base = { role: "dealer", suspended: false, enabled: true, allowedRoles }
+  const base = { role: "dealer", suspended: false, enabled: true, allowedRoles, hasGrant: false, hasApiCapability: true }
 
   it("returns ok when enabled, not suspended and the role is allowed", () => {
     expect(accessSummary(base)).toEqual({ canGenerate: true, reason: "ok" })
@@ -124,6 +142,20 @@ describe("accessSummary", () => {
       canGenerate: false,
       reason: "role_not_allowed",
     })
+  })
+})
+
+describe("accessSummary with a grant or capability", () => {
+  const base = { role: "user", suspended: false, enabled: true, allowedRoles, hasGrant: false, hasApiCapability: false }
+  it("a grant is ok without the capability", () => {
+    expect(accessSummary({ ...base, hasGrant: true })).toEqual({ canGenerate: true, reason: "ok" })
+  })
+  it("a user lacking the capability with no grant gets role_not_allowed even for an allowed role", () => {
+    expect(accessSummary({ ...base, role: "dealer" })).toEqual({ canGenerate: false, reason: "role_not_allowed" })
+  })
+  it("a grant never beats disabled or suspended", () => {
+    expect(accessSummary({ ...base, hasGrant: true, enabled: false })).toEqual({ canGenerate: false, reason: "disabled" })
+    expect(accessSummary({ ...base, hasGrant: true, suspended: true })).toEqual({ canGenerate: false, reason: "suspended" })
   })
 })
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { initialStatus, applyAction, parseConfigUpdate, V2_ROLES } from "./lifecycle"
+import { initialStatus, applyAction, parseConfigUpdate } from "./lifecycle"
 
 describe("initialStatus", () => {
   it("live keys start pending, test keys start active", () => {
@@ -24,30 +24,50 @@ describe("applyAction", () => {
 })
 
 describe("parseConfigUpdate", () => {
-  it("V2_ROLES includes admin", () => {
-    expect(V2_ROLES.includes("admin")).toBe(true)
-  })
+  const active = ["user", "sub_agent", "dealer", "admin", "reseller"]
   it("accepts enabled", () => {
-    expect(parseConfigUpdate({ enabled: true })).toEqual({ ok: true, value: { enabled: true } })
+    expect(parseConfigUpdate({ enabled: true }, active)).toEqual({ ok: true, value: { enabled: true } })
   })
-  it("accepts known roles and rejects unknown ones", () => {
-    const known = [V2_ROLES[0], V2_ROLES[1]]
-    expect(parseConfigUpdate({ allowed_roles: known })).toEqual({
+  it("accepts an active custom role and refuses an unknown one", () => {
+    expect(parseConfigUpdate({ allowed_roles: ["user", "reseller"] }, active)).toEqual({
       ok: true,
-      value: { allowed_roles: known },
+      value: { allowed_roles: ["user", "reseller"] },
     })
-    expect(parseConfigUpdate({ allowed_roles: [V2_ROLES[0], "nope"] }).ok).toBe(false)
+    expect(parseConfigUpdate({ allowed_roles: ["user", "nope"] }, active)).toEqual({ ok: false, error: "Unknown role: nope" })
+  })
+  it("refuses a role that is not in the supplied list (an archived custom role)", () => {
+    expect(parseConfigUpdate({ allowed_roles: ["old_tier"] }, active).ok).toBe(false)
+  })
+  it("dedupes roles", () => {
+    expect(parseConfigUpdate({ allowed_roles: ["user", "user"] }, active)).toEqual({ ok: true, value: { allowed_roles: ["user"] } })
   })
   it("accepts an empty role list (nobody allowed)", () => {
-    expect(parseConfigUpdate({ allowed_roles: [] })).toEqual({
-      ok: true,
-      value: { allowed_roles: [] },
-    })
+    expect(parseConfigUpdate({ allowed_roles: [] }, [])).toEqual({ ok: true, value: { allowed_roles: [] } })
   })
   it("rejects wrong types and empty updates", () => {
-    expect(parseConfigUpdate({ enabled: "yes" }).ok).toBe(false)
-    expect(parseConfigUpdate({}).ok).toBe(false)
-    expect(parseConfigUpdate(null).ok).toBe(false)
-    expect(parseConfigUpdate({ allowed_roles: "dealer" }).ok).toBe(false)
+    expect(parseConfigUpdate({ enabled: "yes" }, active).ok).toBe(false)
+    expect(parseConfigUpdate({}, active).ok).toBe(false)
+    expect(parseConfigUpdate(null, active).ok).toBe(false)
+    expect(parseConfigUpdate({ allowed_roles: "dealer" }, active).ok).toBe(false)
+  })
+  describe("approval_whatsapp", () => {
+    it("normalises a number to digits", () => {
+      expect(parseConfigUpdate({ approval_whatsapp: "0559919037" }, active)).toEqual({
+        ok: true,
+        value: { approval_whatsapp: "233559919037" },
+      })
+    })
+    it("an explicit empty value clears (null)", () => {
+      expect(parseConfigUpdate({ approval_whatsapp: "" }, active)).toEqual({ ok: true, value: { approval_whatsapp: null } })
+      expect(parseConfigUpdate({ approval_whatsapp: null }, active)).toEqual({ ok: true, value: { approval_whatsapp: null } })
+    })
+    it("an absent property leaves the contact alone (never clears)", () => {
+      const r = parseConfigUpdate({ enabled: true, allowed_roles: ["user"] }, active)
+      expect(r).toEqual({ ok: true, value: { enabled: true, allowed_roles: ["user"] } })
+      if (r.ok) expect("approval_whatsapp" in r.value).toBe(false)
+    })
+    it("refuses an invalid contact", () => {
+      expect(parseConfigUpdate({ approval_whatsapp: "https://evil.example/x" }, active).ok).toBe(false)
+    })
   })
 })

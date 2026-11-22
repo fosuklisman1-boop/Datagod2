@@ -1,4 +1,5 @@
 import type { KeyType, KeyStatus } from "./keys"
+import { isEligible } from "./eligibility"
 
 const MAX_KEY_LENGTH = 512
 
@@ -23,6 +24,8 @@ export interface AccessInput {
   allowedRoles: string[]
   userRole: string
   suspended: boolean
+  /** A per-person API access grant: satisfies the role check only. */
+  hasGrant: boolean
 }
 
 export const MSG_UNAUTHORIZED = "Invalid or missing API key"
@@ -36,7 +39,7 @@ export const msgWrongKeyType = (required: string) => `This endpoint requires a $
 
 /**
  * Order: config disabled (503) > account suspended > key status (pending, revoked)
- * > key type > role. All denials except the first are 403.
+ * > key type > eligibility (grant or allowed role). All denials except the first are 403.
  */
 export function decideAccess(
   i: AccessInput
@@ -60,7 +63,7 @@ export function decideAccess(
       message: msgWrongKeyType(i.requiredType),
     }
   }
-  if (!i.allowedRoles.includes(i.userRole)) {
+  if (!isEligible({ hasGrant: i.hasGrant, role: i.userRole, allowedRoles: i.allowedRoles })) {
     return { ok: false, status: 403, message: MSG_ROLE_NOT_ALLOWED }
   }
   return { ok: true }

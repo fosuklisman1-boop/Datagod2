@@ -6,6 +6,7 @@ import {
   parseV1RateLimit,
   roleOptions,
   toggleRole,
+  roleChoices,
   formatCount,
   formatPercent,
   formatLatency,
@@ -148,6 +149,33 @@ describe("toggleRole", () => {
     expect(toggleRole(["dealer"], "user")).toEqual(["user", "dealer"])
     expect(toggleRole(["user", "dealer"], "user")).toEqual(["dealer"])
     expect(toggleRole([], "admin")).toEqual(["admin"])
+  })
+  it("puts custom roles after the built-in ones", () => {
+    expect(toggleRole(["reseller", "admin"], "user")).toEqual(["user", "admin", "reseller"])
+    expect(toggleRole(["zeta"], "alpha")).toEqual(["alpha", "zeta"])
+  })
+})
+
+describe("roleChoices", () => {
+  const roles = [
+    { slug: "reseller", name: "Gold Reseller" },
+    { slug: "admin", name: "Admin" },
+    { slug: "user", name: "User" },
+    { slug: "dealer", name: "Dealer" },
+    { slug: "sub_agent", name: "Sub agent" },
+  ]
+  it("orders user, sub_agent, dealer, admin, then custom roles and labels customs by name", () => {
+    expect(roleChoices(roles, []).map((c) => c.slug)).toEqual(["user", "sub_agent", "dealer", "admin", "reseller"])
+    expect(roleChoices(roles, []).find((c) => c.slug === "reseller")?.label).toBe("Gold Reseller")
+  })
+  it("keeps the built-in labels", () => {
+    expect(roleChoices(roles, []).find((c) => c.slug === "user")?.label).toBe("Customer")
+  })
+  it("still shows an allowed slug that is no longer active", () => {
+    expect(roleChoices(roles, ["old_tier"]).map((c) => c.slug)).toContain("old_tier")
+  })
+  it("with the role list unavailable, shows only the allowed roles", () => {
+    expect(roleChoices(null, ["dealer", "reseller"]).map((c) => c.slug)).toEqual(["dealer", "reseller"])
   })
 })
 

@@ -9,6 +9,9 @@ import {
   getUserForKey,
   revokeAllV2Keys,
   disableV2,
+  hasGrant,
+  getApprovalContact,
+  listActiveRoles,
 } from "./store"
 
 type Op = { table: string; op: string; payload?: any; filters: Array<[string, string, any]> }
@@ -246,5 +249,60 @@ describe("reads", () => {
     const upd = ops.find((o) => o.op === "update")!
     expect(upd.payload.status).toBe("revoked")
     expect(upd.filters).toContainEqual(["status", "in", ["pending", "active"]])
+  })
+})
+
+describe("getConfig column safety", () => {
+  it("selects exactly enabled, allowed_roles (the request path never reads a newer column)", async () => {
+    const cols: string[] = []
+    const b: any = {
+      select(c: string) { cols.push(c); return b },
+      eq() { return b },
+      maybeSingle() { return Promise.resolve({ data: { enabled: true, allowed_roles: [] }, error: null }) },
+    }
+    await getConfig({ from: () => b })
+    expect(cols).toEqual(["enabled, allowed_roles"])
+  })
+})
+
+describe("hasGrant", () => {
+  it("true when a grant row exists, false when none", async () => {
+    expect(await hasGrant(makeFake({ selectResult: { data: { user_id: "u" }, error: null } }).client, "u")).toBe(true)
+    expect(await hasGrant(makeFake({ selectResult: { data: null, error: null } }).client, "u")).toBe(false)
+  })
+  it('"error" on a read error or a throw, never false', async () => {
+    expect(await hasGrant(makeFake({ selectResult: { data: null, error: { message: "x" } } }).client, "u")).toBe("error")
+    expect(await hasGrant(makeFake({ throwOnAny: true }).client, "u")).toBe("error")
+  })
+  it("reads the grants table filtered by user", async () => {
+    const { client, ops } = makeFake({ selectResult: { data: null, error: null } })
+    await hasGrant(client, "u-9")
+    expect(ops[0]).toMatchObject({ table: "api_v2_access_grants", filters: [["user_id", "eq", "u-9"]] })
+  })
+})
+
+describe("getApprovalContact", () => {
+  it("returns the stored digits", async () => {
+    const { client } = makeFake({ selectResult: { data: { approval_whatsapp: "233559919037" }, error: null } })
+    expect(await getApprovalContact(client)).toBe("233559919037")
+  })
+  it("null when unset, on error (missing column) and on a throw, never throws", async () => {
+    expect(await getApprovalContact(makeFake({ selectResult: { data: { approval_whatsapp: null }, error: null } }).client)).toBeNull()
+    expect(await getApprovalContact(makeFake({ selectResult: { data: null, error: { message: "column missing" } } }).client)).toBeNull()
+    expect(await getApprovalContact(makeFake({ throwOnAny: true }).client)).toBeNull()
+  })
+})
+
+describe("listActiveRoles", () => {
+  const roles = [{ slug: "reseller", name: "Reseller" }, { slug: "user", name: "User" }]
+  it("returns slug and name of the rows read", async () => {
+    const b: any = { select() { return b }, is() { return b }, limit() { return Promise.resolve({ data: roles, error: null }) } }
+    expect(await listActiveRoles({ from: () => b })).toEqual(roles)
+  })
+  it('"error" on a read error, a throw, or a full page that may be truncated', async () => {
+    const mk = (res: any) => { const b: any = { select() { return b }, is() { return b }, limit() { return Promise.resolve(res) } }; return { from: () => b } }
+    expect(await listActiveRoles(mk({ data: null, error: { message: "x" } }))).toBe("error")
+    expect(await listActiveRoles(mk({ data: new Array(1000).fill({ slug: "a", name: "A" }), error: null }))).toBe("error")
+    expect(await listActiveRoles({ from: () => { throw new Error("boom") } })).toBe("error")
   })
 })

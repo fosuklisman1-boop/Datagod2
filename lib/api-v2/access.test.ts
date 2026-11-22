@@ -47,6 +47,7 @@ describe("decideAccess", () => {
     allowedRoles: ["dealer"],
     userRole: "dealer",
     suspended: false,
+    hasGrant: false,
   }
 
   it("allows when everything is right", () => {
@@ -98,5 +99,21 @@ describe("decideAccess", () => {
   })
   it("rejects roles that are not allowed", () => {
     expect(decideAccess({ ...good, userRole: "user" })).toMatchObject({ ok: false, status: 403 })
+  })
+
+  describe("grant", () => {
+    const noRole = { ...good, userRole: "user" }
+    it("lets a granted account through when its role is not allowed", () => {
+      expect(decideAccess({ ...noRole, hasGrant: true })).toEqual({ ok: true })
+    })
+    it("never beats disabled (503)", () => {
+      expect(decideAccess({ ...noRole, hasGrant: true, configEnabled: false })).toMatchObject({ ok: false, status: 503 })
+    })
+    it("never beats suspended, pending, revoked or a wrong key type", () => {
+      expect(decideAccess({ ...noRole, hasGrant: true, suspended: true })).toMatchObject({ ok: false, message: "This account is suspended" })
+      expect(decideAccess({ ...noRole, hasGrant: true, keyStatus: "pending" })).toMatchObject({ ok: false, status: 403 })
+      expect(decideAccess({ ...noRole, hasGrant: true, keyStatus: "revoked" })).toMatchObject({ ok: false, status: 403 })
+      expect(decideAccess({ ...noRole, hasGrant: true, keyType: "sms" })).toMatchObject({ ok: false, status: 403 })
+    })
   })
 })

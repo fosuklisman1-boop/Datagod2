@@ -27,6 +27,7 @@ function makeDeps(over: any = {}) {
       enabled: over.enabled ?? true,
       allowed_roles: over.allowedRoles ?? ["dealer"],
     })),
+    hasGrant: vi.fn(async (_userId: string): Promise<boolean | "error"> => over.grant ?? false),
     touchLastUsed: vi.fn(async () => {}),
     logRequest: vi.fn(async () => {}),
   }
@@ -367,5 +368,69 @@ describe("runV2 failClosedWhenLimiterDegraded", () => {
     const r2 = await runV2(makeDeps({ allowed: false, degraded: true }), FC, handler, input(validKey()))
     expect(r2.status).toBe(429)
     expect(handler).not.toHaveBeenCalled()
+  })
+})
+
+describe("runV2 API access grants", () => {
+  it("never reads the grant when the role is allowed", async () => {
+    const deps = makeDeps({ role: "dealer", grant: "error" })
+    const r = await runV2(deps, OPTS, ok, input(validKey()))
+    expect(r.status).toBe(200)
+    expect(deps.store.hasGrant).not.toHaveBeenCalled()
+  })
+
+  it("a granted account whose role is not allowed gets 200, with ctx.role unchanged", async () => {
+    const deps = makeDeps({ role: "user", grant: true })
+    const seen: V2Context[] = []
+    const r = await runV2(deps, OPTS, async (_r: any, ctx: V2Context) => { seen.push(ctx); return { status: 200, data: {} } }, input(validKey()))
+    expect(r.status).toBe(200)
+    expect(seen[0].role).toBe("user")
+    expect(deps.store.hasGrant).toHaveBeenCalledWith("user-1")
+  })
+
+  it("no grant and a role not allowed is the usual 403", async () => {
+    const r = await runV2(makeDeps({ role: "user", grant: false }), OPTS, ok, input(validKey()))
+    expect(r.status).toBe(403)
+    expect(r.body).toMatchObject({ error: { code: 403, message: "Your account is not permitted to use this API" } })
+  })
+
+  it("a failed grant read is 503 and the handler never runs", async () => {
+    const deps = makeDeps({ role: "user", grant: "error" })
+    const handler = vi.fn(ok)
+    const r = await runV2(deps, OPTS, handler, input(validKey()))
+    expect(r.status).toBe(503)
+    expect(r.body).toMatchObject({ success: false, error: { code: 503 } })
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it("a grants outage never turns pending, revoked, wrong-type, suspended or disabled into 503", async () => {
+    const cases: Array<[any, any, number]> = [
+      [{ row: { status: "pending" } }, OPTS, 403],
+      [{ row: { status: "revoked" } }, OPTS, 403],
+      [{ row: { key_type: "commission" } }, OPTS, 403],
+      [{ suspended: true }, OPTS, 403],
+    ]
+    for (const [over, opts, status] of cases) {
+      const deps = makeDeps({ role: "user", grant: "error", ...over })
+      const r = await runV2(deps, opts, ok, input(validKey()))
+      expect(r.status).toBe(status)
+      expect(deps.store.hasGrant).not.toHaveBeenCalled()
+    }
+    const off = makeDeps({ role: "user", grant: "error", enabled: false })
+    expect((await runV2(off, OPTS, ok, input(validKey()))).status).toBe(503)
+    expect(off.store.hasGrant).not.toHaveBeenCalled()
+  })
+
+  it("a grant never beats suspended, pending, revoked or a wrong key type", async () => {
+    for (const over of [{ suspended: true }, { row: { status: "pending" } }, { row: { status: "revoked" } }, { row: { key_type: "sms" } }]) {
+      const r = await runV2(makeDeps({ role: "user", grant: true, ...over }), OPTS, ok, input(validKey()))
+      expect(r.status).toBe(403)
+    }
+  })
+
+  it("a failed grant read is logged like any other denial", async () => {
+    const deps = makeDeps({ role: "user", grant: "error" })
+    await runV2(deps, OPTS, ok, input(validKey()))
+    expect(deps.store.logRequest).toHaveBeenCalledTimes(1)
   })
 })

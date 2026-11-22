@@ -4,7 +4,7 @@ import { requireCapability } from "@/lib/roles/require-capability"
 import { accessSummary, canIssue, isIssuableType, type AccessSummary } from "@/lib/api-v2/key-issue"
 import type { Environment } from "@/lib/api-v2/keys"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
-import { createKey, getAdminClient, getConfig } from "@/lib/api-v2/store"
+import { createKey, getAdminClient, getConfig, hasGrant } from "@/lib/api-v2/store"
 
 // Service-role client; callers are authenticated via their session bearer token.
 const client = getAdminClient()
@@ -18,30 +18,43 @@ async function getSessionUser(request: NextRequest): Promise<{ id: string } | nu
   return data?.user ?? null
 }
 
-/**
- * Whether the caller may generate keys, derived exactly like POST: role and suspension from the
- * users row (never the token), enabled/allowed roles from getConfig (which already fails closed to
- * disabled). If the users row cannot be read the role is treated as unknown, so the answer is
- * `role_not_allowed` (or `disabled` when v2 is off): fail closed, never `ok`.
- */
-async function callerAccess(userId: string): Promise<AccessSummary> {
-  let role = ""
-  let suspended = false
+/** The account.api capability: "no" is a definite answer, "error" means the check itself failed. */
+async function apiCapability(userId: string): Promise<"yes" | "no" | "error"> {
+  const denied = await requireCapability(client, userId, "account.api")
+  if (!denied) return "yes"
+  return denied.status === 403 ? "no" : "error"
+}
+
+/** The caller's role and suspension from the users row (never the token); null when it cannot be read. */
+async function readCaller(userId: string): Promise<{ role: string; suspended: boolean } | null> {
   try {
-    const { data: userRow, error } = await client
-      .from("users")
-      .select("role, is_suspended")
-      .eq("id", userId)
-      .maybeSingle()
-    if (!error && userRow) {
-      role = typeof userRow.role === "string" ? userRow.role : ""
-      suspended = Boolean(userRow.is_suspended)
-    }
+    const { data, error } = await client.from("users").select("role, is_suspended").eq("id", userId).maybeSingle()
+    if (error || !data) return null
+    return { role: typeof data.role === "string" ? data.role : "", suspended: Boolean(data.is_suspended) }
   } catch {
-    role = ""
+    return null
   }
-  const config = await getConfig(client)
-  return accessSummary({ role, suspended, enabled: config.enabled, allowedRoles: config.allowed_roles })
+}
+
+/**
+ * Whether the caller may generate keys, by the same rule as POST (canRequestKey): a grant satisfies both
+ * the allowed-role and the account.api requirement. The grant is read ONLY when the role or capability
+ * alone would not allow it, and only after enabled/suspended have passed, so a grants outage can change
+ * nothing else. Any failed read (users row, capability, grant) is `null` so the route answers with an error
+ * (the dashboard shows Retry): never "not eligible", never allowed.
+ */
+async function callerAccess(userId: string): Promise<AccessSummary | null> {
+  const [caller, config, capability] = await Promise.all([readCaller(userId), getConfig(client), apiCapability(userId)])
+  if (!caller || capability === "error") return null
+  const base = { role: caller.role, suspended: caller.suspended, enabled: config.enabled, allowedRoles: config.allowed_roles }
+  // Optimistic pass settles disabled and suspended without touching the grants table.
+  const optimistic = accessSummary({ ...base, hasGrant: true, hasApiCapability: true })
+  if (!optimistic.canGenerate) return optimistic
+  const needGrant = capability === "no" || !config.allowed_roles.includes(caller.role)
+  if (!needGrant) return optimistic
+  const granted = await hasGrant(client, userId)
+  if (granted === "error") return null
+  return accessSummary({ ...base, hasGrant: granted, hasApiCapability: capability === "yes" })
 }
 
 /**
@@ -74,6 +87,7 @@ export async function GET(request: NextRequest) {
   ])
 
   if (error) return NextResponse.json({ error: "Failed to fetch API keys" }, { status: 500 })
+  if (!access) return NextResponse.json({ error: "Couldn't check your access. Please try again." }, { status: 503 })
   return NextResponse.json({ keys, access, smsAvailable })
 }
 
@@ -82,8 +96,11 @@ export async function POST(request: NextRequest) {
   const sessionUser = await getSessionUser(request)
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const denied = await requireCapability(client, sessionUser.id, "account.api")
-  if (denied) return denied
+  // A missing capability is not final here: a per-person grant satisfies it, so only a failed check stops now.
+  const capability = await apiCapability(sessionUser.id)
+  if (capability === "error") {
+    return NextResponse.json({ error: "Couldn't check your access. Please try again." }, { status: 503 })
+  }
 
   const rateLimit = await applyRateLimit(request, "api_v2_key_generate", 10, 60 * 60 * 1000, sessionUser.id)
   if (!rateLimit.allowed) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
@@ -104,17 +121,35 @@ export async function POST(request: NextRequest) {
   const keyType = typeof body?.key_type === "string" ? body.key_type : ""
 
   // Role and suspension come from the users table, never from the request or token metadata.
-  const { data: userRow } = await client
-    .from("users")
-    .select("role, is_suspended")
-    .eq("id", sessionUser.id)
-    .maybeSingle()
-  const role = typeof userRow?.role === "string" ? userRow.role : ""
-  const suspended = Boolean(userRow?.is_suspended)
+  // An unreadable row is unknown suspension: refuse (503) rather than let a grant carry a suspended account.
+  const caller = await readCaller(sessionUser.id)
+  if (!caller) {
+    return NextResponse.json({ error: "Couldn't check your access. Please try again." }, { status: 503 })
+  }
+  const { role, suspended } = caller
 
   const config = await getConfig(client)
-  const base = { enabled: config.enabled, type: keyType, role, allowedRoles: config.allowed_roles, suspended }
-  let decision = canIssue({ ...base, hasSmsAccess: true })
+  const base = {
+    enabled: config.enabled,
+    type: keyType,
+    role,
+    allowedRoles: config.allowed_roles,
+    suspended,
+  }
+  // Optimistic pass first (as if granted): it settles disabled, bad type and suspended without reading the
+  // grants table. Only when it passes and the role/capability alone would not allow it is the grant read,
+  // and the decision is re-made with the real answer. A failed grant read is 503, never allowed.
+  let holdsGrant = true
+  let decision = canIssue({ ...base, hasGrant: true, hasApiCapability: true, hasSmsAccess: true })
+  if (decision.ok && (capability === "no" || !config.allowed_roles.includes(role))) {
+    const granted = await hasGrant(client, sessionUser.id)
+    if (granted === "error") {
+      return NextResponse.json({ error: "Couldn't check your access. Please try again." }, { status: 503 })
+    }
+    holdsGrant = granted
+    decision = canIssue({ ...base, hasGrant: granted, hasApiCapability: capability === "yes", hasSmsAccess: true })
+  }
+  const eligibility = { hasGrant: holdsGrant, hasApiCapability: capability === "yes" }
   // SMS access is resolved (and the SMS account created, as v1 does) ONLY for an sms request that
   // already passed every other check, then the decision is re-made with the real answer.
   if (decision.ok && keyType === "sms") {
@@ -124,7 +159,7 @@ export async function POST(request: NextRequest) {
     } catch {
       hasSmsAccess = false
     }
-    decision = canIssue({ ...base, hasSmsAccess })
+    decision = canIssue({ ...base, ...eligibility, hasSmsAccess })
   }
   if (!decision.ok || !isIssuableType(keyType)) {
     const d = decision.ok ? { status: 400, message: "Invalid key_type" } : decision

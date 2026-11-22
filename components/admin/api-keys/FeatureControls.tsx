@@ -5,20 +5,22 @@ import { Check, Loader2, Power, Settings2, X } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { V2_ROLES } from "@/lib/api-v2/lifecycle"
-import { roleLabel, serverChangedUnderDraft, shouldSyncDraft, toggleRole } from "@/lib/api-v2/admin-view"
-import type { ApiConfig } from "./use-console-data"
+import { roleChoices, serverChangedUnderDraft, shouldSyncDraft, toggleRole } from "@/lib/api-v2/admin-view"
+import type { ApiConfig, RoleOption } from "./use-console-data"
 import { Eyebrow, IconChip, InlineError, Panel } from "./ui"
 import { GlobalKill } from "./GlobalKill"
 
 export function FeatureControls({
   config,
+  roles,
   error,
   onSave,
   onRetry,
   onGlobalKill,
 }: {
   config: ApiConfig | null
+  /** Active roles to choose from; null when the list could not be loaded (only the allowed roles show). */
+  roles: RoleOption[] | null
   error: string | null
   onSave: (next: ApiConfig) => Promise<boolean>
   onRetry: () => void
@@ -133,7 +135,7 @@ export function FeatureControls({
           <div className="space-y-2.5">
             <Eyebrow>Allowed roles</Eyebrow>
             <div className="flex flex-wrap gap-2">
-              {V2_ROLES.map((r) => {
+              {roleChoices(roles, draft.allowed_roles).map(({ slug: r, label }) => {
                 const on = draft.allowed_roles.includes(r)
                 return (
                   <button
@@ -149,11 +151,16 @@ export function FeatureControls({
                     )}
                   >
                     {on ? <Check className="size-3.5" aria-hidden /> : <X className="size-3.5" aria-hidden />}
-                    {roleLabel(r)}
+                    {label}
                   </button>
                 )
               })}
             </div>
+            {roles === null && (
+              <p role="status" className="text-xs text-amber-800 dark:text-amber-300">
+                The role list could not be loaded, so only the roles that are allowed now are shown.
+              </p>
+            )}
             <p className="text-xs text-muted-foreground">Only selected roles can generate and use API keys.</p>
           </div>
 

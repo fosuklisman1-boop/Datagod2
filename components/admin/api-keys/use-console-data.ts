@@ -13,6 +13,12 @@ export interface ApiConfig {
   allowed_roles: string[]
 }
 
+/** An active role an admin may allow; the list is null when the server could not load it. */
+export interface RoleOption {
+  slug: string
+  name: string
+}
+
 export interface SourceErrors {
   v1: string | null
   v2: string | null
@@ -31,6 +37,7 @@ export function useConsoleData(enabled: boolean) {
   const [v2, setV2] = useState<V2AdminKey[]>([])
   const [stats, setStats] = useState<AdminStats | null>(null)
   const [config, setConfig] = useState<ApiConfig | null>(null)
+  const [roles, setRoles] = useState<RoleOption[] | null>(null)
   const [errors, setErrors] = useState<SourceErrors>(NO_ERRORS)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<Record<string, boolean>>({})
@@ -46,7 +53,7 @@ export function useConsoleData(enabled: boolean) {
       adminFetch<{ keys?: V1AdminKey[] }>("/api/admin/api-keys"),
       adminFetch<{ keys?: V2AdminKey[] }>("/api/admin/api-v2/keys"),
       adminFetch<{ stats?: AdminStats }>("/api/admin/api-v2/stats"),
-      adminFetch<ApiConfig>("/api/admin/api-v2/config"),
+      adminFetch<ApiConfig & { roles?: RoleOption[] | null }>("/api/admin/api-v2/config"),
     ])
     // Superseded: wait for the newest load instead, so callers (and row busy flags) only
     // resume once the freshest state has been applied.
@@ -54,7 +61,11 @@ export function useConsoleData(enabled: boolean) {
     if (r1.ok) setV1(Array.isArray(r1.data?.keys) ? r1.data.keys : [])
     if (r2.ok) setV2(Array.isArray(r2.data?.keys) ? r2.data.keys : [])
     setStats(rs.ok && rs.data?.stats ? rs.data.stats : null)
-    if (rc.ok && rc.data) setConfig({ enabled: rc.data.enabled === true, allowed_roles: rc.data.allowed_roles ?? [] })
+    if (rc.ok && rc.data) {
+      // The draft config holds only enabled + allowed_roles: the console never sends the approval contact.
+      setConfig({ enabled: rc.data.enabled === true, allowed_roles: rc.data.allowed_roles ?? [] })
+      setRoles(Array.isArray(rc.data.roles) ? rc.data.roles : null)
+    }
     setErrors({
       v1: r1.ok ? null : r1.error,
       v2: r2.ok ? null : r2.error,
@@ -131,7 +142,10 @@ export function useConsoleData(enabled: boolean) {
 
   const saveConfig = useCallback(
     async (next: ApiConfig): Promise<boolean> => {
-      const r = await adminFetch<ApiConfig>("/api/admin/api-v2/config", { method: "PUT", body: JSON.stringify(next) })
+      const r = await adminFetch<ApiConfig>("/api/admin/api-v2/config", {
+        method: "PUT",
+        body: JSON.stringify({ enabled: next.enabled, allowed_roles: next.allowed_roles }),
+      })
       if (!r.ok || !r.data) {
         toast.error(r.error ?? "Failed to save settings")
         return false
@@ -151,7 +165,7 @@ export function useConsoleData(enabled: boolean) {
     await refresh()
   }, [refresh])
 
-  return { keys, stats, config, errors, loading, busy, refresh, saveConfig, globalKill, ...actions }
+  return { keys, stats, config, roles, errors, loading, busy, refresh, saveConfig, globalKill, ...actions }
 }
 
 export type ConsoleData = ReturnType<typeof useConsoleData>

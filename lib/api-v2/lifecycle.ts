@@ -1,8 +1,5 @@
 import type { Environment, KeyStatus } from "./keys"
-
-// PLACEHOLDER: a later task verifies the real role values against the database
-// and corrects this constant if needed. Keep it the single source of role names.
-export const V2_ROLES: readonly string[] = ["user", "sub_agent", "dealer", "admin"]
+import { parseApprovalContact } from "./approval-contact"
 
 export type KeyAction = "approve" | "revoke"
 
@@ -23,14 +20,28 @@ export function applyAction(
   return { ok: false, error: `Cannot revoke a ${from} key` }
 }
 
+export interface ConfigUpdate {
+  enabled?: boolean
+  allowed_roles?: string[]
+  /** Digits, or null to clear. Present only when the request carried an approval_whatsapp property. */
+  approval_whatsapp?: string | null
+}
+
+/**
+ * Shape-checks a config update. `activeRoles` is every slug a requested role may be (the caller decides
+ * what that means: the slugs already stored plus, when the set changes, the active rows in `roles`).
+ * approval_whatsapp is parsed ONLY when the property is present: parseApprovalContact(undefined) means
+ * "clear", so an enabled-only or roles-only save must never reach it.
+ */
 export function parseConfigUpdate(
-  input: unknown
-): { ok: true; value: { enabled?: boolean; allowed_roles?: string[] } } | { ok: false; error: string } {
+  input: unknown,
+  activeRoles: readonly string[]
+): { ok: true; value: ConfigUpdate } | { ok: false; error: string } {
   if (typeof input !== "object" || input === null || Array.isArray(input)) {
     return { ok: false, error: "Update must be an object" }
   }
   const src = input as Record<string, unknown>
-  const value: { enabled?: boolean; allowed_roles?: string[] } = {}
+  const value: ConfigUpdate = {}
 
   if (src.enabled !== undefined) {
     if (typeof src.enabled !== "boolean") return { ok: false, error: "enabled must be a boolean" }
@@ -41,11 +52,16 @@ export function parseConfigUpdate(
     if (!Array.isArray(roles) || !roles.every((r) => typeof r === "string")) {
       return { ok: false, error: "allowed_roles must be an array of strings" }
     }
-    const unknown = (roles as string[]).find((r) => !V2_ROLES.includes(r))
+    const unknown = (roles as string[]).find((r) => !activeRoles.includes(r))
     if (unknown !== undefined) return { ok: false, error: `Unknown role: ${unknown}` }
     value.allowed_roles = Array.from(new Set(roles as string[]))
   }
-  if (value.enabled === undefined && value.allowed_roles === undefined) {
+  if (Object.prototype.hasOwnProperty.call(src, "approval_whatsapp")) {
+    const c = parseApprovalContact(src.approval_whatsapp)
+    if (!c.ok) return { ok: false, error: c.error }
+    value.approval_whatsapp = c.digits
+  }
+  if (value.enabled === undefined && value.allowed_roles === undefined && value.approval_whatsapp === undefined) {
     return { ok: false, error: "Nothing to update" }
   }
   return { ok: true, value }

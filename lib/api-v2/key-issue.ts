@@ -1,4 +1,5 @@
 import type { KeyType } from "./keys"
+import { canRequestKey } from "./eligibility"
 
 const ISSUABLE_TYPES: readonly string[] = ["standard", "commission", "sms"]
 const KNOWN_TYPES: readonly string[] = ["standard", "commission", "sms"]
@@ -15,7 +16,7 @@ export function isIssuableType(type: string): type is KeyType {
 
 /**
  * Pure eligibility decision for issuing a v2 key. Order: v2 switched off (503), then type
- * validity (400), then suspension (403), then role (403). The 503 matches what GET's access
+ * validity (400), then suspension (403), then eligibility (403: grant, or allowed role AND the account.api capability). The 503 matches what GET's access
  * answer says (`disabled` first), so a direct POST cannot mint keys while v2 is dark.
  * `sms` additionally needs `hasSmsAccess` (the caller computes it, only for sms, once everything else
  * passed); a missing flag counts as no access. The flag is ignored for every other type.
@@ -26,6 +27,8 @@ export function canIssue(input: {
   role: string
   allowedRoles: string[]
   suspended: boolean
+  hasGrant: boolean
+  hasApiCapability: boolean
   hasSmsAccess?: boolean
 }): CanIssueResult {
   if (!input.enabled) {
@@ -37,7 +40,7 @@ export function canIssue(input: {
   if (input.suspended) {
     return { ok: false, status: 403, message: "This account is suspended" }
   }
-  if (!input.allowedRoles.includes(input.role)) {
+  if (!canRequestKey(input)) {
     return { ok: false, status: 403, message: "Your account is not eligible for API keys" }
   }
   if (input.type === "sms" && input.hasSmsAccess !== true) {
@@ -66,10 +69,12 @@ export function accessSummary(input: {
   suspended: boolean
   enabled: boolean
   allowedRoles: string[]
+  hasGrant: boolean
+  hasApiCapability: boolean
 }): AccessSummary {
   if (!input.enabled) return { canGenerate: false, reason: "disabled" }
   if (input.suspended) return { canGenerate: false, reason: "suspended" }
-  if (!input.allowedRoles.includes(input.role)) return { canGenerate: false, reason: "role_not_allowed" }
+  if (!canRequestKey(input)) return { canGenerate: false, reason: "role_not_allowed" }
   return { canGenerate: true, reason: "ok" }
 }
 

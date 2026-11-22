@@ -1,6 +1,13 @@
 import type { NextRequest, NextResponse } from "next/server"
 import { applyRateLimit } from "@/lib/rate-limiter"
-import { extractKey, decideAccess, MSG_UNAUTHORIZED, MSG_RATE_LIMITED, MSG_UNAVAILABLE } from "./access"
+import {
+  extractKey,
+  decideAccess,
+  MSG_UNAUTHORIZED,
+  MSG_RATE_LIMITED,
+  MSG_UNAVAILABLE,
+  MSG_ROLE_NOT_ALLOWED,
+} from "./access"
 import { errorBody, successBody, v2Response, type V2ErrorStatus } from "./envelope"
 import { hashV2Key, parseV2Key, type Environment, type KeyType } from "./keys"
 import { resolveLimit, type LimitGroup } from "./limits"
@@ -9,6 +16,7 @@ import {
   getAdminClient,
   getConfig,
   getUserForKey,
+  hasGrant,
   logRequest,
   touchLastUsed,
   type V2KeyOwner,
@@ -45,6 +53,7 @@ export interface V2Deps {
     findKeyByHash(hash: string): Promise<V2KeyRow | null | "error">
     getUserForKey(userId: string): Promise<V2KeyOwner | null | "error">
     getConfig(): Promise<{ enabled: boolean; allowed_roles: string[] }>
+    hasGrant(userId: string): Promise<boolean | "error">
     touchLastUsed(keyId: string): Promise<void>
     logRequest(p: Parameters<typeof logRequest>[1]): Promise<void>
   }
@@ -105,7 +114,8 @@ export async function runV2(
    *      revoked, wrong type, role) also consume the bucket and cannot be used to
    *      force unbounded DB reads/writes.
    *   4. key owner row found (401)
-   *   5. decideAccess: config disabled 503 > suspended > key status > key type > role (logged)
+   *   5. decideAccess: config disabled 503 > suspended > key status > key type > role (logged);
+   *      a role that is not allowed is retried once with the user's grant (read only then)
    *   6. handler; error results and non-2xx statuses map to the error envelope (logged)
    */
   const row = await deps.store.findKeyByHash(hashV2Key(raw))
@@ -158,7 +168,7 @@ export async function runV2(
   }
   const failLogged = (status: V2ErrorStatus, message: string) => finish(fail(status, message), status)
 
-  const access = decideAccess({
+  const accessInput = {
     keyStatus: row.status,
     keyType: row.key_type,
     requiredType: opts.requiredType,
@@ -166,7 +176,17 @@ export async function runV2(
     allowedRoles: config.allowed_roles,
     userRole: user.role,
     suspended: user.suspended,
-  })
+    hasGrant: false,
+  }
+  let access = decideAccess(accessInput)
+  // Only when every other check passed and the role alone is not allowed: ask whether the person holds a
+  // per-person grant. The allowed-role path never reads it, and an outage of the grants table can only
+  // turn this one answer into 503, never a pending/revoked/wrong-type/suspended/disabled one.
+  if (!access.ok && access.status === 403 && access.message === MSG_ROLE_NOT_ALLOWED) {
+    const granted = await deps.store.hasGrant(row.user_id)
+    if (granted === "error") return failLogged(503, MSG_UNAVAILABLE)
+    if (granted) access = decideAccess({ ...accessInput, hasGrant: true })
+  }
   if (!access.ok) return failLogged(access.status, access.message)
 
   const ctx: V2Context = {
@@ -203,6 +223,7 @@ export function withV2(
         findKeyByHash: (h) => findKeyByHash(client, h),
         getUserForKey: (id) => getUserForKey(client, id),
         getConfig: () => getConfig(client),
+        hasGrant: (id) => hasGrant(client, id),
         touchLastUsed: (id) => touchLastUsed(client, id),
         logRequest: (p) => logRequest(client, p),
       },

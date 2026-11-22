@@ -6,7 +6,7 @@ import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { cn } from "@/lib/utils"
 import { statusCounts, type ConsoleKey } from "@/lib/api-v2/admin-view"
 import type { AdminStats, KeyActivity } from "@/lib/api-v2/admin-stats"
-import type { ApiConfig, SourceErrors } from "./use-console-data"
+import type { ApiConfig, RoleOption, SourceErrors } from "./use-console-data"
 import type { KeyRowHandlers } from "./KeyRow"
 import type { LogRow } from "./LogTable"
 import { OverviewTiles } from "./OverviewTiles"
@@ -21,6 +21,8 @@ export interface ConsoleViewProps {
   keys: ConsoleKey[]
   stats: AdminStats | null
   config: ApiConfig | null
+  /** Active roles for the allowed-roles control; null/absent when the list could not be loaded. */
+  roles?: RoleOption[] | null
   errors: SourceErrors
   loading: boolean
   busy: Record<string, boolean>
@@ -63,6 +65,7 @@ export function ConsoleView(p: ConsoleViewProps) {
 
       <FeatureControls
         config={p.config}
+        roles={p.roles ?? null}
         error={p.errors.config}
         onSave={p.saveConfig}
         onRetry={() => void p.refresh()}

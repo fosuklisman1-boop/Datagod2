@@ -96,6 +96,55 @@ export async function getConfig(client: SupabaseLike): Promise<{ enabled: boolea
   }
 }
 
+/**
+ * Whether this user holds a per-person API access grant. "error" = the read failed, which must never
+ * read as "no grant" (a developer would be told they are not permitted during an outage) nor as a grant.
+ */
+export async function hasGrant(client: SupabaseLike, userId: string): Promise<boolean | "error"> {
+  try {
+    const { data, error } = await client
+      .from("api_v2_access_grants")
+      .select("user_id")
+      .eq("user_id", userId)
+      .maybeSingle()
+    if (error) return "error"
+    return Boolean(data)
+  } catch {
+    return "error"
+  }
+}
+
+/**
+ * The admin-set approval WhatsApp number (digits), or null when unset OR on any error, including the
+ * column not existing yet. Deliberately NOT part of getConfig: the request path must never select a
+ * column that code running before the migration (or after a rollback) would not have.
+ */
+export async function getApprovalContact(client: SupabaseLike): Promise<string | null> {
+  try {
+    const { data, error } = await client.from("api_v2_config").select("approval_whatsapp").eq("id", true).maybeSingle()
+    if (error || !data) return null
+    return typeof data.approval_whatsapp === "string" && data.approval_whatsapp ? data.approval_whatsapp : null
+  } catch {
+    return null
+  }
+}
+
+/** Active (not archived) roles an admin may allow, or "error" when the read fails or may be truncated. */
+export async function listActiveRoles(client: SupabaseLike): Promise<Array<{ slug: string; name: string }> | "error"> {
+  const CAP = 1000
+  try {
+    const { data, error } = await client.from("roles").select("slug, name").is("archived_at", null).limit(CAP)
+    if (error || !Array.isArray(data) || data.length >= CAP) return "error"
+    const out: Array<{ slug: string; name: string }> = []
+    for (const r of data) {
+      if (r && typeof r.slug === "string" && r.slug) out.push({ slug: r.slug, name: typeof r.name === "string" && r.name ? r.name : r.slug })
+    }
+    return out
+  } catch {
+    return "error"
+  }
+}
+
 export async function createKey(
   client: SupabaseLike,
   p: { userId: string; type: KeyType; env: Environment; name?: string }

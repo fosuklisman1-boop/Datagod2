@@ -26,6 +26,7 @@ export default function AdminApiKeysPage() {
         keys={data.keys}
         stats={data.stats}
         config={data.config}
+        roles={data.roles}
         errors={data.errors}
         loading={data.loading}
         busy={data.busy}
