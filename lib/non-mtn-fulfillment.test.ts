@@ -143,6 +143,20 @@ describe("createNonMTNOrder", () => {
     expect(result.provider).toBe("xpress")
   })
 
+  it("an explicit capable providerOverride that fails is the only provider called (no fall-through)", async () => {
+    vi.mocked(getProviderNameForNetwork).mockResolvedValue("codecraft")
+    const pinned = fakeProvider("hubnet", { success: false, message: "down", error_type: "API_ERROR" })
+    vi.mocked(getProviderByName).mockReturnValue(pinned)
+
+    const result = await createNonMTNOrder({ ...baseParams, network: "Telecel", providerOverride: "hubnet" })
+
+    expect(result.success).toBe(false)
+    expect(result.provider).toBe("hubnet")
+    expect(pinned.createOrder).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(getProviderByName).mock.calls).toEqual([["hubnet"]])
+    expect(getProviderNameForNetwork).not.toHaveBeenCalled()
+  })
+
   it("falls back to the admin-configured provider when providerOverride is not capable for the network (e.g. sykes is MTN-only)", async () => {
     vi.mocked(getProviderNameForNetwork).mockResolvedValue("xpress")
     const provider = fakeProvider("xpress", { success: true, order_id: "Z", message: "Order queued" })

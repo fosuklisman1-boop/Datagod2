@@ -340,6 +340,21 @@ describe("MTN Fulfillment Service", () => {
       expect(result.provider).toBe("datakazina")
     })
 
+    it("an explicit provider (hard pin) that fails never calls a retry-sequence provider", async () => {
+      const pinned = fakeMtnProvider("hubnet", { success: false, message: "down", error_type: "API_ERROR" })
+      const fallback = fakeMtnProvider("datakazina", { success: true, order_id: "9", message: "ok" })
+      vi.mocked(getRetrySequence).mockResolvedValue(["datakazina", "xpress"])
+      vi.mocked(getProviderByName).mockImplementation(((n: string) => (n === "hubnet" ? pinned : fallback)) as any)
+      const result = await createMTNOrder({ recipient_phone: "0551234567", network: "MTN", size_gb: 1, provider: "hubnet" })
+      expect(pinned.createOrder).toHaveBeenCalledTimes(1)
+      expect(fallback.createOrder).not.toHaveBeenCalled()
+      expect(getRetrySequence).not.toHaveBeenCalled()
+      expect(getMTNProvider).not.toHaveBeenCalled()
+      expect(vi.mocked(getProviderByName).mock.calls.map((c) => c[0])).toEqual(["hubnet"])
+      expect(result.success).toBe(false)
+      expect(result.provider).toBe("hubnet")
+    })
+
     it("ordinary failures still fall through the retry sequence", async () => {
       const primary = fakeMtnProvider("sykes", { success: false, message: "bad", error_type: "API_ERROR" })
       const next = fakeMtnProvider("datakazina", { success: true, order_id: "9", message: "ok" })

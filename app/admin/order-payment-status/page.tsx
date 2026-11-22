@@ -329,7 +329,8 @@ function OrderPaymentStatusPageInner() {
     }
 
     const eligible = pendingMTNOrders.filter(o => !skipIds.has(o.id))
-    const orders = eligible.slice(0, 1000).map(o => ({ id: o.id, type: o.type || "shop" }))
+    // The enqueue route takes at most 200 orders per request; press again for the next 200.
+    const orders = eligible.slice(0, 200).map(o => ({ id: o.id, type: o.type || "shop" }))
 
     if (orders.length === 0) {
       toast.info("All pending orders were already tried this session. Reload to retry them.")
@@ -355,11 +356,17 @@ function OrderPaymentStatusPageInner() {
         throw new Error(err.error || "Enqueue failed")
       }
 
-      const { batchId, queued } = await response.json()
+      const { batchId, queued, rejected } = await response.json()
+      // The server re-checks every order; `queued` is the list it accepted, `rejected` the rest with reasons.
+      const queuedCount = Array.isArray(queued) ? queued.length : Number(queued) || 0
+      const rejectedCount = Array.isArray(rejected) ? rejected.length : 0
       setSkipIds(prev => new Set([...prev, ...orders.map(o => o.id)]))
       setActiveBatchId(batchId)
-      setBatchProgress({ total: queued, pending: queued, processing: 0, completed: 0, failed: 0 })
-      toast.success(`${queued} orders queued — processing in the background`)
+      setBatchProgress({ total: queuedCount, pending: queuedCount, processing: 0, completed: 0, failed: 0 })
+      toast.success(
+        `${queuedCount} orders queued — processing in the background` +
+          (rejectedCount > 0 ? ` (${rejectedCount} skipped by the server check)` : "")
+      )
     } catch (error) {
       console.error("Enqueue error:", error)
       toast.error(error instanceof Error ? error.message : "Failed to queue orders")

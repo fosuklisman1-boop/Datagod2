@@ -60,7 +60,8 @@ export async function drainFulfillmentQueue(supabase: SupabaseClient): Promise<D
           ussdOrder.recipient_phone,
           ussdOrder.package_size ?? "",
           true,
-          table
+          table,
+          row.provider ?? undefined  // the admin's chosen supplier (hard pin), same as the shop/bulk/api path
         )
         success = result.success
         if (!result.success) throw new Error(result.message || "USSD fulfillment failed")

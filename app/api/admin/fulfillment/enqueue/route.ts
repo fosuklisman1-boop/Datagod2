@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
+import { parseEnqueueBody, runEnqueue } from "@/lib/order-queue/enqueue"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -9,35 +10,34 @@ const supabase = createClient(
 
 /**
  * POST /api/admin/fulfillment/enqueue
- * Inserts a batch of orders into fulfillment_queue and returns immediately.
- * The drain cron (/api/cron/drain-fulfillment-queue) processes them every minute.
+ * Body: { orders: {id, type}[] (1..200), provider?: string, riskyAck?: { count } }
+ * Every order is re-read and judged on the server (lib/order-queue/enqueue.ts); only eligible orders
+ * (and held/reversed ones behind a matching riskyAck) are queued. No provider = legacy auto routing.
+ * 200 { batchId, queued: string[], rejected: {id, reason}[], risky: string[] }
+ * 400 { error } for a bad request, or { error: "risky_ack_mismatch", expected } (nothing written).
+ * The drain cron (/api/cron/drain-fulfillment-queue) processes queued rows every minute.
  */
 export async function POST(request: NextRequest) {
-  const { isAdmin, errorResponse } = await verifyAdminAccess(request)
-  if (!isAdmin) return errorResponse
+  const { isAdmin, userId, errorResponse } = await verifyAdminAccess(request)
+  if (!isAdmin || errorResponse) return errorResponse ?? NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  // Bulk sends must be attributable to a person (admin_bulk_send_log.admin_id); the cron-secret bypass has no user.
+  if (!userId) return NextResponse.json({ error: "An admin user is required" }, { status: 403 })
 
-  const body = await request.json()
-  const { orders, provider } = body as {
-    orders: { id: string; type: string }[]
-    provider?: string
+  let body: unknown
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: "invalid JSON" }, { status: 400 })
   }
+  const parsed = parseEnqueueBody(body)
+  if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
 
-  if (!Array.isArray(orders) || orders.length === 0) {
-    return NextResponse.json({ error: "orders array is required" }, { status: 400 })
+  try {
+    const result = await runEnqueue(supabase, parsed.value, userId)
+    return NextResponse.json(result.body, { status: result.status })
+  } catch (err) {
+    // Only the snapshot reads throw (writes report errors per order), so in practice nothing was written.
+    console.error("[ENQUEUE] failed:", err instanceof Error ? err.message : String(err))
+    return NextResponse.json({ error: "Could not check the orders. Check the queue before retrying." }, { status: 500 })
   }
-
-  const batchId = crypto.randomUUID()
-  const rows = orders.map(o => ({
-    batch_id: batchId,
-    order_id: o.id,
-    order_type: o.type || "shop",
-    provider: provider ?? null,
-  }))
-
-  const { error } = await supabase.from("fulfillment_queue").insert(rows)
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-
-  return NextResponse.json({ batchId, queued: rows.length })
 }
