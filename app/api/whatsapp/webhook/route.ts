@@ -15,6 +15,9 @@ import { maybeNotifyAdmins, isHumanRequest } from "@/lib/whatsapp-bot/notify-adm
 import { runAgenticLoop } from "@/lib/ai-agentic-loop"
 import { resolveProviderForContext, DEFAULT_CONFIG, AIProviderConfig } from "@/lib/ai-providers"
 import { describeImage } from "@/lib/ai-vision"
+import { loadAIConfig } from "@/lib/ai-console/load-config"
+import { resolveAssistantSettings } from "@/lib/ai-console/settings"
+import { assistantNameLine as assistantNameLineFor } from "@/lib/ai-console/surface-name"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -648,7 +651,9 @@ async function handleWithAI(phone: string, text: string): Promise<string> {
     channelLink ? `- WhatsApp channel (updates, new bundles & deals): ${channelLink}` : "",
   ].filter(Boolean).join("\n")
 
-  const baseSystem = `You are the Datagod assistant on WhatsApp. Datagod is a Ghanaian platform for mobile data bundles, airtime, AFA registration, exam results services, and customer support.
+  let assistantNameLine = ""
+  try { assistantNameLine = assistantNameLineFor(resolveAssistantSettings(await loadAIConfig(supabase)).name) } catch {}
+  const baseSystem = `You are the Datagod assistant on WhatsApp.${assistantNameLine ? ` ${assistantNameLine}` : ""} Datagod is a Ghanaian platform for mobile data bundles, airtime, AFA registration, exam results services, and customer support.
 
 SERVICES:
 - Data bundles: MTN, Telecel, AirtelTigo — instant delivery after payment

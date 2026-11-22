@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk"
 import type { AIProvider, SystemPrompt } from "@/lib/ai-providers"
 import { aiTools, executeToolCall } from "@/lib/ai-tools"
-import type { AIChatContext, StorefrontServiceFlags } from "@/lib/ai-tools"
+import type { AIChatContext, StorefrontServiceFlags, ToolContext } from "@/lib/ai-tools"
 
 export interface AgenticToolCtx {
   userId?: string
@@ -35,6 +35,8 @@ export interface RunAgenticLoopParams {
   onEvent?: (event: Record<string, unknown>) => void
   /** Narrows the tool list the model sees (cron runs drop every prepare_* tool). A call to a dropped tool is refused. */
   toolFilter?: (tools: Anthropic.Tool[]) => Anthropic.Tool[]
+  /** Test/eval seam: replaces tool execution (the eval harness stubs results). Omitted in production = real executeToolCall. */
+  executeTool?: (name: string, input: Record<string, unknown>, ctx: ToolContext) => Promise<unknown>
 }
 
 export interface AgenticLoopResult {
@@ -58,6 +60,7 @@ export async function runAgenticLoop({
   maxTokens = 1500,
   onEvent,
   toolFilter,
+  executeTool = executeToolCall,
 }: RunAgenticLoopParams): Promise<AgenticLoopResult> {
   const emit = onEvent ?? (() => {})
   const allTools = aiTools(context, storefrontServices)
@@ -99,7 +102,7 @@ export async function runAgenticLoop({
         // A filtered run never executes a tool it was not offered (a model can name one anyway).
         const result = toolFilter && !allowedNames.has(tc.name)
           ? { error: "This tool is not available in this run." }
-          : await executeToolCall(tc.name, tc.input, { ...toolCtx, context, storefrontServices })
+          : await executeTool(tc.name, tc.input, { ...toolCtx, context, storefrontServices })
 
         if (tc.name === "prepare_checkout") {
           emit({ type: "checkout_prefill", data: result })

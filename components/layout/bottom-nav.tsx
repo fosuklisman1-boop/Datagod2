@@ -26,7 +26,7 @@ const SERVICE_FAB_LABELS: Record<DomainService, string> = {
 const ADMIN_NAV = [
   { href: "/admin/users",                label: "Users",    icon: Users,      isFab: false },
   { href: "/admin/order-payment-status", label: "Payments", icon: CreditCard, isFab: false },
-  { href: "/admin/ai-settings",          label: "AI",       icon: Bot,        isFab: true  },
+  { href: "/admin/ai-assistant",         label: "AI",       icon: Bot,        isFab: true  },
   { href: "/admin/packages",             label: "MTN",      icon: Signal,     isFab: false },
   { href: "/admin/ussd-shops",           label: "USSD",     icon: Smartphone, isFab: false },
 ]

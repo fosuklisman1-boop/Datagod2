@@ -7,10 +7,12 @@ import { useDraggableFloatingPosition } from "@/hooks/use-draggable-floating-pos
 import { DraftCard } from "@/components/ai/DraftCard"
 import { usePathname, useRouter } from "next/navigation"
 import { parseReapproveParams } from "@/lib/ai-drafts/deep-link"
-import { ChatWelcome, ChatInput, HandoffButton, SuggestionChips, TypingIndicator, useAssistantName } from "@/components/ai/chat"
+import { ChatWelcome, ChatInput, HandoffButton, SuggestionChips, TypingIndicator, useAssistantProfile } from "@/components/ai/chat"
 import { AssistantMarkdown } from "@/components/ai/chat/AssistantMarkdown"
 import { createIdleTimeout } from "@/lib/ai-chat-ui/idle-timeout"
+import { widgetVisible, isAssistantOffResponse, ASSISTANT_OFF_MESSAGE } from "@/lib/ai-chat-ui/widget-visibility"
 import { followupsFor } from "@/lib/ai-chat-ui/suggestions"
+import { pingConversationEvent } from "@/lib/ai-chat-ui/conversation-events"
 import { safeClear, safeLoad, safeSave, trimHistory } from "@/lib/ai-chat-ui/history"
 
 interface CardData {
@@ -74,7 +76,7 @@ export function DashboardAIChatWidget() {
   const [phone, setPhone] = useState<string | null>(null)
   const [whatsapp, setWhatsapp] = useState<string | null>(null)
   const [historyLoaded, setHistoryLoaded] = useState(false)
-  const assistantName = useAssistantName()
+  const { name: assistantName, audiences } = useAssistantProfile()
   const [balance, setBalance] = useState<string | null>(null)
   const [hintIndex, setHintIndex] = useState(0)
   const [hintVisible, setHintVisible] = useState(true)
@@ -263,6 +265,10 @@ export function DashboardAIChatWidget() {
         body: JSON.stringify({ messages: history, context: "dashboard", ...(conversationKeyRef.current ? { conversationKey: conversationKeyRef.current } : {}) }),
       })
 
+      if (!res.ok && (await isAssistantOffResponse(res))) {
+        setMessages(prev => [...prev, { role: "assistant", content: ASSISTANT_OFF_MESSAGE, timestamp: Date.now() }])
+        return
+      }
       if (!res.ok || !res.body) throw new Error("Request failed")
 
       const reader = res.body.getReader()
@@ -307,6 +313,7 @@ export function DashboardAIChatWidget() {
       const finalMessages = [...nextMessages, { role: "assistant" as const, content: finalText, timestamp: Date.now(), ...(streamError ? { isError: true } : {}), ...(cards.length > 0 ? { cards } : {}) }]
       setMessages(finalMessages)
     } catch {
+      pingConversationEvent(conversationKeyRef.current, "error")
       setMessages([...nextMessages, { role: "assistant" as const, content: "Something went wrong.", timestamp: Date.now(), isError: true, ...(cards.length > 0 ? { cards } : {}) }])
     } finally {
       idle.clear()
@@ -342,7 +349,7 @@ export function DashboardAIChatWidget() {
     return "px-3 py-1.5 rounded-xl text-xs font-medium border border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 transition-colors"
   }
 
-  if (!adminEnabled) return null
+  if (!adminEnabled || !widgetVisible("dashboard", audiences)) return null
 
   return (
     <>
@@ -355,7 +362,7 @@ export function DashboardAIChatWidget() {
               {balance && <p className="text-primary-foreground opacity-90 text-xs">Wallet: {balance}</p>}
             </div>
             <div className="flex items-center gap-3">
-              <HandoffButton mode="thread" messages={messages} getToken={getAccessToken} phone={phone} whatsappNumber={whatsapp} noticeClassName="max-w-[9rem] text-[11px] leading-tight text-primary-foreground" className="text-xs font-medium text-primary-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground" />
+              <HandoffButton mode="thread" messages={messages} conversationKey={conversationKeyRef.current} getToken={getAccessToken} phone={phone} whatsappNumber={whatsapp} noticeClassName="max-w-[9rem] text-[11px] leading-tight text-primary-foreground" className="text-xs font-medium text-primary-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground" />
               {messages.length > 0 && (
                 <button onClick={newChat} disabled={isStreaming} className="text-xs font-medium text-primary-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground disabled:opacity-50">New chat</button>
               )}
@@ -383,7 +390,7 @@ export function DashboardAIChatWidget() {
                       {msg.isError && (
                         <div className="mt-2 flex flex-wrap items-center gap-3">
                           <button onClick={retryLast} disabled={isStreaming} className="text-xs font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50">Try again</button>
-                          <HandoffButton mode="thread" messages={messages} getToken={getAccessToken} phone={phone} whatsappNumber={whatsapp} />
+                          <HandoffButton mode="thread" messages={messages} conversationKey={conversationKeyRef.current} getToken={getAccessToken} phone={phone} whatsappNumber={whatsapp} />
                         </div>
                       )}
                     </div>

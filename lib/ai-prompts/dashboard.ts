@@ -1,8 +1,8 @@
 import { cardNonceRule } from "@/lib/ai-drafts/outcome-notes"
 import { appendKnowledge } from "./knowledge"
-import { draftCardRule, formattingRules, knowledgeBaseRule, type PromptParts } from "./shared"
+import { draftCardRule, formattingRules, knowledgeBaseRule, withAssistantExtras, type AssistantExtras, type PromptParts } from "./shared"
 
-export interface DashboardPromptInput {
+export interface DashboardPromptInput extends AssistantExtras {
   /** Rendered "## Knowledge base" section for this label (or ""); appended to the end of stable. */
   knowledge?: string
   ussdDialCode: string
@@ -127,5 +127,5 @@ You are helping ${i.firstName} ${i.lastName} — account role: **${i.role}**.
 - For once: always set run_at_timestamp as a full ISO datetime in GMT+0 (e.g. "${i.today}T18:00:00Z")
 - Today's date is ${i.today} (GMT+0) — use this to construct run_at_timestamp for "today" or relative dates${cardNonceRule(i.cardNonce)}`
 
-  return { stable: appendKnowledge(stable, i.knowledge), volatile }
+  return { stable: appendKnowledge(withAssistantExtras(stable, i), i.knowledge), volatile }
 }

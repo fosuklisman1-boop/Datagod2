@@ -1,11 +1,14 @@
 import Anthropic from "@anthropic-ai/sdk"
 import { createClient } from "@supabase/supabase-js"
 import { shopHandleOrFilter } from "@/lib/shop-handle"
-import { NextRequest } from "next/server"
+import { after, NextRequest } from "next/server"
+import { recordTurn, type FlagReason } from "@/lib/ai-console/transcripts"
 import { AIChatContext } from "@/lib/ai-tools"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
-import { AIProviderConfig, DEFAULT_CONFIG, resolveProviderForContext } from "@/lib/ai-providers"
+import { resolveProviderForContext } from "@/lib/ai-providers"
+import { loadAIConfig } from "@/lib/ai-console/load-config"
+import { audienceForContext, maxIterationsFor, resolveAssistantSettings } from "@/lib/ai-console/settings"
 import { runAgenticLoop } from "@/lib/ai-agentic-loop"
 import { resolveCustomDomain } from "@/lib/custom-domain-lookup"
 import { normalizeDomainHost, DomainService } from "@/lib/custom-domains"
@@ -23,25 +26,6 @@ const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
-
-// ── AI config cache (30s TTL) ─────────────────────────────────────────────────
-let configCache: { data: AIProviderConfig; ts: number } | null = null
-
-async function loadAIConfig(): Promise<AIProviderConfig> {
-  if (configCache && Date.now() - configCache.ts < 30_000) return configCache.data
-  try {
-    const { data } = await supabaseAdmin
-      .from("admin_settings")
-      .select("value")
-      .eq("key", "ai_provider_config")
-      .maybeSingle()
-    const cfg: AIProviderConfig = (data?.value as AIProviderConfig) ?? DEFAULT_CONFIG
-    configCache = { data: cfg, ts: Date.now() }
-    return cfg
-  } catch {
-    return DEFAULT_CONFIG
-  }
-}
 
 // ── USSD dial code cache (30s TTL) ────────────────────────────────────────────
 let ussdDialCodeCache: { code: string; ts: number } | null = null
@@ -215,8 +199,11 @@ export async function POST(req: NextRequest) {
   // Runs BEFORE the card-results prepend below, which targets the last user message.
   const messages: Anthropic.MessageParam[] = normaliseAndRestrip(cleanedHistory)
   if (messages.length === 0) return fixedTextStream("Please send a message.")
+  // The user's own words for the transcript, taken BEFORE the server-built card-results note is prepended below.
+  const lastUserMsg = [...messages].reverse().find((m) => m.role === "user")
+  const transcriptUserText = typeof lastUserMsg?.content === "string" ? lastUserMsg.content : ""
 
-  const [aiConfig, ussdDialCode, guestPurchaseUrl, communityLink] = await Promise.all([loadAIConfig(), loadUssdDialCode(), loadGuestPurchaseUrl(), loadCommunityLink()])
+  const [aiConfig, ussdDialCode, guestPurchaseUrl, communityLink] = await Promise.all([loadAIConfig(supabaseAdmin), loadUssdDialCode(), loadGuestPurchaseUrl(), loadCommunityLink()])
   const channelNote = communityLink
     ? `\nUPDATES CHANNEL: our WhatsApp channel for updates, new bundles & deals is ${communityLink}. Share it (as a plain URL) when someone asks about updates/promos or wants to stay in the loop.`
     : ""
@@ -277,6 +264,17 @@ export async function POST(req: NextRequest) {
   if (context === "admin" && userRole !== "admin") {
     return new Response(
       JSON.stringify({ error: "Admin access required" }),
+      { status: 403, headers: { "Content-Type": "application/json" } }
+    )
+  }
+
+  // ── Assistant audience switch (admin console) ─────────────────────────────
+  // Before rate limit, provider, knowledge and tools: an audience that is switched off gets no assistant at all.
+  // Signed-in users on a storefront count as shopVisitors (the audience follows the page, not the login).
+  const assistantSettings = resolveAssistantSettings(aiConfig)
+  if (!assistantSettings.audiences[audienceForContext(context)]) {
+    return new Response(
+      JSON.stringify({ error: "assistant_off" }),
       { status: 403, headers: { "Content-Type": "application/json" } }
     )
   }
@@ -418,14 +416,16 @@ export async function POST(req: NextRequest) {
   let systemPrompt: ReturnType<typeof buildHomePrompt>
   switch (context) {
     case "home":
-      systemPrompt = buildHomePrompt({ ussdDialCode, guestPurchaseUrl, channelNote, knowledge })
+      systemPrompt = buildHomePrompt({ ussdDialCode, guestPurchaseUrl, channelNote, knowledge, assistantName: assistantSettings.name, tone: assistantSettings.tone })
       break
     case "storefront":
-      systemPrompt = buildStorefrontPrompt({ shopName, storefrontServices, ussdDialCode, shopUssdCode, knowledge })
+      systemPrompt = buildStorefrontPrompt({ shopName, storefrontServices, ussdDialCode, shopUssdCode, knowledge, tone: assistantSettings.tone })
       break
     case "dashboard":
       systemPrompt = buildDashboardPrompt({
         knowledge,
+        assistantName: assistantSettings.name,
+        tone: assistantSettings.tone,
         ussdDialCode,
         channelNote,
         firstName: userContext.firstName,
@@ -440,6 +440,8 @@ export async function POST(req: NextRequest) {
     case "admin":
       systemPrompt = buildAdminPrompt({
         knowledge,
+        assistantName: assistantSettings.name,
+        tone: assistantSettings.tone,
         ussdDialCode,
         firstName: userContext.firstName,
         lastName: userContext.lastName,
@@ -452,6 +454,36 @@ export async function POST(req: NextRequest) {
         JSON.stringify({ error: "Invalid context" }),
         { status: 400, headers: { "Content-Type": "application/json" } }
       )
+  }
+
+  // ── Transcript capture (redacted; after the response, never delays or breaks the chat) ──
+  // The final assistant text is only known when the stream ends, so the after() task awaits a promise the stream
+  // resolves in its finally. A missing conversationKey (guest widgets that predate keys) gets a fresh one per request.
+  let streamText = ""
+  let streamErrored = false
+  let markStreamDone: () => void = () => {}
+  const streamDone = new Promise<void>((resolve) => { markStreamDone = resolve })
+  const transcriptKey = conversationKey ?? crypto.randomUUID()
+  const captureTranscript = async () => {
+    await streamDone
+    const extraReasons: FlagReason[] = streamErrored ? ["error"] : []
+    await recordTurn(supabaseAdmin, {
+      conversationKey: transcriptKey,
+      context: context as "home" | "storefront" | "dashboard" | "admin",
+      userId: userId ?? null,
+      shopId: shopId ?? null,
+      userText: transcriptUserText,
+      assistantText: streamText,
+      extraReasons,
+    })
+  }
+  // Admin chats are never stored (ruling R4); recordTurn refuses them too.
+  if (context !== "admin") {
+    try {
+      after(captureTranscript)
+    } catch {
+      void captureTranscript() // outside a request scope (tests): a plain un-awaited promise; recordTurn never throws
+    }
   }
 
   // ── Streaming SSE response ────────────────────────────────────────────────
@@ -484,8 +516,11 @@ export async function POST(req: NextRequest) {
             ? { sellsData, sellsAirtime, sellsResultsChecker: sellsRC }
             : undefined,
           maxTokens: context === "admin" ? 2048 : 1500,
-          maxIterations: context === "admin" ? 20 : 10,
-          onEvent: send,
+          maxIterations: maxIterationsFor(context, assistantSettings),
+          onEvent: (e: Record<string, unknown>) => {
+            if (e.type === "text" && typeof e.content === "string") streamText += e.content
+            send(e)
+          },
         })
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
@@ -505,19 +540,24 @@ export async function POST(req: NextRequest) {
           msg = "The AI service is temporarily overloaded. Please try again in a moment."
         } else if (status === 429 || errMsg.toLowerCase().includes("rate limit")) {
           if (isQuota) {
-            msg = `API quota or billing issue with ${aiProviderName === "openai" ? "OpenAI" : aiProviderName === "gemini" ? "Google Gemini" : "the AI provider"}. Add billing or check your quota in Admin → AI Settings.`
+            msg = `API quota or billing issue with ${aiProviderName === "openai" ? "OpenAI" : aiProviderName === "gemini" ? "Google Gemini" : "the AI provider"}. Add billing or check your quota in Admin → AI Assistant.`
           } else {
             msg = "Too many requests. Please wait a moment and try again."
           }
         } else if (status === 401 || status === 403) {
-          msg = `Invalid API key for ${aiProviderName === "openai" ? "OpenAI" : aiProviderName === "gemini" ? "Google Gemini" : "the AI provider"}. Update it in Admin → AI Settings.`
+          msg = `Invalid API key for ${aiProviderName === "openai" ? "OpenAI" : aiProviderName === "gemini" ? "Google Gemini" : "the AI provider"}. Update it in Admin → AI Assistant.`
         } else if (status === 400) {
-          msg = "The AI provider rejected the request — check the model and API key in Admin → AI Settings."
+          msg = "The AI provider rejected the request — check the model and API key in Admin → AI Assistant."
         } else if (status && status >= 500) {
           msg = "The AI service is temporarily unavailable. Please try again shortly."
         }
+        // A client that went away is not a server error: only real provider/server failures flag the chat.
+        const aborted = req.signal.aborted || (err as { name?: string } | null)?.name === "AbortError"
+        if (!aborted) streamErrored = true
+        if (!streamText && !aborted) streamText = msg
         send({ type: "error", content: msg })
       } finally {
+        markStreamDone()
         controller.close()
       }
     },

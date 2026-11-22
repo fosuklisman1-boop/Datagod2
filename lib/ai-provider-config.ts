@@ -16,6 +16,11 @@ export interface AIProviderConfig {
   admin_model?: string
   whatsapp_provider?: ProviderName
   whatsapp_model?: string
+  // Assistant console settings (Phase 5); see lib/ai-console/settings.ts
+  assistant_name?: string
+  tone?: "default" | "professional" | "friendly" | "fun" | "strict" | "concise"
+  audiences?: { admins: boolean; signedIn: boolean; shopVisitors: boolean; publicVisitors: boolean }
+  max_tool_steps?: number | null
 }
 
 export const PROVIDER_MODELS: Record<ProviderName, { id: string; label: string }[]> = {
@@ -35,8 +40,10 @@ export const PROVIDER_MODELS: Record<ProviderName, { id: string; label: string }
     { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro (Powerful)" },
   ],
   deepseek: [
-    { id: "deepseek-chat", label: "DeepSeek V3 (Fast)" },
-    { id: "deepseek-reasoner", label: "DeepSeek R1 (Reasoning)" },
+    { id: "deepseek-flash", label: "DeepSeek Flash" },
+    { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro" },
+    { id: "deepseek-chat", label: "DeepSeek Chat (legacy alias)" },
+    { id: "deepseek-reasoner", label: "DeepSeek Reasoner (legacy alias)" },
   ],
   groq: [
     { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B (Balanced)" },

@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { AIProviderConfig, DEFAULT_CONFIG } from "@/lib/ai-provider-config"
+import { assistantSettingsInputSchema, resolveAssistantSettings } from "@/lib/ai-console/settings"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -32,6 +33,14 @@ export async function GET(request: NextRequest) {
 
   const cfg: AIProviderConfig = (data?.value as AIProviderConfig) ?? {}
 
+  const resolved = resolveAssistantSettings(cfg)
+  const assistant = {
+    assistant_name: resolved.name,
+    tone: resolved.tone,
+    audiences: resolved.audiences,
+    max_tool_steps: resolved.maxToolSteps,
+  }
+
   // Never return raw API keys to the client — return masked versions only
   return NextResponse.json({
     anthropic_api_key_masked: maskKey(cfg.anthropic_api_key),
@@ -52,6 +61,7 @@ export async function GET(request: NextRequest) {
     admin_model: cfg.admin_model ?? DEFAULT_CONFIG.admin_model,
     whatsapp_provider: cfg.whatsapp_provider ?? DEFAULT_CONFIG.whatsapp_provider,
     whatsapp_model: cfg.whatsapp_model ?? DEFAULT_CONFIG.whatsapp_model,
+    ...assistant,
   })
 }
 
@@ -66,6 +76,16 @@ export async function PUT(request: NextRequest) {
     gemini_api_key_new?: string
     deepseek_api_key_new?: string
     groq_api_key_new?: string
+  }
+
+  // Assistant console settings: validated strictly before anything is written.
+  const settingsInput: Record<string, unknown> = {}
+  for (const k of ["assistant_name", "tone", "audiences", "max_tool_steps"] as const) {
+    if ((body as Record<string, unknown>)[k] !== undefined) settingsInput[k] = (body as Record<string, unknown>)[k]
+  }
+  const parsedSettings = assistantSettingsInputSchema.safeParse(settingsInput)
+  if (!parsedSettings.success) {
+    return NextResponse.json({ error: "Invalid assistant settings" }, { status: 400 })
   }
 
   // Load existing config so we don't overwrite keys the user didn't touch
@@ -103,6 +123,7 @@ export async function PUT(request: NextRequest) {
     admin_model: body.admin_model ?? current.admin_model,
     whatsapp_provider: body.whatsapp_provider ?? current.whatsapp_provider,
     whatsapp_model: body.whatsapp_model ?? current.whatsapp_model,
+    ...parsedSettings.data,
   }
 
   const { error } = await supabase

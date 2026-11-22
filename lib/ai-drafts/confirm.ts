@@ -1,4 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { after } from "next/server"
+import { flagCardFailure } from "@/lib/ai-console/transcripts"
 import { claimDraft, expireIfDue, finishDraft, getOwnDraft, recoverStaleExecuting } from "./repo"
 import type { AiDraft, DraftStatus } from "./types"
 import {
@@ -119,6 +121,22 @@ async function safeFinish(db: SupabaseClient, id: string, status: DraftStatus, o
     await finishDraft(db, id, status, outcome, from)
   } catch {
     console.error("ai_drafts: could not record outcome", { status })
+    return
+  }
+  scheduleCardFlag(db, id, status)
+}
+
+/**
+ * Failed / unknown cards flag the chat for review. Fire-and-forget: it costs extra DB round trips with no timeout, so it
+ * must never sit on the confirm / recheck response path. after() inside a request scope, else a non-awaited promise.
+ */
+function scheduleCardFlag(db: SupabaseClient, id: string, status: DraftStatus) {
+  if (status !== "failed" && status !== "unknown") return
+  const run = () => Promise.resolve(flagCardFailure(db, id, status)).catch(() => {})
+  try {
+    after(run)
+  } catch {
+    void run()
   }
 }
 
@@ -298,6 +316,7 @@ export async function recheckDraft(db: SupabaseClient, id: string, caller: Confi
 
   try {
     await finishDraft(db, id, result.status, result.outcome, "unknown")
+    scheduleCardFlag(db, id, result.status)
   } catch {
     // A concurrent recheck already settled it: report the row as it is now.
     const now = await getOwnDraft(db, id, caller.userId)

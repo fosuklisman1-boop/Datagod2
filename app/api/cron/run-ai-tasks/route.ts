@@ -11,11 +11,19 @@ import { computeNextRun } from "@/lib/ai-scheduled/next-run"
 import { withoutPrepareTools, adminBackgroundTools } from "@/lib/ai-scheduled/tools"
 import { cardPushBody } from "@/lib/ai-drafts/deep-link"
 import { runStandingOrder } from "@/lib/ai-drafts/standing-order"
+import { loadAIConfig as loadCachedAIConfig } from "@/lib/ai-console/load-config"
+import { resolveAssistantSettings } from "@/lib/ai-console/settings"
+import { withAssistantName } from "@/lib/ai-console/surface-name"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
+
+/** Configured assistant name (30s cached; defaults on any read error). */
+async function getAssistantName(): Promise<string> {
+  try { return resolveAssistantSettings(await loadCachedAIConfig(supabase)).name } catch { return resolveAssistantSettings(null).name }
+}
 
 function getBaseUrl(): string {
   if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "")
@@ -57,7 +65,7 @@ async function notifyTaskResult(
     .maybeSingle()
   const user = userRow.data
 
-  const title = "DATAGOD AI"
+  const title = await getAssistantName()
   const statusLine = `${success ? "✓" : "✗"} ${task.name}`
   const body = `${statusLine}: ${resultText.slice(0, 180) || (success ? "Task completed." : "Task failed.")}`
   // Push always sent; SMS always added on failures
@@ -83,7 +91,7 @@ async function notifyTaskResult(
     try {
       await sendEmail({
         to: [{ email: user.email }],
-        subject: `DATAGOD AI — ${statusLine}`,
+        subject: `${title} — ${statusLine}`,
         htmlContent: `<p>${resultText.replace(/\n/g, "<br>")}</p>`,
         textContent: resultText,
         type: "scheduled_task_result",
@@ -134,7 +142,7 @@ const SKIP_TEXT: Record<string, string> = {
 }
 
 async function notifyPushOnly(userId: string, body: string) {
-  try { await sendPushToUser(userId, { title: "DATAGOD AI", body: body.slice(0, 180) }) } catch {}
+  try { await sendPushToUser(userId, { title: await getAssistantName(), body: body.slice(0, 180) }) } catch {}
 }
 
 async function processStandingOrder(
@@ -328,7 +336,7 @@ export async function GET(request: NextRequest) {
           effectiveContext = "admin"
         }
 
-        const systemPrompt = buildCronSystemPrompt(effectiveContext, today)
+        const systemPrompt = withAssistantName(buildCronSystemPrompt(effectiveContext, today), await getAssistantName())
         const { provider, model } = resolveProviderForContext(effectiveContext, aiConfig)
 
         // Admin runs only PREPARE cards: a fresh key per run so a run's drafts supersede each other, never the admin's live chat.

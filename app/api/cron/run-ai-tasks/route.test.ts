@@ -55,6 +55,7 @@ vi.mock("@/lib/ai-drafts/standing-order", () => ({ runStandingOrder: (...a: unkn
 
 import { GET } from "./route"
 import { aiTools } from "@/lib/ai-tools"
+import { resetAIConfigCache } from "@/lib/ai-console/load-config"
 
 const USER = "11111111-1111-4111-8111-111111111111"
 const past = () => new Date(Date.now() - 60_000).toISOString()
@@ -78,6 +79,7 @@ function seed(taskOver: Row = {}) {
 const req = () => ({ headers: new Headers() }) as any
 
 beforeEach(() => {
+  resetAIConfigCache()
   h.runStanding.mockReset()
   h.runLoop.mockReset()
   h.push.mockReset()
@@ -217,5 +219,22 @@ describe("run-ai-tasks account gate", () => {
     seed(plainTask)
     await GET(req())
     expect(h.runLoop).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("run-ai-tasks assistant name", () => {
+  it("push_title_default_is_DATAGOD_AI", async () => {
+    seed()
+    h.runStanding.mockResolvedValue({ result: "skipped", reason: "above_cap" })
+    await GET(req())
+    expect(h.push.mock.calls[0][1].title).toBe("DATAGOD AI")
+  })
+
+  it("push_title_uses_configured_name", async () => {
+    seed()
+    h.tables.admin_settings = [{ key: "ai_provider_config", value: { assistant_name: "Kofi Bot" } }]
+    h.runStanding.mockResolvedValue({ result: "skipped", reason: "above_cap" })
+    await GET(req())
+    expect(h.push.mock.calls[0][1].title).toBe("Kofi Bot")
   })
 })

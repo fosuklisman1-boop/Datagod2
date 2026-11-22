@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { sendPushToUser } from "@/lib/push-service"
 import { sendSMS } from "@/lib/sms-service"
+import { loadAIConfig } from "@/lib/ai-console/load-config"
+import { resolveAssistantSettings } from "@/lib/ai-console/settings"
+import { selfNotification } from "@/lib/ai-console/surface-name"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -46,8 +49,9 @@ async function handleNotify(userId: string, body: Record<string, unknown>) {
     return NextResponse.json({ error: "title and message are required" }, { status: 400 })
   }
 
-  const notifTitle = "DATAGOD AI"
-  const notifBody = title !== "DATAGOD AI" ? `${title}: ${message}` : message
+  let assistantName = resolveAssistantSettings(null).name
+  try { assistantName = resolveAssistantSettings(await loadAIConfig(supabase)).name } catch {}
+  const { title: notifTitle, body: notifBody } = selfNotification(assistantName, title, message)
 
   let pushed = 0
   let smsed = 0
@@ -70,7 +74,7 @@ async function handleNotify(userId: string, body: Record<string, unknown>) {
       try {
         const result = await sendSMS({
           phone: user.phone_number,
-          message: `DATAGOD AI — ${notifBody}`.slice(0, 160),
+          message: `${notifTitle} — ${notifBody}`.slice(0, 160),
           type: "reminder",
           userId,
           skipLogging: true,

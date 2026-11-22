@@ -5,6 +5,9 @@ const priceMock = vi.fn()
 vi.mock("@/lib/pricing/wallet-order-price", () => ({
   walletOrderPrice: (...args: unknown[]) => priceMock(...args),
 }))
+// The card-failure flag hook must never block the confirm response: here it never settles.
+const flagHook = vi.hoisted(() => ({ fn: vi.fn(() => new Promise<void>(() => {})) }))
+vi.mock("@/lib/ai-console/transcripts", () => ({ flagCardFailure: (...a: unknown[]) => (flagHook.fn as any)(...a) }))
 const resolveMock = vi.fn()
 vi.mock("./bulk-status-ids", () => ({
   resolveBulkStatusIds: (...args: unknown[]) => resolveMock(...args),
@@ -177,6 +180,18 @@ describe("confirmDraft", () => {
     expect(out!.status).toBe("expired")
     expect(db.tables.ai_drafts[0].status).toBe("expired")
     expect(fetchFn).not.toHaveBeenCalled()
+  })
+
+  it("card_failed_hook_does_not_delay_finish", async () => {
+    priceMock.mockResolvedValue(6) // a failed finish
+    const db = fakeDb(baseTables())
+    const out = await Promise.race([
+      confirmDraft(db, DRAFT, caller(vi.fn())),
+      new Promise<"timeout">((r) => setTimeout(() => r("timeout"), 1500)),
+    ])
+    expect(out).not.toBe("timeout")
+    expect((out as any).status).toBe("failed")
+    expect(flagHook.fn).toHaveBeenCalled() // scheduled, just not awaited
   })
 
   it("price_changed_no_call", async () => {
