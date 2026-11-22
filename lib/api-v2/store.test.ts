@@ -324,7 +324,7 @@ describe("logRequest error_reason", () => {
     expect("error_reason" in ops.find((o) => o.op === "insert")!.payload).toBe(false)
   })
 
-  it("retries once without error_reason when the column does not exist yet (before migration 0194)", async () => {
+  it("retries once without error_reason when the column does not exist yet (before migration 0195)", async () => {
     for (const code of ["PGRST204", "42703"]) {
       const ops: any[] = []
       let calls = 0

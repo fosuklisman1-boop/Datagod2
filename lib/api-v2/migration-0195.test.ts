@@ -1,17 +1,17 @@
-// lib/api-v2/migration-0194.test.ts
-// migrations/0194_api_approval.sql and its self-test, run in PGlite (WASM Postgres). Nothing here touches a real database.
-// 0194 builds on 0128 (api_v2_keys, api_v2_logs, api_v2_config) and the admin_audit_log of 0069 + 0176 (stubbed).
+// lib/api-v2/migration-0195.test.ts
+// migrations/0195_api_approval.sql and its self-test, run in PGlite (WASM Postgres). Nothing here touches a real database.
+// 0195 builds on 0128 (api_v2_keys, api_v2_logs, api_v2_config) and the admin_audit_log of 0069 + 0176 (stubbed).
 import { describe, it, expect, afterEach } from "vitest"
 import { readFileSync } from "fs"
 import { join } from "path"
-import { buildRunString, code } from "./migration-0194-run"
+import { buildRunString, code } from "./migration-0195-run"
 
 const read = (f: string) => readFileSync(join(process.cwd(), "migrations", f), "utf8").replace(/\r\n/g, "\n")
-const FILE = "0194_api_approval.sql"
-const SELFTEST_FILE = "0194_api_approval.selftest.sql"
+const FILE = "0195_api_approval.sql"
+const SELFTEST_FILE = "0195_api_approval.selftest.sql"
 const migration = () => read(FILE)
 
-describe("0194 migration text", () => {
+describe("0195 migration text", () => {
   it("is one transaction with timeouts and exactly one COMMIT", () => {
     const c = code(migration())
     expect(c.match(/^BEGIN;\s*$/gm)).toHaveLength(1)
@@ -66,7 +66,7 @@ describe("0194 migration text", () => {
     const run = buildRunString(migration(), read(SELFTEST_FILE))
     const s = code(run)
     expect(s).not.toMatch(/\bCOMMIT\b/i)
-    expect(s.trimEnd()).toMatch(/RAISE EXCEPTION 'SELFTEST_OK 0194[^']*';\s*END\s*\$selftest\$;$/)
+    expect(s.trimEnd()).toMatch(/RAISE EXCEPTION 'SELFTEST_OK 0195[^']*';\s*END\s*\$selftest\$;$/)
     const doBlock = s.slice(s.lastIndexOf("DO $selftest$"))
     expect(doBlock).not.toMatch(/^\s*END\s*;/im)
   })
@@ -111,7 +111,7 @@ const ROLES = `
   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO anon, authenticated, service_role;
 `
-// auth.users with a real FK target; public.users with only the columns 0194 reads; admin_audit_log as 0069 + 0176 leave it.
+// auth.users with a real FK target; public.users with only the columns 0195 reads; admin_audit_log as 0069 + 0176 leave it.
 const STUBS = `
   CREATE SCHEMA auth;
   CREATE TABLE auth.users(id uuid PRIMARY KEY);
@@ -199,11 +199,11 @@ async function fails(db: any, sql: string, msg?: RegExp): Promise<void> {
   if (msg) expect(String(err.message)).toMatch(msg)
 }
 
-describe.skipIf(!PGliteCtor)("0194 in PGlite", () => {
+describe.skipIf(!PGliteCtor)("0195 in PGlite", () => {
   it("the self-rolling-back run string reports SELFTEST_OK and leaves nothing behind", async () => {
     const db = await fresh()
     await mkUser(db, "dealer")
-    await expect(db.exec(buildRunString(migration(), read(SELFTEST_FILE)))).rejects.toThrow(/^SELFTEST_OK 0194/)
+    await expect(db.exec(buildRunString(migration(), read(SELFTEST_FILE)))).rejects.toThrow(/^SELFTEST_OK 0195/)
     await db.exec("ROLLBACK")
     expect((await db.query("SELECT to_regclass('public.api_v2_access_requests') AS t")).rows[0].t).toBeNull()
     expect((await db.query("SELECT to_regclass('public.api_v2_access_grants') AS t")).rows[0].t).toBeNull()
@@ -220,7 +220,7 @@ describe.skipIf(!PGliteCtor)("0194 in PGlite", () => {
     const st = read(SELFTEST_FILE)
     const doBlock = st.split("\n").slice(st.split("\n").findIndex((l) => /^DO\b/.test(l))).join("\n")
     await db.exec("BEGIN")
-    await expect(db.exec(doBlock)).rejects.toThrow(/^SELFTEST_OK 0194/)
+    await expect(db.exec(doBlock)).rejects.toThrow(/^SELFTEST_OK 0195/)
     await db.exec("ROLLBACK")
   }, 60_000)
 

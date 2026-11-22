@@ -1,4 +1,4 @@
--- 0194_api_approval.sql
+-- 0195_api_approval.sql
 --
 -- API approval release, Task 1: schema and atomic decision functions for admin approval of live API keys and of API access.
 -- ADDITIVE; service-role only. NOT applied by the implementing agent. One transaction. Idempotent (IF NOT EXISTS /
@@ -81,7 +81,7 @@
 --   SELECT count(*) FROM public.api_v2_keys WHERE environment = 'live' AND status = 'pending' AND request_code IS NULL;   -- 0
 --   SELECT indexname FROM pg_indexes WHERE tablename = 'api_v2_keys' AND indexname LIKE 'api_v2_keys_one_%' ORDER BY 1;   -- active_per_slot, pending_per_slot
 --
--- Dry run: migrations/0194_api_approval.selftest.sql (build the run string by code, as lib/api-v2/migration-0194.test.ts does).
+-- Dry run: migrations/0195_api_approval.selftest.sql (build the run string by code, as lib/api-v2/migration-0195.test.ts does).
 
 BEGIN;
 SET LOCAL lock_timeout = '2s';

@@ -1,4 +1,4 @@
-// Developer-side API access requests (api_v2_access_requests, migration 0194) and the alert de-duplication
+// Developer-side API access requests (api_v2_access_requests, migration 0195) and the alert de-duplication
 // for live-key requests. The admin decides through the api_v2_* SQL functions.
 import type { Environment, KeyType } from "./keys"
 import { newRequestCode } from "./request-code"

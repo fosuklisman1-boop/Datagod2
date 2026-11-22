@@ -1,12 +1,12 @@
--- 0194_api_approval.selftest.sql
+-- 0195_api_approval.selftest.sql
 --
--- NOT A MIGRATION. Self-rolling-back dry run for 0194_api_approval.sql.
+-- NOT A MIGRATION. Self-rolling-back dry run for 0195_api_approval.sql.
 --
 -- IMPORTANT: the run string must be built by CODE, never by hand or by a regex strip, and that code must
 -- ASSERT before anything is sent to production that the run string contains no transaction-ending word and that this DO
 -- block has no bare end statement and finishes by raising. (The 0130 incident lesson.) Build it as
--- lib/api-v2/migration-0194-run.ts does:
---   1. 0194_api_approval.sql with BEGIN kept (and both SET LOCALs) and ONLY its final transaction-ending line removed;
+-- lib/api-v2/migration-0195-run.ts does:
+--   1. 0195_api_approval.sql with BEGIN kept (and both SET LOCALs) and ONLY its final transaction-ending line removed;
 --   2. followed by this file from the line that STARTS (column 0) with the DO keyword onward. The header
 --      is not part of the run string (it names the forbidden words).
 --   The DO body has no bare end statement: nested blocks are labelled and the block closes with the $selftest$ tag.
@@ -115,10 +115,10 @@ BEGIN
   -- Approve key: grant makes the user eligible whatever the role ----------------------------------------------------
   INSERT INTO public.api_v2_access_grants (user_id, granted_by) VALUES (v_u, v_actor);
   INSERT INTO public.api_v2_keys (user_id, key_type, environment, status, name, key_hash, key_prefix, rate_limits)
-  VALUES (v_u, 'standard', 'live', 'active', 'selftest 0194', 'selftest-' || gen_random_uuid()::text, 'selftest', '{"purchase": 50}'::jsonb)
+  VALUES (v_u, 'standard', 'live', 'active', 'selftest 0195', 'selftest-' || gen_random_uuid()::text, 'selftest', '{"purchase": 50}'::jsonb)
   RETURNING id INTO v_a;
   INSERT INTO public.api_v2_keys (user_id, key_type, environment, status, name, key_hash, key_prefix, request_code)
-  VALUES (v_u, 'standard', 'live', 'pending', 'selftest 0194', 'selftest-' || gen_random_uuid()::text, 'selftest', public.api_v2_new_request_code())
+  VALUES (v_u, 'standard', 'live', 'pending', 'selftest 0195', 'selftest-' || gen_random_uuid()::text, 'selftest', public.api_v2_new_request_code())
   RETURNING id INTO v_p;
 
   <<b_nullactor>>
@@ -143,7 +143,7 @@ BEGIN
 
   -- Reject key: the active key is untouched ---------------------------------------------------------------------------
   INSERT INTO public.api_v2_keys (user_id, key_type, environment, status, name, key_hash, key_prefix, request_code)
-  VALUES (v_u, 'standard', 'live', 'pending', 'selftest 0194', 'selftest-' || gen_random_uuid()::text, 'selftest', public.api_v2_new_request_code())
+  VALUES (v_u, 'standard', 'live', 'pending', 'selftest 0195', 'selftest-' || gen_random_uuid()::text, 'selftest', public.api_v2_new_request_code())
   RETURNING id INTO v_p2;
   v_r := public.api_v2_reject_key(v_p2, v_actor, 'ab');
   IF v_r IS DISTINCT FROM '{"ok": false, "code": "bad_reason"}'::jsonb THEN RAISE EXCEPTION 'FAIL reject_short_reason %', v_r; END IF;
@@ -159,12 +159,12 @@ BEGIN
 
   -- Slot indexes: a second pending in one slot is refused (23505) ------------------------------------------------------
   INSERT INTO public.api_v2_keys (user_id, key_type, environment, status, name, key_hash, key_prefix)
-  VALUES (v_u, 'standard', 'live', 'pending', 'selftest 0194', 'selftest-' || gen_random_uuid()::text, 'selftest')
+  VALUES (v_u, 'standard', 'live', 'pending', 'selftest 0195', 'selftest-' || gen_random_uuid()::text, 'selftest')
   RETURNING id INTO v_p3;
   <<b_dup>>
   BEGIN
     INSERT INTO public.api_v2_keys (user_id, key_type, environment, status, name, key_hash, key_prefix)
-    VALUES (v_u, 'standard', 'live', 'pending', 'selftest 0194', 'selftest-' || gen_random_uuid()::text, 'selftest');
+    VALUES (v_u, 'standard', 'live', 'pending', 'selftest 0195', 'selftest-' || gen_random_uuid()::text, 'selftest');
     RAISE EXCEPTION 'FAIL second_pending_allowed';
   EXCEPTION WHEN unique_violation THEN
     NULL;
@@ -230,9 +230,9 @@ BEGIN
    ORDER BY u.id LIMIT 1;
   IF v_u2 IS NOT NULL THEN
     INSERT INTO public.api_v2_keys (user_id, key_type, environment, status, name, key_hash, key_prefix)
-    VALUES (v_u2, 'standard', 'live', 'active', 'selftest 0194', 'selftest-' || gen_random_uuid()::text, 'selftest') RETURNING id INTO v_a2;
+    VALUES (v_u2, 'standard', 'live', 'active', 'selftest 0195', 'selftest-' || gen_random_uuid()::text, 'selftest') RETURNING id INTO v_a2;
     INSERT INTO public.api_v2_keys (user_id, key_type, environment, status, name, key_hash, key_prefix)
-    VALUES (v_u2, 'standard', 'live', 'pending', 'selftest 0194', 'selftest-' || gen_random_uuid()::text, 'selftest') RETURNING id INTO v_p3;
+    VALUES (v_u2, 'standard', 'live', 'pending', 'selftest 0195', 'selftest-' || gen_random_uuid()::text, 'selftest') RETURNING id INTO v_p3;
     v_r := public.api_v2_approve_key(v_p3, v_actor);
     IF v_r IS DISTINCT FROM '{"ok": false, "code": "not_eligible"}'::jsonb THEN RAISE EXCEPTION 'FAIL not_eligible %', v_r; END IF;
     IF (SELECT status FROM public.api_v2_keys WHERE id = v_a2) <> 'active' THEN RAISE EXCEPTION 'FAIL not_eligible_touched_old'; END IF;
@@ -249,10 +249,10 @@ BEGIN
    ORDER BY u.id LIMIT 1;
   IF v_u3 IS NOT NULL THEN
     INSERT INTO public.api_v2_keys (user_id, key_type, environment, status, name, key_hash, key_prefix)
-    VALUES (v_u3, 'standard', 'live', 'pending', 'selftest 0194', 'selftest-' || gen_random_uuid()::text, 'selftest') RETURNING id INTO v_p3;
+    VALUES (v_u3, 'standard', 'live', 'pending', 'selftest 0195', 'selftest-' || gen_random_uuid()::text, 'selftest') RETURNING id INTO v_p3;
     v_r := public.api_v2_approve_key(v_p3, v_actor);
     IF v_r IS DISTINCT FROM '{"ok": false, "code": "suspended"}'::jsonb THEN RAISE EXCEPTION 'FAIL suspended %', v_r; END IF;
   END IF;
 
-  RAISE EXCEPTION 'SELFTEST_OK 0194';
+  RAISE EXCEPTION 'SELFTEST_OK 0195';
 END $selftest$;

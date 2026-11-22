@@ -24,7 +24,7 @@ export interface V2KeyRow {
   rate_limits: unknown
   last_used_at: string | null
   created_at: string
-  /** Live keys only, returned by createKey (migration 0194). Never selected on the request hot path. */
+  /** Live keys only, returned by createKey (migration 0195). Never selected on the request hot path. */
   request_code?: string | null
 }
 
@@ -261,7 +261,7 @@ export async function logRequest(
       duration_ms: p.durationMs,
       environment: p.environment,
     }
-    // error_reason arrives with migration 0194. A success never needs it, and an error log written before the
+    // error_reason arrives with migration 0195. A success never needs it, and an error log written before the
     // column exists is retried once without it rather than lost.
     if (p.errorReason) row.error_reason = p.errorReason
     const res = await client.from("api_v2_logs").insert(row)
