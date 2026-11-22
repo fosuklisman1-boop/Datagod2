@@ -74,8 +74,9 @@ export async function PUT(request: NextRequest) {
   if (!parsed.ok) return fail(parsed.error, 400)
   const next = parsed.value
 
-  // The old raw value for the audit log. A read failure must not block a save (switching off must always work).
-  let oldValue: unknown = null
+  // The old raw value for the audit log. A read failure must not block a save (switching off must always work); it is
+  // recorded as a marker so the audit trail is not mistaken for a fresh install (null).
+  let oldValue: unknown = { _read_failed: true }
   const { data: oldRow, error: oldErr } = await supabase
     .from("admin_settings")
     .select("value")
@@ -83,6 +84,19 @@ export async function PUT(request: NextRequest) {
     .maybeSingle()
   if (oldErr) console.error(`${TAG} old value read failed: ${oldErr.message}`)
   else oldValue = (oldRow as { value: unknown } | null)?.value ?? null
+
+  const writeAudit = async (): Promise<boolean> => {
+    const { error } = await supabase
+      .from("auto_fulfil_settings_log")
+      .insert({ admin_id: userId, old_value: oldValue, new_value: next })
+    if (error) console.error(`${TAG} audit log insert failed: ${error.message}`)
+    return !error
+  }
+
+  // Enabling turns on automatic supplier sends: it is never stored without an audit row, so the audit goes first
+  // (a row for an enable whose save then fails records the attempt). Disabling saves first so an audit problem can
+  // never block switching off.
+  if (next.enabled && !(await writeAudit())) return fail("Could not save auto-fulfil settings")
 
   const { error: upErr } = await supabase.from("admin_settings").upsert(
     { key: AUTO_FULFIL_SETTINGS_KEY, value: next, description: DESCRIPTION, updated_at: new Date().toISOString(), updated_by: userId },
@@ -93,9 +107,9 @@ export async function PUT(request: NextRequest) {
     return fail("Could not save auto-fulfil settings")
   }
 
-  // Once saved, cancel waiting rows (when off) and write the audit row; one failing must not skip the other.
-  const problems: string[] = []
+  // Disabled and saved: cancel waiting rows and write the audit row; one failing must not skip the other.
   if (!next.enabled) {
+    const problems: string[] = []
     try {
       const n = await cancelWaitingAutoRows(supabase)
       console.log(`${TAG} switched off by admin ${userId}; cancelled ${n} waiting automatic rows`)
@@ -103,15 +117,9 @@ export async function PUT(request: NextRequest) {
       console.error(`${TAG} cancel waiting rows failed: ${msg(e)}`)
       problems.push("waiting automatic orders could not be cancelled")
     }
+    if (!(await writeAudit())) problems.push("the change could not be written to the audit log")
+    if (problems.length) return fail(`Settings saved, but ${problems.join(" and ")}`)
   }
-  const { error: logErr } = await supabase
-    .from("auto_fulfil_settings_log")
-    .insert({ admin_id: userId, old_value: oldValue, new_value: next })
-  if (logErr) {
-    console.error(`${TAG} audit log insert failed: ${logErr.message}`)
-    problems.push("the change could not be written to the audit log")
-  }
-  if (problems.length) return fail(`Settings saved, but ${problems.join(" and ")}`)
 
   try {
     return NextResponse.json(await buildState(supabase))

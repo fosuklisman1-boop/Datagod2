@@ -185,6 +185,50 @@ describe("/api/admin/auto-fulfil", () => {
     }
   })
 
+  it("PUT enabled:true with a failing audit insert => 500, admin_settings unchanged", async () => {
+    const old = settings({ enabled: false })
+    db.tables.admin_settings.push({ key: AUTO_FULFIL_SETTINGS_KEY, value: old })
+    db.failInsert = (t) => (t === "auto_fulfil_settings_log" ? { message: "log broke secret_z" } : null)
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const r = await PUT(put(settings({ enabled: true })))
+      expect(r.status).toBe(500)
+      expect(JSON.stringify(await r.json())).not.toContain("secret_z")
+      expect(db.calls.some((c) => c.kind === "upsert")).toBe(false)
+      expect(db.tables.admin_settings.find((s) => s.key === AUTO_FULFIL_SETTINGS_KEY)!.value).toEqual(old)
+    } finally {
+      err.mockRestore()
+    }
+  })
+
+  it("PUT enabled:true whose upsert fails => 500 generic; the attempt is audited", async () => {
+    db.failUpsert = () => ({ message: "boom" })
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const r = await PUT(put(settings({ enabled: true })))
+      expect(r.status).toBe(500)
+      expect(await r.json()).toEqual({ error: "Could not save auto-fulfil settings" })
+      expect(db.tables.auto_fulfil_settings_log).toHaveLength(1)
+    } finally {
+      err.mockRestore()
+    }
+  })
+
+  it("PUT when the old value read fails logs old_value { _read_failed: true }, not null", async () => {
+    db.failSelect = (t) => (t === "admin_settings" ? { message: "read broke" } : null)
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      // the reload after save also reads admin_settings; the save and the audit row are what matter here
+      await PUT(put(settings({ enabled: false })))
+      expect(db.tables.auto_fulfil_settings_log).toEqual([
+        expect.objectContaining({ admin_id: ADMIN, old_value: { _read_failed: true } }),
+      ])
+      expect(db.tables.admin_settings.find((s) => s.key === AUTO_FULFIL_SETTINGS_KEY)!.value).toEqual(settings({ enabled: false }))
+    } finally {
+      err.mockRestore()
+    }
+  })
+
   it("PUT enabled:false still cancels waiting rows when the audit log insert fails, and reports 500", async () => {
     db.failInsert = (t) => (t === "auto_fulfil_settings_log" ? { message: "log broke" } : null)
     const err = vi.spyOn(console, "error").mockImplementation(() => {})
