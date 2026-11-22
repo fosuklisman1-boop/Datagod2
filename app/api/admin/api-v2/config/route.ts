@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { getAdminClient, getApprovalContact, listActiveRoles } from "@/lib/api-v2/store"
 import { parseConfigUpdate } from "@/lib/api-v2/lifecycle"
+import { auditApi } from "@/lib/api-v2/admin-audit"
 
 function shape(data: { enabled?: unknown; allowed_roles?: unknown }) {
   return {
@@ -101,10 +102,21 @@ export async function PUT(request: NextRequest) {
     console.error("[ADMIN API V2] Config update error:", error)
     return NextResponse.json({ error: "Failed to update API config" }, { status: 500 })
   }
+  // Audit what changed, never the contact number itself.
+  const audited = await auditApi(supabase, {
+    adminId: userId,
+    action: "api_config",
+    after: {
+      ...("enabled" in parsed.value ? { enabled: parsed.value.enabled } : {}),
+      ...("allowed_roles" in parsed.value ? { allowed_roles: parsed.value.allowed_roles } : {}),
+      ...("approval_whatsapp" in parsed.value ? { approval_contact_changed: true } : {}),
+    },
+  })
   // The contact is echoed only when this save carried it, so every other response is independent of the column.
-  return NextResponse.json(
+  const payload: Record<string, unknown> =
     "approval_whatsapp" in parsed.value
       ? { ...shape(data), approval_whatsapp: parsed.value.approval_whatsapp ?? null }
       : shape(data)
-  )
+  if (!audited) payload.auditFailed = true
+  return NextResponse.json(payload)
 }

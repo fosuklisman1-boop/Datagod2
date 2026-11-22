@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { summarizeKill, type KillStep } from "@/lib/api-v2/admin-actions"
 import { disableV2, revokeAllV2Keys } from "@/lib/api-v2/store"
+import { auditApi } from "@/lib/api-v2/admin-audit"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -13,7 +14,7 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
  * The three steps are attempted independently; one failing never skips the others.
  */
 export async function POST(request: NextRequest) {
-  const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+  const { isAdmin, userId, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse
 
   const supabase = createClient(supabaseUrl, serviceRoleKey, {
@@ -57,8 +58,15 @@ export async function POST(request: NextRequest) {
   }
 
   const summary = summarizeKill({ v1, v2Keys, v2Config })
+  const { v1Disabled, v2Revoked, v2Disabled } = summary.body
+  const audited = await auditApi(supabase, {
+    adminId: userId,
+    action: "api_global_kill",
+    after: { v1Disabled, v2Revoked, v2Disabled },
+  })
+  const extra = audited ? {} : { auditFailed: true }
   if (summary.status !== 200) {
-    return NextResponse.json({ error: summary.body.message, ...summary.body }, { status: summary.status })
+    return NextResponse.json({ error: summary.body.message, ...summary.body, ...extra }, { status: summary.status })
   }
-  return NextResponse.json(summary.body)
+  return NextResponse.json({ ...summary.body, ...extra })
 }

@@ -21,6 +21,7 @@ vi.mock("@/lib/api-v2/store", async () => {
         const b: any = {
           select(cols?: string) { if (rec.cols === undefined) rec.cols = cols; return b },
           update(p: any) { rec.op = "update"; rec.payload = p; return b },
+          insert(p: any) { (rec as any).op = "insert"; rec.payload = p; return b },
           eq() { return b },
           is() { return b },
           limit() { return run() },
@@ -43,6 +44,7 @@ const ROLES = [
 ]
 
 interface World {
+  auditError?: any
   config?: any
   configError?: any
   roles?: any
@@ -53,6 +55,7 @@ interface World {
 }
 function setWorld(w: World = {}) {
   h.resolve = (r: Rec) => {
+    if (r.table === "admin_audit_log") return { data: null, error: w.auditError ?? null }
     if (r.table === "roles") return w.rolesError ? { data: null, error: w.rolesError } : { data: w.roles ?? ROLES, error: null }
     if (r.table !== "api_v2_config") return { data: null, error: null }
     if (r.op === "update") {
@@ -184,5 +187,30 @@ describe("PUT /api/admin/api-v2/config", () => {
   it("rejects invalid JSON with 400", async () => {
     const res = (await PUT({ json: async () => { throw new Error("bad") } } as any))!
     expect(res.status).toBe(400)
+  })
+})
+
+describe("PUT /api/admin/api-v2/config audit", () => {
+  const audits = () => h.recs.filter((r) => r.table === "admin_audit_log" && r.op === "insert")
+  it("a save writes one api_config row with the verified admin and never the phone number", async () => {
+    const res = await put({ enabled: false, approval_whatsapp: "0559919037" })
+    expect(res.status).toBe(200)
+    expect(audits()).toHaveLength(1)
+    const row = audits()[0].payload
+    expect(row).toMatchObject({ admin_id: "admin-1", action: "api_config" })
+    expect(row.new_value).toMatchObject({ enabled: false, approval_contact_changed: true })
+    expect(JSON.stringify(row)).not.toMatch(/559919037/)
+  })
+  it("an audit failure keeps the save and reports auditFailed", async () => {
+    setWorld({ auditError: { message: "x" } })
+    const res = await put({ enabled: false })
+    expect(res.status).toBe(200)
+    expect((await res.json()).auditFailed).toBe(true)
+    expect(updates()).toHaveLength(1)
+  })
+  it("a failed save writes no audit row", async () => {
+    setWorld({ updateError: { message: "x" } })
+    await put({ enabled: false })
+    expect(audits()).toHaveLength(0)
   })
 })
