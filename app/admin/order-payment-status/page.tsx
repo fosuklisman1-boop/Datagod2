@@ -18,7 +18,11 @@ import { QueueTabs } from "@/components/admin/order-queue/queue-tabs"
 import { FilterPanel } from "@/components/admin/order-queue/filter-panel"
 import { QueueTable } from "@/components/admin/order-queue/queue-table"
 import { ActionsMenu, BulkToolDialog } from "@/components/admin/order-queue/actions-menu"
-import { getProviderOptionsForNetwork } from "@/lib/order-queue/supplier-capability"
+import { BulkActionBar } from "@/components/admin/order-queue/bulk-action-bar"
+import { ACK_MISMATCH_COPY, SendConfirmDialog } from "@/components/admin/order-queue/send-confirm-dialog"
+import { SendResults, type SendResultData } from "@/components/admin/order-queue/send-results"
+import { getProviderOptionsForNetwork, suppliersForNetworks, type SupplierOption } from "@/lib/order-queue/supplier-capability"
+import { parseSupplierBalances, summarizeSelection, type SelectionSummary } from "@/lib/order-queue/confirm-summary"
 import { emptySelection, selectionReducer, SELECTION_CAP } from "@/lib/order-queue/selection"
 import { EXPORT_COLUMNS, queueRowsToSheetRows } from "@/lib/order-queue/export"
 import { parseQueueParams, queueParamsToSearch } from "@/lib/order-queue/params"
@@ -107,6 +111,21 @@ function OrderPaymentStatusPageInner() {
   const [selection, dispatchSelection] = useReducer(selectionReducer, undefined, emptySelection)
   const [exporting, setExporting] = useState(false)
 
+  // ── Send selected orders to a chosen supplier ──
+  /** Rows behind an "all matching" selection (≤ SELECTION_CAP), fetched once when it is switched on. */
+  const [allMatchingRows, setAllMatchingRows] = useState<QueueRow[] | null>(null)
+  const [balances, setBalances] = useState<Record<string, string>>({})
+  const balancesRequested = useRef(false)
+  const [sendSupplier, setSendSupplier] = useState<SupplierOption | null>(null)
+  /** The selection as it was when the dialog opened: what the admin confirms is exactly what is sent. */
+  const [sendSummary, setSendSummary] = useState<SelectionSummary | null>(null)
+  const [ackTyped, setAckTyped] = useState("")
+  const [ackChecked, setAckChecked] = useState(false)
+  const [sending, setSending] = useState(false)
+  const [sendError, setSendError] = useState<string | null>(null)
+  const [sendResult, setSendResult] = useState<SendResultData | null>(null)
+  const [barStatusUpdating, setBarStatusUpdating] = useState(false)
+
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null)
   const [fulfillingOrderId, setFulfillingOrderId] = useState<string | null>(null)
   const [autoFulfillmentEnabled, setAutoFulfillmentEnabled] = useState(false)
@@ -194,6 +213,44 @@ function OrderPaymentStatusPageInner() {
     loadQueue(params, false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterKey, isAdmin, adminLoading])
+
+  // "All matching" covers rows that are not loaded: fetch them (capped) so the bar and dialog see every one.
+  useEffect(() => {
+    if (!selection.allMatching) {
+      setAllMatchingRows(null)
+      return
+    }
+    let cancelled = false
+    fetchQueue({ ...paramsRef.current, limit: SELECTION_CAP, offset: 0 })
+      .then((r) => { if (!cancelled) setAllMatchingRows(r.data) })
+      .catch((e) => {
+        if (cancelled) return
+        toast.error(e instanceof Error ? e.message : "Could not load the matching orders")
+        dispatchSelection({ type: "clear" })
+      })
+    return () => { cancelled = true }
+  }, [selection.allMatching])
+
+  const selectedRows = useMemo(
+    () => (selection.allMatching ? allMatchingRows ?? [] : rows.filter((r) => selection.ids.has(r.id))),
+    [selection, allMatchingRows, rows],
+  )
+  const selectionSummary = useMemo(() => summarizeSelection(selectedRows), [selectedRows])
+  const sendSuppliers = useMemo(() => suppliersForNetworks(selectionSummary.networks), [selectionSummary.networks])
+  const anySelected = selection.allMatching || selection.ids.size > 0
+
+  // Supplier balances for the Send menu: fetched once, the first time anything is selected (the route calls every supplier).
+  useEffect(() => {
+    if (!anySelected || balancesRequested.current) return
+    balancesRequested.current = true
+    ;(async () => {
+      try {
+        const res = await fetch("/api/admin/fulfillment/mtn-balance", { headers: await authHeaders() })
+        if (!res.ok) return
+        setBalances(parseSupplierBalances(await res.json().catch(() => null)))
+      } catch { /* balances are optional */ }
+    })()
+  }, [anySelected])
 
   // Poll fulfillment queue progress while a batch is active
   useEffect(() => {
@@ -677,6 +734,95 @@ function OrderPaymentStatusPageInner() {
     }
   }
 
+  const openSendDialog = (supplier: SupplierOption) => {
+    setAckTyped("")
+    setAckChecked(false)
+    setSendError(null)
+    setSendSummary(selectionSummary)
+    setSendSupplier(supplier)
+  }
+
+  // Send the selected orders to ONE supplier (hard pin). The server re-judges every order; the preview
+  // only decides what is offered. Preview-blocked rows are not sent and are listed in the results.
+  const handleSendSelected = async () => {
+    const supplier = sendSupplier
+    const summary = sendSummary
+    if (!supplier || !summary || sending) return
+    const toSend = [...summary.sendable, ...summary.risky]
+    if (toSend.length === 0) return
+    try {
+      setSending(true)
+      setSendError(null)
+      const headers = await authHeaders()
+      if (!headers.Authorization) {
+        setSendError("Session expired. Please refresh.")
+        return
+      }
+      const body: Record<string, unknown> = {
+        orders: toSend.map((r) => ({ id: r.id, type: r.type })),
+        provider: supplier.value,
+      }
+      if (summary.risky.length > 0) body.riskyAck = { count: Number(ackTyped.trim()) }
+      const res = await fetch("/api/admin/fulfillment/enqueue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.status === 400 && data?.error === "risky_ack_mismatch") {
+        setSendError(ACK_MISMATCH_COPY)
+        return
+      }
+      if (!res.ok) {
+        setSendError(typeof data?.error === "string" ? data.error : "Send failed")
+        return
+      }
+      const queued: string[] = Array.isArray(data.queued) ? data.queued : []
+      const rejected: { id: string; reason: string }[] = Array.isArray(data.rejected) ? data.rejected : []
+      setSendResult({
+        supplierLabel: supplier.label,
+        queued,
+        rejected: [...rejected, ...summary.blocked.map((b) => ({ id: b.row.id, reason: b.reason }))],
+        risky: Array.isArray(data.risky) ? data.risky : [],
+      })
+      if (queued.length > 0 && typeof data.batchId === "string") {
+        setActiveBatchId(data.batchId)
+        setBatchProgress({ total: queued.length, pending: queued.length, processing: 0, completed: 0, failed: 0 })
+      }
+      setSendSupplier(null)
+      toast.success(`${queued.length} queued to ${supplier.label}${rejected.length > 0 ? ` · ${rejected.length} rejected` : ""}`)
+      reloadQueue()
+    } catch {
+      setSendError("Send failed — check the queue before trying again.")
+    } finally {
+      setSending(false)
+    }
+  }
+
+  // "Change status" from the bar: the same bulk-update-status route as the row menu, for the selected ids.
+  const handleBarStatusChange = async (status: string) => {
+    const ids = selectedRows.map((r) => r.id)
+    if (ids.length === 0) return
+    if (!window.confirm(`Change ${ids.length} order${ids.length === 1 ? "" : "s"} to "${status}"?`)) return
+    try {
+      setBarStatusUpdating(true)
+      const headers = await authHeaders()
+      const res = await fetch("/api/admin/orders/bulk-update-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify({ orderIds: ids, status }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "Failed to update orders")
+      toast.success(`Updated ${data?.count ?? ids.length} orders to ${status}`)
+      reloadQueue()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update orders")
+    } finally {
+      setBarStatusUpdating(false)
+    }
+  }
+
   const renderRowActions = (order: QueueRow) => (
     <div className="flex min-w-[8.5rem] flex-col gap-2">
       <select
@@ -781,6 +927,8 @@ function OrderPaymentStatusPageInner() {
             </Button>
           )}
         </div>
+
+        {sendResult && <SendResults result={sendResult} onDismiss={() => setSendResult(null)} />}
 
         {/* Fulfillment queue progress */}
         {batchProgress && (
@@ -942,7 +1090,35 @@ function OrderPaymentStatusPageInner() {
             </CardContent>
           </Card>
         </div>
+
+        <BulkActionBar
+          selectedCount={selectedCount}
+          totalGb={selection.allMatching && allMatchingRows === null ? null : selectionSummary.totalGb}
+          suppliers={sendSuppliers}
+          balances={balances}
+          busy={sending || barStatusUpdating || (selection.allMatching && allMatchingRows === null)}
+          exporting={exporting}
+          onSend={openSendDialog}
+          onChangeStatus={handleBarStatusChange}
+          onExport={handleExportSelected}
+          onClear={() => dispatchSelection({ type: "clear" })}
+        />
       </div>
+
+      <SendConfirmDialog
+        supplier={sendSupplier}
+        onOpenChange={(open) => { if (!open) setSendSupplier(null) }}
+        summary={sendSummary ?? selectionSummary}
+        balance={sendSupplier ? balances[sendSupplier.value] : undefined}
+        typedCount={ackTyped}
+        onTypedCountChange={setAckTyped}
+        checked={ackChecked}
+        onCheckedChange={setAckChecked}
+        sending={sending}
+        error={sendError}
+        onSend={handleSendSelected}
+        onCancel={() => setSendSupplier(null)}
+      />
 
       <BulkToolDialog
         open={showBulkUpdate}
