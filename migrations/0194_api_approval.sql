@@ -13,7 +13,7 @@
 --                                             api_v2_keys_one_pending_per_slot (status 'pending'). So an active key and a
 --                                             pending replacement can coexist. Both new indexes are built before the old one is dropped.
 --   api_v2_access_requests                    id, user_id, request_code unique, status (pending/approved/rejected/cancelled),
---                                             reason, created_at, decided_at, decided_by, decision_reason. One pending row per user.
+--                                             reason (the admin's rejection reason), created_at, decided_at, decided_by. One pending row per user.
 --   api_v2_access_grants                      user_id primary key, granted_by, granted_at, request_id. Removing deletes the row;
 --                                             the audit row keeps the history.
 --   api_v2_logs.error_reason                  text null.
@@ -96,8 +96,7 @@ CREATE TABLE IF NOT EXISTS public.api_v2_access_requests (
   reason text,
   created_at timestamptz NOT NULL DEFAULT now(),
   decided_at timestamptz,
-  decided_by uuid,
-  decision_reason text
+  decided_by uuid
 );
 CREATE UNIQUE INDEX IF NOT EXISTS api_v2_access_requests_one_pending_per_user
   ON public.api_v2_access_requests (user_id) WHERE status = 'pending';
@@ -403,7 +402,7 @@ BEGIN
   END IF;
 
   UPDATE public.api_v2_access_requests r
-     SET status = 'rejected', decided_at = now(), decided_by = p_actor, decision_reason = v_reason
+     SET status = 'rejected', decided_at = now(), decided_by = p_actor, reason = v_reason
    WHERE r.id = p_request;
 
   INSERT INTO public.admin_audit_log (admin_id, action, target_user_id, old_value, new_value)

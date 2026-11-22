@@ -195,8 +195,8 @@ describe.skipIf(!PGliteCtor)("0194 in PGlite", () => {
     expect(await cols("api_v2_config")).toContain("approval_whatsapp")
     expect(await cols("api_v2_logs")).toContain("error_reason")
     for (const c of ["request_code", "rejected_at", "rejected_by", "reject_reason"]) expect(await cols("api_v2_keys")).toContain(c)
-    expect(await cols("api_v2_access_requests")).toEqual(
-      expect.arrayContaining(["id", "user_id", "request_code", "status", "reason", "created_at", "decided_at", "decided_by"]),
+    expect([...(await cols("api_v2_access_requests"))].sort()).toEqual(
+      ["id", "user_id", "request_code", "status", "reason", "created_at", "decided_at", "decided_by"].sort(),
     )
     expect(await cols("api_v2_access_grants")).toEqual(expect.arrayContaining(["user_id", "granted_by", "granted_at", "request_id"]))
   }, 60_000)
@@ -419,9 +419,9 @@ describe.skipIf(!PGliteCtor)("0194 in PGlite", () => {
     const req = (await rows(db, `INSERT INTO api_v2_access_requests(user_id, request_code, status) VALUES ('${u}', public.api_v2_new_request_code(), 'pending') RETURNING id`))[0].id
     expect(await call(db, "api_v2_reject_access", req, ACTOR, "no")).toEqual({ ok: false, code: "bad_reason" })
     expect(await call(db, "api_v2_reject_access", req, ACTOR, "y".repeat(201))).toEqual({ ok: false, code: "bad_reason" })
-    expect(await call(db, "api_v2_reject_access", req, ACTOR, "Not a known customer")).toEqual({ ok: true, user_id: u })
-    const r = (await rows(db, `SELECT status, decided_by, decision_reason FROM api_v2_access_requests WHERE id = '${req}'`))[0]
-    expect(r).toEqual({ status: "rejected", decided_by: ACTOR, decision_reason: "Not a known customer" })
+    expect(await call(db, "api_v2_reject_access", req, ACTOR, "  Not a known customer  ")).toEqual({ ok: true, user_id: u })
+    const r = (await rows(db, `SELECT status, decided_by, reason FROM api_v2_access_requests WHERE id = '${req}'`))[0]
+    expect(r).toEqual({ status: "rejected", decided_by: ACTOR, reason: "Not a known customer" })
     expect((await rows(db, "SELECT count(*)::int AS n FROM api_v2_access_grants"))[0].n).toBe(0)
     expect(await call(db, "api_v2_reject_access", req, ACTOR, "again please")).toEqual({ ok: false, code: "stale" })
     expect(await call(db, "api_v2_reject_access", "00000000-0000-0000-0000-00000000dead", ACTOR, "no such")).toEqual({ ok: false, code: "not_found" })
