@@ -220,3 +220,68 @@ describe("recheckBlockedNumbers", () => {
 function idsOf(u: Rec): string[] {
   return (u.filters.find((f) => f[0] === "in" && f[1] === "id")?.[2] as string[]) ?? []
 }
+
+describe("recheck with outside providers", () => {
+  const outsideResult = (allowedPhones: string[]) => async (phones: string[]) => ({
+    providers: ["p1", "hubx"],
+    checkoutProviders: ["p1"],
+    failedProviders: [],
+    rows: phones.map((phone) => ({
+      phone,
+      results: {},
+      allowedByCheckout: false,
+      allowedOutsideCheckout: allowedPhones.includes(phone) ? ["hubx"] : [],
+    })),
+  })
+
+  it("refused by checkout and allowed by an outside provider flips via markAllowedByAdminCheck and is counted", async () => {
+    const { deps, updates } = makeDeps([r("a", "0241111111"), r("b", "0242222222")], () => false)
+    const checkAll = vi.fn(outsideResult(["0241111111"]))
+    const markAllowed = vi.fn(async (rows: Array<{ id: string }>) => ({ updatedIds: rows.map((x) => x.id), failed: false, cacheFailed: 0 }))
+    const res = await recheckBlockedNumbers({}, { ...deps, checkAll, markAllowed })
+    expect(markAllowed).toHaveBeenCalledWith([{ id: "a", phone: "0241111111", allowedBy: "hubx" }])
+    expect(res).toMatchObject({ allowed: 1, stillBlocked: 1, newlyAllowedIds: ["a"] })
+    // the flipped row is not also scheduled
+    expect(updates.flatMap((u) => idsOf(u))).not.toContain("a")
+  })
+
+  it("refused everywhere is scheduled normally", async () => {
+    const { deps } = makeDeps([r("a", "0241111111")], () => false)
+    const markAllowed = vi.fn()
+    const res = await recheckBlockedNumbers({}, { ...deps, checkAll: vi.fn(outsideResult([])), markAllowed })
+    expect(markAllowed).not.toHaveBeenCalled()
+    expect(res).toMatchObject({ stillBlocked: 1, allowed: 0 })
+  })
+
+  it("a checkout outage (null) triggers no outside check", async () => {
+    const { deps } = makeDeps([r("a", "0241111111")], () => null)
+    const checkAll = vi.fn(outsideResult(["0241111111"]))
+    const res = await recheckBlockedNumbers({}, { ...deps, checkAll, markAllowed: vi.fn() })
+    expect(checkAll).not.toHaveBeenCalled()
+    expect(res.unchecked).toBe(1)
+  })
+
+  it("a failed outside flip leaves the row on the normal schedule", async () => {
+    const { deps } = makeDeps([r("a", "0241111111")], () => false)
+    const markAllowed = vi.fn(async () => ({ updatedIds: [], failed: true, cacheFailed: 1 }))
+    const res = await recheckBlockedNumbers({}, { ...deps, checkAll: vi.fn(outsideResult(["0241111111"])), markAllowed })
+    expect(res).toMatchObject({ allowed: 0, stillBlocked: 1 })
+  })
+
+  it("outside checks go in batches of at most 100 and none start after the deadline", async () => {
+    const rows = Array.from({ length: 250 }, (_, i) => r(`id${i}`, `024${String(i).padStart(7, "0")}`))
+    const sizes: number[] = []
+    const checkAll = vi.fn(async (phones: string[]) => { sizes.push(phones.length); return outsideResult([])(phones) })
+    const { deps } = makeDeps(rows, () => false)
+    await recheckBlockedNumbers({}, { ...deps, checkAll, markAllowed: vi.fn() })
+    expect(sizes).toEqual([100, 100, 50])
+
+    sizes.length = 0
+    let calls = 0
+    // before the outside loop the clock is past the deadline after the first batch
+    const clock = () => (calls++ < 4 ? 0 : 201_000)
+    const late = makeDeps(rows, () => false, { clock })
+    await recheckBlockedNumbers({}, { ...late.deps, checkAll, markAllowed: vi.fn() })
+    expect(sizes.length).toBeLessThan(3)
+  })
+})

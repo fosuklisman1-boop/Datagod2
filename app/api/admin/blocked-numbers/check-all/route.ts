@@ -5,6 +5,7 @@ import { verifyAdminAccess } from "@/lib/admin-auth"
 import { supabaseAdmin } from "@/lib/supabase"
 import { recheckBlockedNumbers } from "@/lib/blocked-numbers/recheck"
 import { markAllowedByAdminCheck } from "@/lib/blocked-numbers/admin-allow"
+import { scheduleNotifyNow } from "@/lib/blocked-numbers/notify-now"
 import { checkAllProviders } from "@/lib/blocked-numbers/all-providers"
 import { normalizeGhanaPhone } from "@/lib/phone-format"
 import { isUuid } from "@/lib/blocked-numbers/admin-view"
@@ -82,8 +83,17 @@ export async function POST(request: NextRequest) {
       }
     }
     console.log(`[BLOCKED-ADMIN] check-all rows=${outRows.length} checkoutAllowed=${flipIds.length} flipped=${flipped} flippedOutside=${flippedOutside} recheckFailed=${recheckFailed} flipFailed=${flipFailed}`)
+    let notifyQueued = false
+    if (flipped + flippedOutside > 0) {
+      try {
+        notifyQueued = await scheduleNotifyNow()
+      } catch {
+        notifyQueued = false
+      }
+    }
     return NextResponse.json({
       success: true,
+      ...(notifyQueued ? { notifyQueued: true } : {}),
       providers,
       checkoutProviders,
       failedProviders: failedProviders ?? [],

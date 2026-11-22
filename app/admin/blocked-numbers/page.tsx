@@ -54,6 +54,7 @@ type AllResult = {
   failedProviders?: string[]
   recheckFailed?: boolean
   flipFailed?: boolean
+  notifyQueued?: boolean
   flippedOutside?: number
   flippedOutsideIds?: string[]
   rows: Array<{
@@ -183,6 +184,7 @@ export default function BlockedNumbersPage() {
     try {
       const j = await post("/api/admin/blocked-numbers/recheck", body)
       toast.success(`Checked ${j.checked}: ${j.allowed} now allowed, ${j.stillBlocked} still blocked${j.unchecked ? `, ${j.unchecked} could not be checked` : ""}`)
+      if (j.notifyQueued) toast.success("Ready — customers will be texted now (if SMS is on).")
       await load(true)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Re-check failed")
@@ -200,7 +202,10 @@ export default function BlockedNumbersPage() {
       const j = (await post("/api/admin/blocked-numbers/check-all", { ids })) as AllResult
       if (requestId !== allRequestRef.current) return // a newer check started; drop this stale answer
       setAllResult(j)
-      if (j.flipped > 0) await load(true)
+      if (j.flipped > 0) {
+        if (j.notifyQueued) toast.success("Ready — customers will be texted now (if SMS is on).")
+        await load(true)
+      }
     } catch (e) {
       if (requestId !== allRequestRef.current) return
       setAllOpen(false)

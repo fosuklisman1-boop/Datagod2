@@ -16,10 +16,13 @@ import {
 import { WHITELIST_REGISTRY, type WhitelistEntry } from "@/lib/mtn-providers/provider-whitelist"
 import { setCachedVerdicts } from "@/lib/mtn-providers/verdict-cache"
 import { getBlockedNumbersSettings } from "./settings"
+import { checkAllProviders, type AllProvidersResult } from "./all-providers"
+import { markAllowedByAdminCheck, type AdminAllowRow } from "./admin-allow"
 
 const TABLE = "mtn_blocked_numbers"
 const DAY_MS = 86_400_000
 const CHUNK = 500
+const OUTSIDE_BATCH = 100
 const DEFAULT_LIMIT = 2000
 const EXPIRE_LIMIT = 2000
 const RESOLVER_TIMEOUT_MS = 60_000
@@ -63,6 +66,9 @@ export type RecheckDeps = {
   detailed: typeof checkCustomerFacingVerificationDetailed
   resolve: typeof resolveVerdicts
   setCache: typeof setCachedVerdicts
+  /** Ask every configured provider (incl. outside the checkout list). Optional: absent = no outside pass. */
+  checkAll?: (phones: string[]) => Promise<AllProvidersResult>
+  markAllowed?: (rows: AdminAllowRow[]) => Promise<{ updatedIds: string[]; failed: boolean; cacheFailed: number }>
 }
 
 const realDeps = (): RecheckDeps => ({
@@ -75,6 +81,8 @@ const realDeps = (): RecheckDeps => ({
   detailed: checkCustomerFacingVerificationDetailed,
   resolve: resolveVerdicts,
   setCache: setCachedVerdicts,
+  checkAll: (phones) => checkAllProviders(phones),
+  markAllowed: (rows) => markAllowedByAdminCheck(rows),
 })
 
 type DueRow = { id: string; phone: string; recheck_count: number; status: string }
@@ -156,9 +164,39 @@ export async function recheckBlockedNumbers(opts: RecheckOpts = {}, deps: Rechec
     }
     const verdicts = await deps.resolve(part.map((r) => r.phone), io)
 
+    // Rows the checkout list definitely refused (false, never null/outage) are also asked of the providers
+    // outside the checkout list. Any approval flips through markAllowedByAdminCheck (verdict written and read
+    // back first, then guarded flip). Batches of at most 100; none start after the run deadline.
+    const outsideFlipped = new Set<string>()
+    if (deps.checkAll && deps.markAllowed) {
+      const refused = part.filter((row) => verdicts.get(row.phone) === false)
+      for (const batch of chunked(refused, OUTSIDE_BATCH)) {
+        if (deps.clock() - startedAt >= RUN_DEADLINE_MS) break
+        try {
+          const all = await deps.checkAll(batch.map((row) => row.phone))
+          const byPhone = new Map(all.rows.map((x) => [x.phone, x]))
+          const candidates = batch.flatMap((row) => {
+            const by = byPhone.get(row.phone)?.allowedOutsideCheckout?.[0]
+            return by ? [{ id: row.id, phone: row.phone, allowedBy: by }] : []
+          })
+          if (candidates.length === 0) continue
+          const done = await deps.markAllowed(candidates)
+          for (const id of done.updatedIds) {
+            outsideFlipped.add(id)
+            result.newlyAllowedIds.push(id)
+            result.allowed++
+            result.checked++
+          }
+        } catch {
+          console.error("[BLOCKED-RECHECK] outside provider check failed")
+        }
+      }
+    }
+
     const flips = new Map<string, DueRow[]>() // `${allowed_by}|${status}` -> rows
     const stills = new Map<string, DueRow[]>() // `${new count}|${status}` -> rows
     for (const row of part) {
+      if (outsideFlipped.has(row.id)) continue
       const patch = nextState(row, verdicts.get(row.phone) ?? null, approvedBy.get(row.phone) ?? null, now)
       if (!patch) {
         result.unchecked++
