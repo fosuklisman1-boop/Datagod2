@@ -49,6 +49,50 @@ describe("ai_config_put_validates_and_masks", () => {
     expect(h.upserted).toBeNull()
   })
 
+  const PROVIDERS = ["anthropic", "openai", "gemini", "deepseek", "groq"] as const
+  const getJson = async () => (await GET(new NextRequest("http://localhost/api/admin/ai-config"))).json()
+
+  it.each(PROVIDERS)("GET shows only the last 4 characters of the %s key", async (p) => {
+    const key = "sk-FAKEabcdefghijklmnopqrstWXYZ"
+    h.stored = { [`${p}_api_key`]: key }
+    const got = await getJson()
+    expect(got[`${p}_api_key_masked`]).toBe("ends in WXYZ")
+    expect(got[`${p}_key_set`]).toBe(true)
+    const body = JSON.stringify(got)
+    for (let i = 0; i + 5 <= key.length; i++) expect(body).not.toContain(key.slice(i, i + 5))
+  })
+
+  it.each(["sk-12345", "fifteen-chars15"])("GET shows nothing of a key too short to mask safely (%s)", async (key) => {
+    h.stored = { deepseek_api_key: key }
+    const got = await getJson()
+    expect(got.deepseek_api_key_masked).toBe("")
+    expect(got.deepseek_key_set).toBe(true)
+  })
+
+  it("GET masks from 16 characters", async () => {
+    h.stored = { deepseek_api_key: "sixteen-charWXYZ" }
+    expect((await getJson()).deepseek_api_key_masked).toBe("ends in WXYZ")
+  })
+
+  it("GET ignores whitespace pasted around a key", async () => {
+    h.stored = { deepseek_api_key: "  sk-FAKEabcdefghijklmnopqrstWXYZ \n" }
+    expect((await getJson()).deepseek_api_key_masked).toBe("ends in WXYZ")
+  })
+
+  it("GET still loads when a stored key is not text", async () => {
+    h.stored = { deepseek_api_key: 12345678901234567890, groq_api_key: { x: 1 } }
+    const res = await GET(new NextRequest("http://localhost/api/admin/ai-config"))
+    expect(res.status).toBe(200)
+    const got = await res.json()
+    expect(got.deepseek_api_key_masked).toBe("")
+    expect(got.groq_api_key_masked).toBe("")
+  })
+
+  it("GET refuses non-admins", async () => {
+    h.admin = false
+    expect((await GET(new NextRequest("http://localhost/api/admin/ai-config"))).status).toBe(403)
+  })
+
   it("GET defaults when nothing stored; non-admins are refused", async () => {
     h.stored = {}
     const got = await (await GET(new NextRequest("http://localhost/api/admin/ai-config"))).json()
