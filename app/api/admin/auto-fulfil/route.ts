@@ -85,6 +85,17 @@ export async function PUT(request: NextRequest) {
   if (oldErr) console.error(`${TAG} old value read failed: ${oldErr.message}`)
   else oldValue = (oldRow as { value: unknown } | null)?.value ?? null
 
+  // Lost-update guard: a panel can hold a poll up to 30 s old, so an ordinary "Save settings" must not flip the switch.
+  // Only an explicit toggle (the switch itself, behind its confirm dialog) may change `enabled`. An unreadable stored
+  // value is "unknown": enabling then fails closed, switching off still goes through.
+  const toggle = typeof body === "object" && body !== null && (body as { toggle?: unknown }).toggle === true
+  if (oldErr) {
+    if (next.enabled) return fail("enabled_changed", 409)
+  } else {
+    const storedEnabled = (oldValue as { enabled?: unknown } | null)?.enabled === true
+    if (storedEnabled !== next.enabled && !toggle) return fail("enabled_changed", 409)
+  }
+
   const writeAudit = async (): Promise<boolean> => {
     const { error } = await supabase
       .from("auto_fulfil_settings_log")

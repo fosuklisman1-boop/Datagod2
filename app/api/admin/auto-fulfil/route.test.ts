@@ -136,7 +136,7 @@ describe("/api/admin/auto-fulfil", () => {
     const old = settings({ enabled: false, perRun: 10 })
     db.tables.admin_settings.push({ key: AUTO_FULFIL_SETTINGS_KEY, value: old })
     const next = settings({ enabled: true, perRun: 30, networks: ["MTN", "Telecel"] })
-    const r = await PUT(put(next))
+    const r = await PUT(put({ ...next, toggle: true }))
     expect(r.status).toBe(200)
     const body = await r.json()
     expect(body.settings).toEqual(next)
@@ -158,8 +158,76 @@ describe("/api/admin/auto-fulfil", () => {
 
   it("PUT on a fresh install logs old_value null", async () => {
     const next = settings({ enabled: true })
-    expect((await PUT(put(next))).status).toBe(200)
+    expect((await PUT(put({ ...next, toggle: true }))).status).toBe(200)
     expect(db.tables.auto_fulfil_settings_log).toEqual([expect.objectContaining({ admin_id: ADMIN, old_value: null, new_value: next })])
+  })
+
+  describe("lost update guard (stale panel)", () => {
+    const stored = (enabled: boolean) => db.tables.admin_settings.push({ key: AUTO_FULFIL_SETTINGS_KEY, value: settings({ enabled }) })
+    const storedValue = () => db.tables.admin_settings.find((s) => s.key === AUTO_FULFIL_SETTINGS_KEY)?.value
+
+    it("stored off, body on, no toggle => 409 enabled_changed, nothing written", async () => {
+      stored(false)
+      const r = await PUT(put(settings({ enabled: true })))
+      expect(r.status).toBe(409)
+      expect(await r.json()).toEqual({ error: "enabled_changed" })
+      expect(writes()).toEqual([])
+      expect((storedValue() as any).enabled).toBe(false)
+    })
+
+    it("stored on, body off, no toggle => 409 and the switch stays on", async () => {
+      stored(true)
+      const r = await PUT(put(settings({ enabled: false })))
+      expect(r.status).toBe(409)
+      expect(writes()).toEqual([])
+      expect((storedValue() as any).enabled).toBe(true)
+    })
+
+    it("toggle:true lets the switch change", async () => {
+      stored(false)
+      const r = await PUT(put({ ...settings({ enabled: true }), toggle: true }))
+      expect(r.status).toBe(200)
+      expect((storedValue() as any).enabled).toBe(true)
+    })
+
+    it("toggle must be exactly true (a truthy string does not count)", async () => {
+      stored(false)
+      expect((await PUT(put({ ...settings({ enabled: true }), toggle: "true" }))).status).toBe(409)
+    })
+
+    it("same enabled value without toggle saves normally (on and off)", async () => {
+      stored(true)
+      expect((await PUT(put(settings({ enabled: true, perRun: 12 })))).status).toBe(200)
+      expect((storedValue() as any).perRun).toBe(12)
+      db.tables.admin_settings = db.tables.admin_settings.filter((s) => s.key !== AUTO_FULFIL_SETTINGS_KEY)
+      stored(false)
+      expect((await PUT(put(settings({ enabled: false, perRun: 13 })))).status).toBe(200)
+    })
+
+    it("no stored row counts as off: enabling without toggle => 409; saving off => fine", async () => {
+      expect((await PUT(put(settings({ enabled: true })))).status).toBe(409)
+      expect((await PUT(put(settings({ enabled: false })))).status).toBe(200)
+    })
+
+    it("stored value unreadable and body enables => 409 even with toggle (fail closed); body disables => saves", async () => {
+      db.failSelect = (t) => (t === "admin_settings" ? { message: "read broke" } : null)
+      const err = vi.spyOn(console, "error").mockImplementation(() => {})
+      try {
+        expect((await PUT(put({ ...settings({ enabled: true }), toggle: true }))).status).toBe(409)
+        expect(db.calls.some((c) => c.kind === "upsert")).toBe(false)
+        await PUT(put(settings({ enabled: false })))
+        expect(db.calls.some((c) => c.kind === "upsert")).toBe(true)
+      } finally {
+        err.mockRestore()
+      }
+    })
+
+    it("the toggle flag is not stored in the settings or the audit row", async () => {
+      stored(false)
+      await PUT(put({ ...settings({ enabled: true }), toggle: true }))
+      expect(JSON.stringify(storedValue())).not.toContain("toggle")
+      expect(JSON.stringify(db.tables.auto_fulfil_settings_log)).not.toContain("toggle")
+    })
   })
 
   it("PUT enabled:false => waiting auto rows cancelled", async () => {
@@ -191,7 +259,7 @@ describe("/api/admin/auto-fulfil", () => {
     db.failInsert = (t) => (t === "auto_fulfil_settings_log" ? { message: "log broke secret_z" } : null)
     const err = vi.spyOn(console, "error").mockImplementation(() => {})
     try {
-      const r = await PUT(put(settings({ enabled: true })))
+      const r = await PUT(put({ ...settings({ enabled: true }), toggle: true }))
       expect(r.status).toBe(500)
       expect(JSON.stringify(await r.json())).not.toContain("secret_z")
       expect(db.calls.some((c) => c.kind === "upsert")).toBe(false)
@@ -205,7 +273,7 @@ describe("/api/admin/auto-fulfil", () => {
     db.failUpsert = () => ({ message: "boom" })
     const err = vi.spyOn(console, "error").mockImplementation(() => {})
     try {
-      const r = await PUT(put(settings({ enabled: true })))
+      const r = await PUT(put({ ...settings({ enabled: true }), toggle: true }))
       expect(r.status).toBe(500)
       expect(await r.json()).toEqual({ error: "Could not save auto-fulfil settings" })
       expect(db.tables.auto_fulfil_settings_log).toHaveLength(1)
