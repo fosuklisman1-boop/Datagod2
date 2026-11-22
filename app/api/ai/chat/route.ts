@@ -492,13 +492,19 @@ export async function POST(req: NextRequest) {
     async start(controller) {
       // A throw from enqueue means the client disconnected; that is not a server error and must not flag the chat.
       let clientGone = false
-      function send(data: Record<string, unknown>) {
+      const CLIENT_GONE = new Error("client disconnected")
+      function trySend(data: Record<string, unknown>) {
         if (clientGone) return
         try {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
         } catch {
           clientGone = true
         }
+      }
+      // Used by the agent loop: once the client is gone, throw so the loop stops (no more LLM or tool calls).
+      function send(data: Record<string, unknown>) {
+        trySend(data)
+        if (clientGone) throw CLIENT_GONE
       }
 
       try {
@@ -562,7 +568,7 @@ export async function POST(req: NextRequest) {
         const aborted = clientGone || req.signal.aborted || (err as { name?: string } | null)?.name === "AbortError"
         if (!aborted) streamErrored = true
         if (!streamText && !aborted) streamText = msg
-        send({ type: "error", content: msg })
+        trySend({ type: "error", content: msg })
       } finally {
         markStreamDone()
         try { controller.close() } catch { /* already closed by a cancel */ }

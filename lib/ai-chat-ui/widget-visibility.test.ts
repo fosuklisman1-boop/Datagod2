@@ -36,3 +36,12 @@ describe("assistant_off_bubble", () => {
     expect([{ role: "user", content: "hi" }, m].filter((x: any) => !x.isError)).toHaveLength(1)
   })
 })
+
+describe("showTryAgain", () => {
+  it("is false for the switched-off bubble, true for other errors", async () => {
+    const { showTryAgain, assistantOffMessage } = await import("./widget-visibility")
+    expect(showTryAgain(assistantOffMessage(1))).toBe(false)
+    expect(showTryAgain({ role: "assistant", content: "Something went wrong.", isError: true })).toBe(true)
+    expect(showTryAgain({ role: "assistant", content: "ok" })).toBe(false)
+  })
+})

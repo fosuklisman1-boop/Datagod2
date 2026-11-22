@@ -8,7 +8,7 @@ import { useDomainBranding } from "@/components/providers/domain-branding-provid
 import { ChatWelcome, ChatInput, HandoffButton, MessageText, CopyAnnounceProvider, SuggestionChips, TypingIndicator, useAssistantProfile } from "@/components/ai/chat"
 import { whatsappHref } from "@/lib/ai-chat-ui/handoff"
 import { createIdleTimeout } from "@/lib/ai-chat-ui/idle-timeout"
-import { widgetVisible, isAssistantOffResponse, assistantOffMessage } from "@/lib/ai-chat-ui/widget-visibility"
+import { widgetVisible, isAssistantOffResponse, assistantOffMessage, showTryAgain } from "@/lib/ai-chat-ui/widget-visibility"
 import { followupsFor } from "@/lib/ai-chat-ui/suggestions"
 import { newConversationKey, pingConversationEvent } from "@/lib/ai-chat-ui/conversation-events"
 import { safeLoad, safeSave, safeClear, trimHistory } from "@/lib/ai-chat-ui/history"
@@ -385,7 +385,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }
                       <div className="max-w-[85%] rounded-2xl rounded-bl-sm px-3 py-2 text-sm leading-relaxed bg-muted text-foreground">
                         <p>{msg.content}</p>
                         <div className="mt-2 flex flex-wrap items-center gap-3">
-                          <button onClick={retryLast} disabled={isStreaming} className="text-xs font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50">Try again</button>
+                          {showTryAgain(msg) && <button onClick={retryLast} disabled={isStreaming} className="text-xs font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50">Try again</button>}
                           <HandoffButton mode="whatsapp" messages={messages} conversationKey={conversationKeyRef.current} whatsappNumber={whatsapp} />
                         </div>
                       </div>

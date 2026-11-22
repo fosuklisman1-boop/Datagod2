@@ -210,3 +210,33 @@ describe("client disconnect", () => {
     expect(turns[0].extraReasons).toEqual([])
   })
 })
+
+describe("client_gone_stops_loop", () => {
+  it("aborts the loop at the first failed enqueue: no further steps, transcript still recorded", async () => {
+    const turns: Array<{ extraReasons: string[]; assistantText: string }> = []
+    h.recordTurn.mockImplementation(async (_s: unknown, t: { extraReasons: string[]; assistantText: string }) => { turns.push(t) })
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    const steps: string[] = []
+    h.runAgenticLoop.mockImplementation(async (a: { onEvent: (e: Record<string, unknown>) => void }) => {
+      a.onEvent({ type: "text", content: "streamed " })
+      await gate
+      a.onEvent({ type: "text", content: "after-gone" }) // throws: client left
+      steps.push("llm-call-2")
+      steps.push("tool-exec")
+      return { text: "", toolsUsed: [] }
+    })
+    const req = new NextRequest("http://localhost/api/ai/chat", {
+      method: "POST",
+      headers: { authorization: "Bearer tok", "content-type": "application/json" },
+      body: JSON.stringify({ context: "dashboard", messages: [{ role: "user", content: "hi" }], conversationKey: CK }),
+    })
+    const res = await POST(req)
+    await res.body!.cancel()
+    release()
+    await vi.waitFor(() => expect(turns).toHaveLength(1))
+    expect(steps).toEqual([])
+    expect(turns[0].extraReasons).toEqual([])
+    expect(turns[0].assistantText).toContain("streamed")
+  })
+})
