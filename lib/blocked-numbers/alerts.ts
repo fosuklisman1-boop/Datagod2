@@ -38,7 +38,7 @@ export function buildDigest(s: DigestStats): { subject: string; html: string; pu
     `${fmt(s.customersTexted)} customers texted, ${fmt(s.expired)} expired.`
   const notes: string[] = []
   if (s.unchecked > 0) notes.push(`${fmt(s.unchecked)} numbers could not be checked in the last run (provider errors).`)
-  if (s.deferred > 0) notes.push(`${fmt(s.deferred)} numbers were deferred (run deadline); they stay due for the next run.`)
+  if (s.deferred > 0) notes.push(`${fmt(s.deferred)} numbers were not fully checked (time limit or providers not answering); they stay due for the next run.`)
   const html =
     `<h3>Blocked MTN numbers: ${esc(s.day)}</h3>` +
     `<ul>` +

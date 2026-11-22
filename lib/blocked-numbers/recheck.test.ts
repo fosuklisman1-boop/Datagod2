@@ -321,6 +321,21 @@ describe("recheck with outside providers", () => {
     expect(res).toMatchObject({ stillBlocked: 200, checked: 200, deferred: 50 })
   })
 
+  it("a batch that throws, or where every outside provider failed, keeps its rows due as deferred", async () => {
+    const rows = Array.from({ length: 150 }, (_, i) => r(`id${i}`, `024${String(i).padStart(7, "0")}`, 1))
+    let call = 0
+    const checkAll = vi.fn(async (phones: string[]) => {
+      call++
+      if (call === 1) throw new Error("boom")
+      return { ...(await outsideResult([])(phones)), failedProviders: ["hubx"] }
+    })
+    const { deps, updates } = makeDeps(rows, () => false)
+    const res = await recheckBlockedNumbers({}, { ...deps, checkAll, markAllowed: vi.fn() })
+    const kept = updates.filter((u) => u.patch?.next_recheck_at === NOW.toISOString())
+    expect(kept.flatMap(idsOf).sort()).toEqual(rows.map((x) => x.id).sort())
+    expect(res).toMatchObject({ stillBlocked: 0, deferred: 150 })
+  })
+
   it("refused rows are all kept due when the outside start deadline has already passed", async () => {
     const { c, clock } = clockAt()
     const { deps, updates } = makeDeps([r("a", "0241111111", 4)], () => false, { clock })

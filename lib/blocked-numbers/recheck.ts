@@ -261,13 +261,22 @@ export async function recheckBlockedNumbers(opts: RecheckOpts = {}, deps: Rechec
   // of outside time has been spent. The row was already scheduled above, so a flip moves it from stillBlocked.
   if (deps.checkAll && deps.markAllowed && refusedRows.length > 0) {
     let outsideSpent = 0
-    let reached = 0
-    for (const batch of chunked(refusedRows, OUTSIDE_BATCH)) {
-      if (deps.clock() - startedAt >= OUTSIDE_START_DEADLINE_MS || outsideSpent >= OUTSIDE_BUDGET_MS) break
-      reached += batch.length
+    const keepDue: DueRow[] = [] // refused rows the outside pass did not really check
+    const batches = chunked(refusedRows, OUTSIDE_BATCH)
+    for (let b = 0; b < batches.length; b++) {
+      const batch = batches[b]
+      if (deps.clock() - startedAt >= OUTSIDE_START_DEADLINE_MS || outsideSpent >= OUTSIDE_BUDGET_MS) {
+        for (const rest of batches.slice(b)) keepDue.push(...rest)
+        break
+      }
       const batchStart = deps.clock()
       try {
         const all = await deps.checkAll(batch.map((row) => row.phone))
+        const outside = all.providers.filter((n) => !all.checkoutProviders.includes(n))
+        if (outside.length > 0 && outside.every((n) => all.failedProviders.includes(n))) {
+          keepDue.push(...batch) // every outside provider failed: nothing was learned about these rows
+          continue
+        }
         const byPhone = new Map(all.rows.map((x) => [x.phone, x]))
         const candidates = batch.flatMap((row) => {
           const by = byPhone.get(row.phone)?.allowedOutsideCheckout?.[0]
@@ -283,14 +292,17 @@ export async function recheckBlockedNumbers(opts: RecheckOpts = {}, deps: Rechec
         }
       } catch {
         console.error("[BLOCKED-RECHECK] outside provider check failed")
+        keepDue.push(...batch)
+      } finally {
+        outsideSpent += deps.clock() - batchStart
       }
-      outsideSpent += deps.clock() - batchStart
     }
 
-    // Rows no batch reached were scheduled as if fully checked. Undo that: original count and due now, so they
-    // sort ahead of everything else on the next run instead of the same tail being skipped each day.
+    // Rows the outside pass did not really check (budget/deadline, a thrown batch, or every outside provider
+    // failing) were scheduled as if fully checked. Undo that: original count and due now, so they sort ahead of
+    // everything else on the next run instead of waiting a day.
     const byCount = new Map<number, DueRow[]>()
-    for (const row of refusedRows.slice(reached)) byCount.set(row.recheck_count, [...(byCount.get(row.recheck_count) ?? []), row])
+    for (const row of keepDue) byCount.set(row.recheck_count, [...(byCount.get(row.recheck_count) ?? []), row])
     for (const [count, group] of byCount) {
       for (const rowChunk of chunked(group, CHUNK)) {
         const { data, error } = await db

@@ -183,7 +183,7 @@ export default function BlockedNumbersPage() {
     setBusy("recheck")
     try {
       const j = await post("/api/admin/blocked-numbers/recheck", body)
-      toast.success(`Checked ${j.checked}: ${j.allowed} now allowed, ${j.stillBlocked} still blocked${j.unchecked ? `, ${j.unchecked} could not be checked` : ""}`)
+      toast.success(`Checked ${j.checked}: ${j.allowed} now allowed, ${j.stillBlocked} still blocked${j.unchecked ? `, ${j.unchecked} could not be checked` : ""}${j.deferred ? `, ${j.deferred} held for the next run` : ""}`)
       if (j.notifyQueued) toast.success("Ready — customers will be texted now (if texting is on).")
       await load(true)
     } catch (e) {
