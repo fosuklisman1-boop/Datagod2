@@ -41,6 +41,17 @@ describe("getFreshVerdicts", () => {
     expect(m.has("b")).toBe(false)
   })
 
+  it("a row stamped more than 5 minutes in the future is stale; within 5 minutes is fresh", async () => {
+    const future = (ms: number) => new Date(NOW.getTime() + ms).toISOString()
+    const db = dbWith([
+      { phone: PHONE, supplier: "a", verdict: "yes", checked_at: future(6 * 60_000) },
+      { phone: PHONE, supplier: "b", verdict: "yes", checked_at: future(4 * 60_000) },
+    ])
+    const m = await getFreshVerdicts(db as any, PHONE, ["a", "b"], NOW)
+    expect(m.has("a")).toBe(false)
+    expect(m.get("b")).toBe("yes")
+  })
+
   it("normalises the phone before reading and only returns asked suppliers", async () => {
     const db = dbWith([
       { phone: PHONE, supplier: "a", verdict: "yes", checked_at: ago(H) },

@@ -7,7 +7,8 @@ export type Answer = "yes" | "no" | "no_answer"
 export const YES_TTL_MS = 30 * 86_400_000
 export const NO_TTL_MS = 86_400_000
 
-const TABLE = "mtn_supplier_verdicts"
+const FUTURE_SKEW_MS = 5 * 60_000
+const TABLE ="mtn_supplier_verdicts"
 
 /**
  * Saved supplier verdicts that are still fresh. Phone is normalised to 0XXXXXXXXX.
@@ -30,7 +31,9 @@ export async function getFreshVerdicts(
       const at = Date.parse(r.checked_at)
       if (Number.isNaN(at)) continue
       const ttl = r.verdict === "yes" ? YES_TTL_MS : NO_TTL_MS
-      if (now.getTime() - at < ttl) out.set(r.supplier, r.verdict)
+      const age = now.getTime() - at
+      // A stamp more than 5 minutes in the future is not trustworthy: stale.
+      if (age >= -FUTURE_SKEW_MS && age < ttl) out.set(r.supplier, r.verdict)
     }
     return out
   } catch {

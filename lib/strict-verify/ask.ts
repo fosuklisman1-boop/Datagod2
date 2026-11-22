@@ -1,5 +1,4 @@
 import { WHITELIST_REGISTRY, type WhitelistEntry } from "@/lib/mtn-providers/provider-whitelist"
-import { normalizePhoneNumber } from "@/lib/mtn-fulfillment"
 import { normalizeGhanaPhone } from "@/lib/phone-format"
 import type { Answer } from "./verdicts"
 
@@ -41,10 +40,11 @@ export async function askSupplier(
       timer = setTimeout(() => reject(new Error("timeout")), opts.timeoutMs ?? DEFAULT_TIMEOUT_MS)
     })
     const rows = await Promise.race([entry.checkBatchStrict!([phone]), timeout])
-    const want = normalizePhoneNumber(phone)
-    const row = (Array.isArray(rows) ? rows : []).find((r) => normalizePhoneNumber(String(r?.msisdn ?? "")) === want)
-    if (!row) return "no_answer"
-    return row.allowed === true ? "yes" : "no"
+    const want = normalizeGhanaPhone(phone)
+    const row = (Array.isArray(rows) ? rows : []).find((r) => normalizeGhanaPhone(String(r?.msisdn ?? "")) === want)
+    // Only a real boolean is a definite answer; anything else never counts as a "no".
+    if (!row || typeof row.allowed !== "boolean") return "no_answer"
+    return row.allowed ? "yes" : "no"
   } catch {
     return "no_answer"
   } finally {

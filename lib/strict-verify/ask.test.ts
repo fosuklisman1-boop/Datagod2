@@ -54,6 +54,12 @@ describe("askSupplier", () => {
     expect(await ask(async () => [{ msisdn: "233240000001", allowed: true }])).toBe("yes")
   })
 
+  it("a matched row without a real boolean allowed -> no_answer", async () => {
+    expect(await ask((async () => [{ msisdn: PHONE, allowed: undefined }]) as any)).toBe("no_answer")
+    expect(await ask((async () => [{ msisdn: PHONE, allowed: null }]) as any)).toBe("no_answer")
+    expect(await ask((async () => [{ msisdn: PHONE, allowed: "true" }]) as any)).toBe("no_answer")
+  })
+
   it("ignores rows for other numbers", async () => {
     expect(await ask(async () => [{ msisdn: "0240000002", allowed: true }])).toBe("no_answer")
   })
