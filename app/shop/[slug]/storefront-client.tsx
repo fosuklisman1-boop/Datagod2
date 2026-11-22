@@ -2546,14 +2546,10 @@ function OrderStatusSearch({ shopSlug, shopName }: { shopSlug: string; shopName:
                   </CardHeader>
 
                   <CardContent className="space-y-3">
-                    <div className="grid grid-cols-4 gap-4">
+                    <div className="grid grid-cols-3 gap-4">
                       <div className="space-y-1">
                         <p className="text-xs text-muted-foreground">Total</p>
                         <p className="font-semibold text-foreground">₵ {order.total_price.toFixed(2)}</p>
-                      </div>
-                      <div className="space-y-1">
-                        <p className="text-xs text-muted-foreground">Customer</p>
-                        <p className="font-semibold text-foreground">{order.customer_name}</p>
                       </div>
                       <div className="space-y-1">
                         <p className="text-xs text-muted-foreground">Date</p>

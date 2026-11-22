@@ -15,13 +15,9 @@ import { toast } from "sonner"
 
 interface ShopOrder {
   id: string
-  customer_name: string
-  customer_email: string
-  customer_phone: string
+  type: "data" | "airtime"
   network: string
   volume_gb: number
-  base_price: number
-  profit_amount: number
   total_price: number
   order_status: string
   payment_status: string
@@ -404,29 +400,10 @@ export default function OrderStatusPage() {
                           </p>
                         </div>
                       )}
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div className="space-y-1">
-                          <p className="text-xs text-muted-foreground">Price</p>
-                          <p className="font-semibold text-foreground">₵ {(order.base_price || 0).toFixed(2)}</p>
-                        </div>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                         <div className="space-y-1">
                           <p className="text-xs text-muted-foreground">Total</p>
                           <p className="font-semibold text-foreground">₵ {(order.total_price || 0).toFixed(2)}</p>
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-xs text-muted-foreground">Customer Name</p>
-                          <p className="font-semibold text-foreground">{order.customer_name || 'N/A'}</p>
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-xs text-muted-foreground">Phone</p>
-                          <p className="font-mono text-sm font-semibold text-foreground">{order.customer_phone}</p>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 pt-2 border-t">
-                        <div className="space-y-1">
-                          <p className="text-xs text-muted-foreground">Email</p>
-                          <p className="text-sm text-foreground break-all">{order.customer_email || 'N/A'}</p>
                         </div>
                         <div className="space-y-1">
                           <p className="text-xs text-muted-foreground">Ordered</p>
