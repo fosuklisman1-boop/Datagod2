@@ -12,9 +12,11 @@ const supabase = createClient(
  * POST /api/admin/fulfillment/enqueue
  * Body: { orders: {id, type}[] (1..200), provider?: string, riskyAck?: { count } }
  * Every order is re-read and judged on the server (lib/order-queue/enqueue.ts); only eligible orders
- * (and held/reversed ones behind a matching riskyAck) are queued. No provider = legacy auto routing.
+ * (and held/reversed ones behind a matching riskyAck, explicit supplier only) are queued. No provider =
+ * legacy auto routing, which never releases held/reversed orders.
  * 200 { batchId, queued: string[], rejected: {id, reason}[], risky: string[] }
- * 400 { error } for a bad request, or { error: "risky_ack_mismatch", expected } (nothing written).
+ * 400 { error } for a bad request, { error: "risky_ack_mismatch", expected }, or
+ *     { error: "risky_requires_supplier" } for a riskyAck without a provider (nothing written).
  * The drain cron (/api/cron/drain-fulfillment-queue) processes queued rows every minute.
  */
 export async function POST(request: NextRequest) {

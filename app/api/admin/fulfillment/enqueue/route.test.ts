@@ -375,4 +375,22 @@ describe("POST /api/admin/fulfillment/enqueue — legacy auto-routing (no provid
     expect(sendLogs()).toHaveLength(1)
     expect(sendLogs()[0].values!.supplier).toBe("auto")
   })
+
+  it("a riskyAck with no supplier is refused: 400 risky_requires_supplier, nothing read or written", async () => {
+    for (const provider of [undefined, null]) {
+      const res = await POST(post({ provider, riskyAck: { count: 1 }, orders: [o("ok-1"), o("rev-1")] }))
+      expect(res.status).toBe(400)
+      expect(await res.json()).toEqual({ error: "risky_requires_supplier" })
+    }
+    expect(db.calls).toHaveLength(0)
+    expect(statusOf("rev-1")).toBe("reversed")
+  })
+
+  it("auto mode never releases a risky order: held/reversed are needs_confirmation, never set to pending", async () => {
+    const body = await (await POST(post({ orders: [o("ok-1"), o("held-1"), o("rev-1"), o("shop-held", "shop")] }))).json()
+    expect(body.queued).toEqual(ids("ok-1"))
+    for (const n of ["held-1", "rev-1", "shop-held"]) expect(reasonOf(body, n)).toBe("needs_confirmation")
+    expect(orderUpdates()).toHaveLength(0)
+    expect(queueInserts().map((c) => c.values!.order_id)).toEqual(ids("ok-1"))
+  })
 })

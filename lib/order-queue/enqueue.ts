@@ -32,6 +32,7 @@ export type EnqueueRequest = {
 export type EnqueueResult =
   | { status: 200; body: { batchId: string; queued: string[]; rejected: { id: string; reason: SendRejectReason }[]; risky: string[] } }
   | { status: 400; body: { error: "risky_ack_mismatch"; expected: number } }
+  | { status: 400; body: { error: "risky_requires_supplier" } }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -93,6 +94,10 @@ function judge(o: OrderSnapshot | null, provider: string | null): Verdict {
  * means another send got there first). One admin_bulk_send_log row per request. Logs carry ids/counts only.
  */
 export async function runEnqueue(db: SupabaseClient, req: EnqueueRequest, adminId: string): Promise<EnqueueResult> {
+  // Releasing a held/reversed order is only safe hard-pinned to the supplier the admin checked it at; auto
+  // routing could send it to a different supplier than the one that may already hold it. Refused before any read.
+  if (req.riskyAck !== undefined && req.provider === null) return { status: 400, body: { error: "risky_requires_supplier" } }
+
   const rejected: { id: string; reason: SendRejectReason }[] = []
   const unique: { id: string; type: OrderType }[] = []
   const seen = new Set<string>()
@@ -119,7 +124,8 @@ export async function runEnqueue(db: SupabaseClient, req: EnqueueRequest, adminI
     // checkRiskyAck passes any ack when nothing is risky; an admin who typed a non-zero count saw a different set.
     if (riskyIds.length === 0 && req.riskyAck.count !== 0) return { status: 400, body: { error: "risky_ack_mismatch", expected: 0 } }
   }
-  const riskyAccepted = req.riskyAck !== undefined
+  // Auto mode (no supplier) never releases a risky order, whatever the ack says.
+  const riskyAccepted = req.riskyAck !== undefined && req.provider !== null
 
   // 3. Writes, one order at a time.
   const batchId = crypto.randomUUID()
@@ -137,10 +143,13 @@ export async function runEnqueue(db: SupabaseClient, req: EnqueueRequest, adminI
     const { table, statusCol } = ORDER_TABLES[o.type]
     let released = false
     if (v.kind === "risky") {
+      // Only reached with an explicit supplier: risky orders are never released in auto mode (riskyAccepted is
+      // false when provider is null, and a riskyAck without a provider is refused up front), so every released
+      // order is queued hard-pinned to req.provider.
       // Known window: the order was judged from the snapshot above, and there is no cross-table transaction
       // between that read and this release, so a held order's supplier state could change in between. The guard
       // below only re-checks the order status. This is covered operationally by the typed confirmation ("I checked
-      // these at the supplier") and the hard pin to the admin's chosen supplier.
+      // these at the supplier") and that hard pin.
       const { data, error } = await db
         .from(table)
         .update({ [statusCol]: "pending" })
