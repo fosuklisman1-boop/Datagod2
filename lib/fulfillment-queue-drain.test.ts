@@ -137,7 +137,7 @@ describe("drainFulfillmentQueue — re-checks the order is still pending before 
     const r = await drainFulfillmentQueue(sb)
     expect(fulfillUssdOrder).not.toHaveBeenCalled()
     expect(r).toMatchObject({ completed: 0, failed: 1 })
-    expect(failedUpdate(sb, "q1").values).toEqual({ status: "failed", error_message: "order no longer pending (processing)" })
+    expect(failedUpdate(sb, "q1").values).toEqual({ status: "failed", error_message: "order no longer pending (processing)", completed_at: expect.any(String) })
     expect(sb.reads[0]).toMatchObject({ table: "ussd_orders", id: "u1" })
     expect(sb.reads[0].cols).toContain("order_status")
   })
@@ -147,7 +147,7 @@ describe("drainFulfillmentQueue — re-checks the order is still pending before 
     const r = await drainFulfillmentQueue(sb)
     expect(processManualFulfillment).not.toHaveBeenCalled()
     expect(r).toMatchObject({ completed: 0, failed: 1 })
-    expect(failedUpdate(sb, "q1").values).toEqual({ status: "failed", error_message: "order no longer pending (processing)" })
+    expect(failedUpdate(sb, "q1").values).toEqual({ status: "failed", error_message: "order no longer pending (processing)", completed_at: expect.any(String) })
     expect(sb.reads).toEqual([{ table: "shop_orders", cols: "order_status", id: "s1" }])
   })
 
@@ -203,8 +203,8 @@ describe("drainFulfillmentQueue — re-checks the order is still pending before 
     const r = await drainFulfillmentQueue(sb)
     expect(processManualFulfillment.mock.calls).toEqual([["b1", "bulk", undefined, true]])
     expect(fulfillUssdOrder).not.toHaveBeenCalled()
-    expect(failedUpdate(sb, "q1").values).toEqual({ status: "failed", error_message: "order status unreadable" })
-    expect(failedUpdate(sb, "q2").values).toEqual({ status: "failed", error_message: "order status unreadable" })
+    expect(failedUpdate(sb, "q1").values).toEqual({ status: "failed", error_message: "order status unreadable", completed_at: expect.any(String) })
+    expect(failedUpdate(sb, "q2").values).toEqual({ status: "failed", error_message: "order status unreadable", completed_at: expect.any(String) })
     expect(r).toMatchObject({ completed: 1, failed: 2 })
   })
 })
@@ -240,8 +240,8 @@ describe("drainFulfillmentQueue — split claim and auto rows", () => {
     expect(processManualFulfillment).not.toHaveBeenCalled()
     expect(fulfillUssdOrder).not.toHaveBeenCalled()
     expect(r).toMatchObject({ completed: 0, failed: 2 })
-    expect(queueUpdate(sb, "q1").values).toEqual({ status: "failed", error_message: NON_SEND_SWITCHED_OFF })
-    expect(queueUpdate(sb, "q2").values).toEqual({ status: "failed", error_message: "auto-fulfil switched off" })
+    expect(queueUpdate(sb, "q1").values).toEqual({ status: "failed", error_message: NON_SEND_SWITCHED_OFF, completed_at: expect.any(String) })
+    expect(queueUpdate(sb, "q2").values).toEqual({ status: "failed", error_message: "auto-fulfil switched off", completed_at: expect.any(String) })
     expect(attemptFor(sb, "q1").values).toMatchObject({ outcome: "skipped" })
     expect(attemptFor(sb, "q2").values).toMatchObject({ outcome: "skipped" })
     expect(typeof attemptFor(sb, "q1").values.finished_at).toBe("string")
@@ -300,7 +300,7 @@ describe("drainFulfillmentQueue — split claim and auto rows", () => {
       ["u1", "MTN", "0240000000", "1GB", true, "ussd_orders", undefined, { suppressFailureAlerts: true }],
     ])
     expect(r).toMatchObject({ completed: 0, failed: 2 })
-    expect(queueUpdate(sb, "q1").values).toEqual({ status: "failed", error_message: "Rate limit exceeded" })
+    expect(queueUpdate(sb, "q1").values).toEqual({ status: "failed", error_message: "Rate limit exceeded", completed_at: expect.any(String) })
     expect(attemptFor(sb, "q1").values).toMatchObject({ outcome: "rate_limited" })
     expect(attemptFor(sb, "q2").values).toMatchObject({ outcome: "rate_limited" })
   })
@@ -362,7 +362,7 @@ describe("drainFulfillmentQueue — split claim and auto rows", () => {
     const sb = fakeSupabase([{ id: "q1", order_id: "s1", order_type: "shop", provider: null, source: "auto" }], {}, () => false, { settings: ON })
     const r = await drainFulfillmentQueue(sb)
     expect(r).toMatchObject({ failed: 1 })
-    expect(queueUpdate(sb, "q1").values).toEqual({ status: "failed", error_message: "Insufficient balance" })
+    expect(queueUpdate(sb, "q1").values).toEqual({ status: "failed", error_message: "Insufficient balance", completed_at: expect.any(String) })
     expect(attemptFor(sb, "q1").values.outcome).not.toBe("sent")
   })
 
@@ -407,9 +407,10 @@ describe("drainFulfillmentQueue — split claim and auto rows", () => {
     expect(processManualFulfillment).toHaveBeenCalledTimes(2)
   })
 
-  it("settings are read once per tick", async () => {
+  it("the switch is re-read for every auto row and never for admin rows", async () => {
     const sb = fakeSupabase(
       [
+        { id: "q0", order_id: "m1", order_type: "shop", provider: null, source: "admin" },
         { id: "q1", order_id: "s1", order_type: "shop", provider: null, source: "auto" },
         { id: "q2", order_id: "s2", order_type: "shop", provider: null, source: "auto" },
       ],
@@ -419,7 +420,70 @@ describe("drainFulfillmentQueue — split claim and auto rows", () => {
     )
     const from = vi.spyOn(sb, "from")
     await drainFulfillmentQueue(sb)
-    expect(from.mock.calls.filter((c) => c[0] === "admin_settings")).toHaveLength(1)
+    expect(from.mock.calls.filter((c) => c[0] === "admin_settings")).toHaveLength(2)
+  })
+
+  it("switching off mid-tick stops the next auto row before any supplier call", async () => {
+    const opts: FakeOpts = { settings: ON }
+    processManualFulfillment.mockImplementation(async () => {
+      opts.settings = { ...ON, enabled: false }
+      return { success: true, message: "ok" }
+    })
+    const sb = fakeSupabase(
+      [
+        { id: "q1", order_id: "s1", order_type: "shop", provider: null, source: "auto" },
+        { id: "q2", order_id: "s2", order_type: "shop", provider: null, source: "auto" },
+      ],
+      {},
+      () => false,
+      opts,
+    )
+    const r = await drainFulfillmentQueue(sb)
+    expect(processManualFulfillment).toHaveBeenCalledTimes(1)
+    expect(r).toMatchObject({ completed: 1, failed: 1 })
+    expect(queueUpdate(sb, "q2").values.error_message).toBe(NON_SEND_SWITCHED_OFF)
+    expect(attemptFor(sb, "q2").values.outcome).toBe("skipped")
+  })
+})
+
+describe("drainFulfillmentQueue — before 0193 is applied", () => {
+  const byName = (split: { data: any; error: any }, plain: { data: any; error: any }) =>
+    vi.fn(async (name: string) => (name === "claim_fulfillment_queue_split" ? split : plain))
+
+  it.each([
+    ["Postgres 42883", { code: "42883", message: "function claim_fulfillment_queue_split(integer, integer) does not exist" }],
+    ["PostgREST PGRST202", { code: "PGRST202", message: "Could not find the function public.claim_fulfillment_queue_split" }],
+  ])("a missing split function (%s) falls back to claim_fulfillment_queue and sends admin rows", async (_l, error) => {
+    const sb = fakeSupabase([])
+    sb.rpc = byName({ data: null, error }, { data: [{ id: "q1", order_id: "b1", order_type: "bulk", provider: null }], error: null })
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const r = await drainFulfillmentQueue(sb)
+      expect(sb.rpc).toHaveBeenCalledWith("claim_fulfillment_queue", { p_limit: 20 })
+      expect(processManualFulfillment.mock.calls).toEqual([["b1", "bulk", undefined, true]])
+      expect(r).toMatchObject({ claimed: 1, completed: 1 })
+      expect(warn).toHaveBeenCalledTimes(1)
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it("any other split claim error still throws (no fallback)", async () => {
+    const sb = fakeSupabase([])
+    sb.rpc = byName({ data: null, error: { code: "57014", message: "statement timeout" } }, { data: [], error: null })
+    await expect(drainFulfillmentQueue(sb)).rejects.toThrow(/claim_fulfillment_queue_split failed/)
+    expect(sb.rpc).toHaveBeenCalledTimes(1)
+  })
+
+  it("a fallback claim error throws", async () => {
+    const sb = fakeSupabase([])
+    sb.rpc = byName({ data: null, error: { code: "PGRST202", message: "missing" } }, { data: null, error: { message: "boom" } })
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      await expect(drainFulfillmentQueue(sb)).rejects.toThrow(/claim_fulfillment_queue failed/)
+    } finally {
+      warn.mockRestore()
+    }
   })
 })
 
@@ -444,7 +508,7 @@ describe("drainFulfillmentQueue — admin rows unchanged", () => {
     ])
     expect(fulfillUssdOrder.mock.calls).toEqual([["u1", "MTN", "0240000000", "1GB", true, "ussd_orders", undefined]])
     expect(attemptUpdates(sb)).toEqual([])
-    expect(queueUpdate(sb, "q1").values).toEqual({ status: "failed", error_message: "Rate limit exceeded" })
+    expect(queueUpdate(sb, "q1").values).toEqual({ status: "failed", error_message: "Rate limit exceeded", completed_at: expect.any(String) })
   })
 })
 

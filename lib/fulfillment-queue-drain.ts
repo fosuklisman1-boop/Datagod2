@@ -71,7 +71,30 @@ function failureOutcome(message: string): AttemptOutcome {
 /** Fails a queue row WITHOUT calling any supplier (the order was not in a sendable state). Logs ids only. */
 async function skipRow(supabase: SupabaseClient, row: { id: string; order_id: string }, reason: string) {
   console.warn(`[FULFILLMENT-QUEUE] order ${row.order_id} skipped: ${reason}`)
-  await supabase.from("fulfillment_queue").update({ status: "failed", error_message: reason }).eq("id", row.id)
+  await supabase
+    .from("fulfillment_queue")
+    .update({ status: "failed", error_message: reason, completed_at: new Date().toISOString() })
+    .eq("id", row.id)
+}
+
+/** The split claim RPC is not in the database yet (0193 not applied): Postgres undefined_function or PostgREST's "not found". */
+function isMissingFunction(error: { code?: string } | null | undefined): boolean {
+  return error?.code === "42883" || error?.code === "PGRST202"
+}
+
+/**
+ * Claims the next batch: admin rows first, at most AUTO_PER_TICK auto rows (claim_fulfillment_queue_split, 0193).
+ * If 0193 is not applied yet, falls back to the original claim, whose rows carry no `source` and are sent as admin rows.
+ * Any other claim error throws.
+ */
+async function claimBatch(supabase: SupabaseClient): Promise<QueueRow[]> {
+  const { data, error } = await supabase.rpc("claim_fulfillment_queue_split", { p_limit: BATCH_SIZE, p_auto_limit: AUTO_PER_TICK })
+  if (!error) return (data ?? []) as QueueRow[]
+  if (!isMissingFunction(error)) throw new Error(`claim_fulfillment_queue_split failed: ${error.message}`)
+  console.warn("[FULFILLMENT-QUEUE] claim_fulfillment_queue_split missing (0193 not applied); using claim_fulfillment_queue")
+  const { data: plain, error: plainErr } = await supabase.rpc("claim_fulfillment_queue", { p_limit: BATCH_SIZE })
+  if (plainErr) throw new Error(`claim_fulfillment_queue failed: ${plainErr.message}`)
+  return (plain ?? []) as QueueRow[]
 }
 
 /**
@@ -107,21 +130,15 @@ export async function drainFulfillmentQueue(supabase: SupabaseClient): Promise<D
     .select("id")
 
   // 2. Atomically claim the next batch (admin rows first, at most AUTO_PER_TICK auto rows).
-  const { data: rows, error: claimErr } = await supabase
-    .rpc("claim_fulfillment_queue_split", { p_limit: BATCH_SIZE, p_auto_limit: AUTO_PER_TICK })
-
-  if (claimErr) throw new Error(`claim_fulfillment_queue_split failed: ${claimErr.message}`)
-  if (!rows || rows.length === 0) {
+  const claimed = await claimBatch(supabase)
+  if (claimed.length === 0) {
     return { claimed: 0, completed: 0, failed: 0, reset_stale: resetRows?.length ?? 0, requeued: 0 }
   }
 
   let completed = 0
   let failed = 0
   let requeued = 0
-  // Auto-fulfil switch, read at most once per tick and only when an auto row is claimed. Fails closed.
-  let autoOn: boolean | null = null
 
-  const claimed = rows as QueueRow[]
   for (let i = 0; i < claimed.length; i++) {
     const row = claimed[i]
 
@@ -148,11 +165,10 @@ export async function drainFulfillmentQueue(supabase: SupabaseClient): Promise<D
       let success: boolean
 
       if (isAuto) {
-        if (autoOn === null) {
-          const { settings, valid } = await loadAutoFulfilSettings(supabase)
-          autoOn = valid && settings.enabled === true
-        }
-        if (!autoOn) {
+        // Re-read the switch for every auto row (at most AUTO_PER_TICK reads): switching off stops the very next send.
+        // Fails closed.
+        const { settings, valid } = await loadAutoFulfilSettings(supabase)
+        if (!(valid && settings.enabled === true)) {
           await skipRow(supabase, row, NON_SEND_SWITCHED_OFF)
           await recordAttempt(supabase, row, "skipped")
           failed++
@@ -237,7 +253,7 @@ export async function drainFulfillmentQueue(supabase: SupabaseClient): Promise<D
 
       await supabase
         .from("fulfillment_queue")
-        .update({ status: "failed", error_message: msg })
+        .update({ status: "failed", error_message: msg, completed_at: new Date().toISOString() })
         .eq("id", row.id)
 
       if (isAuto) {
@@ -254,7 +270,7 @@ export async function drainFulfillmentQueue(supabase: SupabaseClient): Promise<D
     }
   }
 
-  return { claimed: rows.length, completed, failed, reset_stale: resetRows?.length ?? 0, requeued }
+  return { claimed: claimed.length, completed, failed, reset_stale: resetRows?.length ?? 0, requeued }
 }
 
 /**
