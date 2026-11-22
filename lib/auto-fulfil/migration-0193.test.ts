@@ -86,9 +86,9 @@ const TABLES = `
     package_size varchar, amount numeric, paystack_reference varchar, order_status varchar, payment_status varchar,
     created_at timestamptz DEFAULT now());
   CREATE TABLE mtn_fulfillment_tracking (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), shop_order_id uuid, mtn_order_id text,
-    status varchar, created_at timestamp DEFAULT now(), order_id varchar, provider varchar, api_order_id uuid);
+    status varchar, created_at timestamp DEFAULT now(), updated_at timestamp NOT NULL DEFAULT now(), order_id varchar, provider varchar, api_order_id uuid);
   CREATE TABLE fulfillment_logs (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), order_id uuid NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-    status varchar DEFAULT 'pending', created_at timestamp NOT NULL DEFAULT NOW(), updated_at timestamp NOT NULL DEFAULT NOW());
+    api_order_id uuid, status varchar DEFAULT 'pending', created_at timestamp NOT NULL DEFAULT NOW(), updated_at timestamp NOT NULL DEFAULT NOW());
 `
 const USER = "00000000-0000-4000-8000-000000009000"
 const SEED_USER = `
@@ -116,8 +116,8 @@ async function bulkOrder(db: any, minutesOld: number, o: { network?: string; sta
     [USER, o.network ?? "MTN", o.status ?? "pending"])
   return r.rows[0].id
 }
-const candidates = async (db: any, minAge = 10, maxDays = 7, networks = ["MTN"], scan = 100): Promise<string[]> =>
-  (await db.query(`SELECT id FROM auto_fulfil_candidates($1, $2, $3::text[], $4)`, [minAge, maxDays, networks, scan])).rows.map((r: any) => r.id)
+const candidates = async (db: any, minAge = 10, maxDays = 7, networks = ["MTN"], scan = 100, offset = 0): Promise<string[]> =>
+  (await db.query(`SELECT id FROM auto_fulfil_candidates($1, $2, $3::text[], $4, $5)`, [minAge, maxDays, networks, scan, offset])).rows.map((r: any) => r.id)
 
 // REQUIRE_PGLITE=1 turns a missing PGlite into a loud failure instead of a silent skip.
 if (!PGliteCtor && process.env.REQUIRE_PGLITE === "1") {
@@ -174,7 +174,7 @@ describe.skipIf(!PGliteCtor)("0193 in PGlite", () => {
     const a = await bulkOrder(db, 60)
     const b = await bulkOrder(db, 30)
     await bulkOrder(db, 20)
-    const r = await db.query(`SELECT * FROM auto_fulfil_candidates(10, 7, ARRAY['MTN'], 2)`)
+    const r = await db.query(`SELECT * FROM auto_fulfil_candidates(10, 7, ARRAY['MTN'], 2, 0)`)
     expect(r.rows.map((x: any) => x.id)).toEqual([a, b])
     expect(Object.keys(r.rows[0]).sort()).toEqual(["created_at", "id", "network", "phone_number", "type"])
     expect(r.rows[0].type).toBe("bulk")
@@ -216,8 +216,8 @@ describe.skipIf(!PGliteCtor)("0193 in PGlite", () => {
     const shown = (await db.query(
       `INSERT INTO shop_orders (customer_phone, network, volume_gb, total_price, order_status, payment_status, created_at)
        VALUES ('0000000000', 'MTN', 1, 5, 'pending', 'completed', ${MIN_AGO(60)}) RETURNING id::text AS id`)).rows[0].id
-    await db.query(`INSERT INTO mtn_fulfillment_tracking (shop_order_id, status, created_at) VALUES ($1, 'failed', ${MIN_AGO(5)})`, [hid])
-    await db.query(`INSERT INTO mtn_fulfillment_tracking (shop_order_id, status, created_at) VALUES ($1, 'failed', ${MIN_AGO(15)})`, [shown])
+    await db.query(`INSERT INTO mtn_fulfillment_tracking (shop_order_id, status, created_at, updated_at) VALUES ($1, 'failed', ${MIN_AGO(5)}, ${MIN_AGO(5)})`, [hid])
+    await db.query(`INSERT INTO mtn_fulfillment_tracking (shop_order_id, status, created_at, updated_at) VALUES ($1, 'failed', ${MIN_AGO(15)}, ${MIN_AGO(15)})`, [shown])
     const got = await candidates(db)
     expect(got).not.toContain(hid)
     expect(got).toContain(shown)
@@ -229,11 +229,51 @@ describe.skipIf(!PGliteCtor)("0193 in PGlite", () => {
     const api = (await db.query(
       `INSERT INTO api_orders (user_id, network, volume_gb, price, recipient_phone, status, created_at)
        VALUES ($1, 'MTN', 1, 5, '0000000000', 'pending', ${MIN_AGO(60)}) RETURNING id::text AS id`, [USER])).rows[0].id
-    await db.query(`INSERT INTO mtn_fulfillment_tracking (order_id, status, created_at) VALUES ($1, 'failed', ${MIN_AGO(5)})`, [viaOrderId])
-    await db.query(`INSERT INTO mtn_fulfillment_tracking (api_order_id, status, created_at) VALUES ($1, 'failed', ${MIN_AGO(5)})`, [api])
+    await db.query(`INSERT INTO mtn_fulfillment_tracking (order_id, status, created_at, updated_at) VALUES ($1, 'failed', ${MIN_AGO(5)}, ${MIN_AGO(5)})`, [viaOrderId])
+    await db.query(`INSERT INTO mtn_fulfillment_tracking (api_order_id, status, created_at, updated_at) VALUES ($1, 'failed', ${MIN_AGO(5)}, ${MIN_AGO(5)})`, [api])
     const got = await candidates(db)
     expect(got).not.toContain(viaOrderId)
     expect(got).not.toContain(api)
+  }, 60_000)
+
+  it("candidates: a tracking row CREATED 2 h ago but UPDATED 5 min ago hides the order (a send updates the row in place)", async () => {
+    const db = await makeDb()
+    const hid = await bulkOrder(db, 300)
+    const shown = await bulkOrder(db, 300)
+    await db.query(`INSERT INTO mtn_fulfillment_tracking (order_id, status, created_at, updated_at) VALUES ($1, 'failed', ${MIN_AGO(120)}, ${MIN_AGO(5)})`, [hid])
+    await db.query(`INSERT INTO mtn_fulfillment_tracking (order_id, status, created_at, updated_at) VALUES ($1, 'failed', ${MIN_AGO(120)}, ${MIN_AGO(60)})`, [shown])
+    const got = await candidates(db)
+    expect(got).not.toContain(hid)
+    expect(got).toContain(shown)
+  }, 60_000)
+
+  it("candidates: a fulfillment_logs row linked only through api_order_id and updated 5 min ago hides that order", async () => {
+    const db = await makeDb()
+    const carrier = await bulkOrder(db, 60, { status: "completed" })
+    const api = (await db.query(
+      `INSERT INTO api_orders (user_id, network, volume_gb, price, recipient_phone, status, created_at)
+       VALUES ($1, 'MTN', 1, 5, '0000000000', 'pending', ${MIN_AGO(60)}) RETURNING id::text AS id`, [USER])).rows[0].id
+    await db.query(`INSERT INTO fulfillment_logs (order_id, api_order_id, updated_at) VALUES ($1, $2, (now() AT TIME ZONE 'UTC') - interval '5 minutes')`, [carrier, api])
+    expect(await candidates(db)).not.toContain(api)
+  }, 60_000)
+
+  it("candidates: p_offset pages in a stable created_at, id order with no gaps or repeats", async () => {
+    const db = await makeDb()
+    const ids: string[] = []
+    for (const age of [50, 40, 30, 20, 15]) ids.push(await bulkOrder(db, age))
+    const p1 = await candidates(db, 10, 7, ["MTN"], 2, 0)
+    const p2 = await candidates(db, 10, 7, ["MTN"], 2, 2)
+    const p3 = await candidates(db, 10, 7, ["MTN"], 2, 4)
+    expect([...p1, ...p2, ...p3]).toEqual(ids)
+    expect(await candidates(db, 10, 7, ["MTN"], 2, 10)).toEqual([])
+  }, 60_000)
+
+  it("candidates: a tracking row with no linked id (all NULL) never hides an order", async () => {
+    const db = await makeDb()
+    const o = await bulkOrder(db, 60)
+    await db.query(`INSERT INTO mtn_fulfillment_tracking (status, created_at, updated_at) VALUES ('failed', ${MIN_AGO(1)}, ${MIN_AGO(1)})`)
+    await db.query(`INSERT INTO fulfillment_queue (batch_id, order_id, order_type, status, enqueued_at) VALUES (gen_random_uuid(), 'other-order', 'bulk', 'pending', ${MIN_AGO(1)})`)
+    expect(await candidates(db)).toContain(o)
   }, 60_000)
 
   it("candidates: a fulfillment_logs row updated 5 min ago hides the order; one 15 min ago does not (UTC wall clock, any session zone)", async () => {
@@ -340,12 +380,12 @@ describe.skipIf(!PGliteCtor)("0193 in PGlite", () => {
       for (const t of ["auto_fulfil_runs", "auto_fulfil_attempts", "auto_fulfil_settings_log"])
         await expect(db.exec(`SELECT * FROM ${t}`)).rejects.toThrow(/permission denied/)
       await expect(db.exec(`INSERT INTO auto_fulfil_settings_log (admin_id, new_value) VALUES (gen_random_uuid(), '{}')`)).rejects.toThrow(/permission denied/)
-      await expect(db.exec(`SELECT * FROM auto_fulfil_candidates(10, 7, ARRAY['MTN'], 10)`)).rejects.toThrow(/permission denied/)
+      await expect(db.exec(`SELECT * FROM auto_fulfil_candidates(10, 7, ARRAY['MTN'], 10, 0)`)).rejects.toThrow(/permission denied/)
       await expect(db.exec(`SELECT * FROM claim_fulfillment_queue_split(10, 5)`)).rejects.toThrow(/permission denied/)
       await db.exec("RESET ROLE")
     }
     await db.exec("SET ROLE service_role")
-    await db.exec(`SELECT * FROM auto_fulfil_candidates(10, 7, ARRAY['MTN'], 10)`)
+    await db.exec(`SELECT * FROM auto_fulfil_candidates(10, 7, ARRAY['MTN'], 10, 0)`)
     await db.exec(`SELECT * FROM claim_fulfillment_queue_split(10, 5)`)
     await db.exec(`INSERT INTO auto_fulfil_settings_log (admin_id, new_value) VALUES (gen_random_uuid(), '{}')`)
     await db.exec("RESET ROLE")

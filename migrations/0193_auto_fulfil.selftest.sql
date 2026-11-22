@@ -84,6 +84,12 @@ BEGIN
   SELECT count(*) INTO v_n FROM auto_fulfil_candidates(10, 7, ARRAY['MTN'], 100) c WHERE c.id = v_old::text;
   IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL quiet: old queue completion still hides the order'; END IF;
 
+  -- paging: a huge offset returns nothing; offset 0 with scan 1 returns exactly one row --------------------------------
+  SELECT count(*) INTO v_n FROM auto_fulfil_candidates(10, 7, ARRAY['MTN'], 100, 1000000);
+  IF v_n <> 0 THEN RAISE EXCEPTION 'FAIL paging: offset past the end returned rows'; END IF;
+  SELECT count(*) INTO v_n FROM auto_fulfil_candidates(10, 7, ARRAY['MTN'], 1, 0);
+  IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL paging: scan 1 did not return one row'; END IF;
+
   -- claim: 10 auto + 10 admin, limit 20 / auto 5 => at least those 5 auto + the admin rows, processing, attempt_count 1 ----------
   UPDATE fulfillment_queue SET status = 'failed' WHERE status = 'pending';   -- park any live rows (rolled back); only our seeds stay pending
   INSERT INTO fulfillment_queue (batch_id, order_id, order_type, source, enqueued_at)
@@ -101,14 +107,14 @@ BEGIN
   IF has_table_privilege('anon', 'public.auto_fulfil_runs', 'SELECT')
      OR has_table_privilege('authenticated', 'public.auto_fulfil_attempts', 'SELECT')
      OR has_table_privilege('authenticated', 'public.auto_fulfil_settings_log', 'INSERT')
-     OR has_function_privilege('anon', 'public.auto_fulfil_candidates(int,int,text[],int)', 'EXECUTE')
-     OR has_function_privilege('authenticated', 'public.auto_fulfil_candidates(int,int,text[],int)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.auto_fulfil_candidates(int,int,text[],int,int)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.auto_fulfil_candidates(int,int,text[],int,int)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.claim_fulfillment_queue_split(int,int)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.claim_fulfillment_queue_split(int,int)', 'EXECUTE') THEN
     RAISE EXCEPTION 'FAIL grants: anon/authenticated can reach the auto-fulfil objects';
   END IF;
   IF NOT has_table_privilege('service_role', 'public.auto_fulfil_runs', 'INSERT')
-     OR NOT has_function_privilege('service_role', 'public.auto_fulfil_candidates(int,int,text[],int)', 'EXECUTE')
+     OR NOT has_function_privilege('service_role', 'public.auto_fulfil_candidates(int,int,text[],int,int)', 'EXECUTE')
      OR NOT has_function_privilege('service_role', 'public.claim_fulfillment_queue_split(int,int)', 'EXECUTE') THEN
     RAISE EXCEPTION 'FAIL grants: service_role lacks rights';
   END IF;

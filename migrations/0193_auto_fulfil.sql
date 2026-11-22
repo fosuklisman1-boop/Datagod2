@@ -71,7 +71,11 @@ GRANT SELECT, INSERT, UPDATE ON auto_fulfil_runs TO service_role;
 GRANT SELECT, INSERT, UPDATE ON auto_fulfil_attempts TO service_role;
 GRANT SELECT, INSERT ON auto_fulfil_settings_log TO service_role;
 
-CREATE OR REPLACE FUNCTION auto_fulfil_candidates(p_min_age_minutes int, p_max_age_days int, p_networks text[], p_scan int)
+-- Paged (p_offset) so parked orders cannot hold every slot. The quiet-window checks are materialised CTEs of the few recently
+-- active ids (one scan each) joined with a hash anti-join, instead of three correlated NOT EXISTS per order (that form exceeded
+-- the timeout at a 6,000-row backlog). A send updates its tracking row in place, so tracking counts created_at OR updated_at.
+-- NULL link columns produce NULL ids, which never equal an order id.
+CREATE OR REPLACE FUNCTION auto_fulfil_candidates(p_min_age_minutes int, p_max_age_days int, p_networks text[], p_scan int, p_offset int DEFAULT 0)
 RETURNS TABLE (id text, type text, network text, phone_number text, created_at timestamptz)
 LANGUAGE sql
 STABLE
@@ -79,6 +83,29 @@ SECURITY INVOKER
 SET statement_timeout = '20s'
 SET timezone = 'UTC'
 AS $$
+  WITH recent_queue AS MATERIALIZED (
+    SELECT q.order_id::text AS order_id
+    FROM fulfillment_queue q
+    WHERE q.enqueued_at > now() - make_interval(mins => p_min_age_minutes)
+       OR q.last_attempted_at > now() - make_interval(mins => p_min_age_minutes)
+       OR q.completed_at > now() - make_interval(mins => p_min_age_minutes)
+  ), recent_tracking AS MATERIALIZED (
+    SELECT t.order_id::text AS order_id, t.shop_order_id::text AS shop_order_id, t.api_order_id::text AS api_order_id
+    FROM mtn_fulfillment_tracking t
+    WHERE t.created_at > now() - make_interval(mins => p_min_age_minutes)
+       OR t.updated_at > now() - make_interval(mins => p_min_age_minutes)
+  ), recent_logs AS MATERIALIZED (
+    SELECT l.order_id::text AS order_id, l.api_order_id::text AS api_order_id
+    FROM fulfillment_logs l
+    WHERE l.updated_at > now() - make_interval(mins => p_min_age_minutes)
+  ), busy AS MATERIALIZED (
+    SELECT order_id AS id FROM recent_queue
+    UNION SELECT order_id FROM recent_tracking
+    UNION SELECT shop_order_id FROM recent_tracking
+    UNION SELECT api_order_id FROM recent_tracking
+    UNION SELECT order_id FROM recent_logs
+    UNION SELECT api_order_id FROM recent_logs
+  )
   SELECT v.id::text, v.type::text, v.network::text, v.phone_number::text, v.created_at::timestamptz
   FROM combined_orders_view v
   WHERE v.status = 'pending'
@@ -86,22 +113,10 @@ AS $$
     AND v.created_at >= now() - make_interval(days => p_max_age_days)
     AND v.created_at <= now() - make_interval(mins => p_min_age_minutes)
     AND v.network = ANY (p_networks)
-    AND NOT EXISTS (
-      SELECT 1 FROM fulfillment_queue q
-      WHERE q.order_id = v.id::text
-        AND (q.enqueued_at > now() - make_interval(mins => p_min_age_minutes)
-          OR q.last_attempted_at > now() - make_interval(mins => p_min_age_minutes)
-          OR q.completed_at > now() - make_interval(mins => p_min_age_minutes)))
-    AND NOT EXISTS (
-      SELECT 1 FROM mtn_fulfillment_tracking t
-      WHERE t.created_at > now() - make_interval(mins => p_min_age_minutes)
-        AND (t.order_id = v.id::text OR t.shop_order_id = v.id::uuid OR t.api_order_id = v.id::uuid))
-    AND NOT EXISTS (
-      SELECT 1 FROM fulfillment_logs l
-      WHERE l.order_id::text = v.id::text
-        AND l.updated_at > now() - make_interval(mins => p_min_age_minutes))
-  ORDER BY v.created_at ASC
+    AND NOT EXISTS (SELECT 1 FROM busy WHERE busy.id = v.id::text)
+  ORDER BY v.created_at ASC, v.id ASC
   LIMIT GREATEST(COALESCE(p_scan, 0), 0)
+  OFFSET GREATEST(COALESCE(p_offset, 0), 0)
 $$;
 
 CREATE OR REPLACE FUNCTION claim_fulfillment_queue_split(p_limit int, p_auto_limit int)
@@ -129,8 +144,8 @@ AS $$
   RETURNING *;
 $$;
 
-REVOKE ALL ON FUNCTION auto_fulfil_candidates(int, int, text[], int) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION auto_fulfil_candidates(int, int, text[], int) TO service_role;
+REVOKE ALL ON FUNCTION auto_fulfil_candidates(int, int, text[], int, int) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION auto_fulfil_candidates(int, int, text[], int, int) TO service_role;
 REVOKE ALL ON FUNCTION claim_fulfillment_queue_split(int, int) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION claim_fulfillment_queue_split(int, int) TO service_role;
 
@@ -140,8 +155,8 @@ COMMIT;
 --   SELECT column_default, is_nullable FROM information_schema.columns WHERE table_name = 'fulfillment_queue' AND column_name = 'source';  -- 'admin'::text, NO
 --   SELECT source, count(*) FROM fulfillment_queue GROUP BY 1;                                                                             -- all 'admin'
 --   SELECT has_table_privilege('anon', 'public.auto_fulfil_runs', 'SELECT'), has_table_privilege('authenticated', 'public.auto_fulfil_attempts', 'SELECT'),
---          has_function_privilege('authenticated', 'public.auto_fulfil_candidates(int,int,text[],int)', 'EXECUTE'),
---          has_function_privilege('service_role', 'public.auto_fulfil_candidates(int,int,text[],int)', 'EXECUTE');                         -- false, false, false, true
+--          has_function_privilege('authenticated', 'public.auto_fulfil_candidates(int,int,text[],int,int)', 'EXECUTE'),
+--          has_function_privilege('service_role', 'public.auto_fulfil_candidates(int,int,text[],int,int)', 'EXECUTE');                       -- false, false, false, true
 --   SELECT has_function_privilege('anon', 'public.claim_fulfillment_queue_split(int,int)', 'EXECUTE'),
 --          has_function_privilege('authenticated', 'public.claim_fulfillment_queue_split(int,int)', 'EXECUTE'),
 --          has_function_privilege('service_role', 'public.claim_fulfillment_queue_split(int,int)', 'EXECUTE');                             -- false, false, true
