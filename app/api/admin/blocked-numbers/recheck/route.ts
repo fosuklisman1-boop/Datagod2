@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic"
 export const maxDuration = 300
 
 export async function POST(request: NextRequest) {
+  const startedAt = Date.now()
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse!
 
@@ -23,7 +24,7 @@ export async function POST(request: NextRequest) {
     let notifyQueued = false
     if (newlyAllowedIds.length > 0) {
       try {
-        notifyQueued = await scheduleNotifyNow()
+        notifyQueued = await scheduleNotifyNow({ startedAt })
       } catch {
         notifyQueued = false
       }

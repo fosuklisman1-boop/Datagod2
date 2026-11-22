@@ -16,6 +16,7 @@ export const maxDuration = 300
 const MAX_IDS = 100
 
 export async function POST(request: NextRequest) {
+  const startedAt = Date.now()
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse!
 
@@ -86,7 +87,7 @@ export async function POST(request: NextRequest) {
     let notifyQueued = false
     if (flipped + flippedOutside > 0) {
       try {
-        notifyQueued = await scheduleNotifyNow()
+        notifyQueued = await scheduleNotifyNow({ startedAt })
       } catch {
         notifyQueued = false
       }

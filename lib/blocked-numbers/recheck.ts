@@ -23,6 +23,10 @@ const TABLE = "mtn_blocked_numbers"
 const DAY_MS = 86_400_000
 const CHUNK = 500
 const OUTSIDE_BATCH = 100
+/** No outside-provider batch starts after this long from run start (leaves the cron its notify window). */
+export const OUTSIDE_START_DEADLINE_MS = 150_000
+/** Cumulative time the outside pass may spend; no new batch starts once spent. */
+export const OUTSIDE_BUDGET_MS = 90_000
 const DEFAULT_LIMIT = 2000
 const EXPIRE_LIMIT = 2000
 const RESOLVER_TIMEOUT_MS = 60_000
@@ -145,6 +149,8 @@ export async function recheckBlockedNumbers(opts: RecheckOpts = {}, deps: Rechec
   const retentionDays = reopen ? (await deps.getBlockedSettings()).retention_days : 0
   const reopenExpiresAt = new Date(now.getTime() + retentionDays * DAY_MS).toISOString()
 
+  const refusedRows: DueRow[] = [] // definite checkout refusals (never null/outage), for the outside pass
+
   // 3. Resolve verdicts in chunks of 500, 60 s timeout each; stop starting chunks after the run deadline.
   for (const part of chunked(rows, CHUNK)) {
     if (deps.clock() - startedAt >= RUN_DEADLINE_MS) {
@@ -164,39 +170,11 @@ export async function recheckBlockedNumbers(opts: RecheckOpts = {}, deps: Rechec
     }
     const verdicts = await deps.resolve(part.map((r) => r.phone), io)
 
-    // Rows the checkout list definitely refused (false, never null/outage) are also asked of the providers
-    // outside the checkout list. Any approval flips through markAllowedByAdminCheck (verdict written and read
-    // back first, then guarded flip). Batches of at most 100; none start after the run deadline.
-    const outsideFlipped = new Set<string>()
-    if (deps.checkAll && deps.markAllowed) {
-      const refused = part.filter((row) => verdicts.get(row.phone) === false)
-      for (const batch of chunked(refused, OUTSIDE_BATCH)) {
-        if (deps.clock() - startedAt >= RUN_DEADLINE_MS) break
-        try {
-          const all = await deps.checkAll(batch.map((row) => row.phone))
-          const byPhone = new Map(all.rows.map((x) => [x.phone, x]))
-          const candidates = batch.flatMap((row) => {
-            const by = byPhone.get(row.phone)?.allowedOutsideCheckout?.[0]
-            return by ? [{ id: row.id, phone: row.phone, allowedBy: by }] : []
-          })
-          if (candidates.length === 0) continue
-          const done = await deps.markAllowed(candidates)
-          for (const id of done.updatedIds) {
-            outsideFlipped.add(id)
-            result.newlyAllowedIds.push(id)
-            result.allowed++
-            result.checked++
-          }
-        } catch {
-          console.error("[BLOCKED-RECHECK] outside provider check failed")
-        }
-      }
-    }
+    for (const row of part) if (verdicts.get(row.phone) === false) refusedRows.push(row)
 
     const flips = new Map<string, DueRow[]>() // `${allowed_by}|${status}` -> rows
     const stills = new Map<string, DueRow[]>() // `${new count}|${status}` -> rows
     for (const row of part) {
-      if (outsideFlipped.has(row.id)) continue
       const patch = nextState(row, verdicts.get(row.phone) ?? null, approvedBy.get(row.phone) ?? null, now)
       if (!patch) {
         result.unchecked++
@@ -270,6 +248,37 @@ export async function recheckBlockedNumbers(opts: RecheckOpts = {}, deps: Rechec
       } catch {
         console.error("[BLOCKED-RECHECK] verdict cache write failed")
       }
+    }
+  }
+
+  // 4. Outside pass, AFTER every checkout part so it can never defer them. Rows the checkout list refused are
+  // asked of all providers (batches of <=100); an approval flips through markAllowedByAdminCheck (verdict
+  // written and read back first, then guarded flip). No batch starts after 150 s from run start or once 90 s
+  // of outside time has been spent. The row was already scheduled above, so a flip moves it from stillBlocked.
+  if (deps.checkAll && deps.markAllowed && refusedRows.length > 0) {
+    let outsideSpent = 0
+    for (const batch of chunked(refusedRows, OUTSIDE_BATCH)) {
+      if (deps.clock() - startedAt >= OUTSIDE_START_DEADLINE_MS || outsideSpent >= OUTSIDE_BUDGET_MS) break
+      const batchStart = deps.clock()
+      try {
+        const all = await deps.checkAll(batch.map((row) => row.phone))
+        const byPhone = new Map(all.rows.map((x) => [x.phone, x]))
+        const candidates = batch.flatMap((row) => {
+          const by = byPhone.get(row.phone)?.allowedOutsideCheckout?.[0]
+          return by ? [{ id: row.id, phone: row.phone, allowedBy: by }] : []
+        })
+        if (candidates.length > 0) {
+          const done = await deps.markAllowed(candidates)
+          for (const id of done.updatedIds) {
+            result.newlyAllowedIds.push(id)
+            result.allowed++
+            result.stillBlocked = Math.max(0, result.stillBlocked - 1)
+          }
+        }
+      } catch {
+        console.error("[BLOCKED-RECHECK] outside provider check failed")
+      }
+      outsideSpent += deps.clock() - batchStart
     }
   }
 

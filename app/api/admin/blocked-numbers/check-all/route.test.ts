@@ -12,8 +12,8 @@ const recheck = vi.fn(async (_o: unknown) => ({
   checked: 1, allowed: 1, stillBlocked: 0, unchecked: 0, expired: 0, deferred: 0, newlyAllowedIds: [ID1],
 }))
 const checkAll = vi.fn()
-const scheduleNotify = vi.fn(async () => true)
-vi.mock("@/lib/blocked-numbers/notify-now", () => ({ scheduleNotifyNow: () => scheduleNotify() }))
+const scheduleNotify = vi.fn(async (_o?: { startedAt: number }) => true)
+vi.mock("@/lib/blocked-numbers/notify-now", () => ({ scheduleNotifyNow: (o: { startedAt: number }) => scheduleNotify(o) }))
 const markAllowed = vi.fn(async (_r: unknown) => ({ updatedIds: [] as string[], failed: false }))
 vi.mock("@/lib/blocked-numbers/admin-allow", () => ({ markAllowedByAdminCheck: (r: unknown) => markAllowed(r) }))
 
@@ -197,6 +197,7 @@ describe("check-all route notify", () => {
     checkAll.mockResolvedValue(result([{ phone: "0241234567", byCheckout: true, outside: [] }]))
     const j = await (await POST(req({ ids: [ID1] }))).json()
     expect(scheduleNotify).toHaveBeenCalledTimes(1)
+    expect(typeof scheduleNotify.mock.calls[0][0]?.startedAt).toBe("number")
     expect(j.notifyQueued).toBe(true)
   })
   it("flipped = 0 does not schedule notify", async () => {

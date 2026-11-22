@@ -24,8 +24,8 @@ vi.mock("@/lib/supabase", () => ({ supabaseAdmin: { from: (t: string) => fake.db
 vi.mock("@/lib/mtn-providers/customer-verification", () => ({
   getCustomerVerificationSettings: async () => ({ enabled: true, providers: ["agentportalgh", "kuntanii"], block_unverified: false }),
 }))
-const scheduleNotify = vi.fn(async () => true)
-vi.mock("@/lib/blocked-numbers/notify-now", () => ({ scheduleNotifyNow: () => scheduleNotify() }))
+const scheduleNotify = vi.fn(async (_o?: { startedAt: number }) => true)
+vi.mock("@/lib/blocked-numbers/notify-now", () => ({ scheduleNotifyNow: (o: { startedAt: number }) => scheduleNotify(o) }))
 vi.mock("@/lib/blocked-numbers/recheck",() => ({ recheckBlockedNumbers: (o: unknown) => recheck(o) }))
 vi.mock("@/lib/blocked-numbers/settings", async (orig) => ({
   ...(await orig<typeof import("@/lib/blocked-numbers/settings")>()),
@@ -82,6 +82,7 @@ describe("recheck route", () => {
     scheduleNotify.mockClear()
     const j = await (await recheckPOST(req("http://x/r", { ids: [UUID] }))).json()
     expect(scheduleNotify).toHaveBeenCalledTimes(1)
+    expect(typeof scheduleNotify.mock.calls[0][0]?.startedAt).toBe("number")
     expect(j.notifyQueued).toBe(true)
 
     scheduleNotify.mockClear()
