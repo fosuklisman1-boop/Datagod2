@@ -155,3 +155,14 @@ describe("summary log", () => {
     expect(lines[0].slice(1)).toEqual(["f", "alert", "-", "sent=2 skipped=- failed=-"])
   })
 })
+
+describe("messages without sms", () => {
+  it("a message without sms never calls sendSMS", async () => {
+    const noSms: FlowDef<C> = { ...flow, userMessage: () => ({ emailSubject: "S", emailHtml: "<p>x</p>" }) }
+    const { deps, calls } = fakeDeps()
+    const r = await createNotifier({ f: noSms }, deps).notifyUserOfOutcome("f", "approved", { userId: "u1" }, { id: "W1" })
+    expect(calls.sms).toHaveLength(0)
+    expect(statusOf(r, "user_sms")).toBe("skipped")
+    expect(calls.email).toHaveLength(1)
+  })
+})

@@ -13,6 +13,7 @@ const ctxFor: Record<FlowId, any> = {
   complaint: { complaintId: "c1", orderId: "o1", priority: "high", summary: EVIL + LONG, resolutionNotes: EVIL + LONG },
   momo_claim: { kind: "flagged", amountPesewas: 1250, txidLast4: "3322", reasons: [EVIL] },
   text_to_buy: { kind: "setting_changed", keys: ["ttb_main_enabled", EVIL] },
+  api_access: { kind: "key", code: "API-7K3Q9M", keyType: "standard", who: EVIL, reason: EVIL + LONG },
 }
 const SUPPORTED: Record<FlowId, Outcome[]> = {
   withdrawal: ["approved", "rejected", "completed"],
@@ -23,6 +24,7 @@ const SUPPORTED: Record<FlowId, Outcome[]> = {
   complaint: ["resolved", "rejected"],
   momo_claim: [],
   text_to_buy: [],
+  api_access: ["approved", "rejected"],
 }
 const ALL: Outcome[] = ["approved", "rejected", "completed", "resolved"]
 
@@ -45,14 +47,14 @@ describe.each(Object.keys(FLOWS) as FlowId[])("flow %s", (flow) => {
     expect(m).not.toBeNull()
     expect(m!.emailSubject.length).toBeGreaterThan(5)
     expect(m!.emailHtml).not.toContain("<script>")
-    expect(m!.sms.length).toBeLessThanOrEqual(160)
-    expect(m!.sms.length).toBeGreaterThan(10)
+    expect(m!.sms!.length).toBeLessThanOrEqual(160)
+    expect(m!.sms!.length).toBeGreaterThan(10)
   })
   it.skipIf(!SUPPORTED[flow].includes("rejected"))("rejection messages carry the admin's reason (clipped in SMS) and fall back gracefully without one", () => {
     const withReason = def.userMessage("rejected", { ...ctxFor[flow], reason: "Bad number", resolutionNotes: "Bad number" })
     expect(withReason!.emailHtml).toContain("Bad number")
     const without = def.userMessage("rejected", { ...ctxFor[flow], reason: undefined, resolutionNotes: undefined })
-    expect(without!.sms.length).toBeGreaterThan(10)
+    expect(without!.sms!.length).toBeGreaterThan(10)
   })
   it("never leaks the literal 'undefined' or 'null' into messages", () => {
     const sparse: any = { ...ctxFor[flow] }

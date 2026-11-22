@@ -1,5 +1,7 @@
-export type FlowId = "withdrawal" | "afa" | "results_check" | "shop" | "sender_id" | "complaint" | "momo_claim" | "text_to_buy"
-export type Outcome = "approved" | "rejected" | "completed" | "resolved"
+export type FlowId =
+  | "withdrawal" | "afa" | "results_check" | "shop" | "sender_id" | "complaint" | "momo_claim" | "text_to_buy" | "api_access"
+/** "requested" and "removed" are used only by api_access; every other flow returns null for them. */
+export type Outcome = "approved" | "rejected" | "completed" | "resolved" | "requested" | "removed"
 
 export interface AdminAlert {
   subject: string
@@ -12,7 +14,8 @@ export interface AdminAlert {
 export interface UserMessage {
   emailSubject: string
   emailHtml: string
-  sms: string
+  /** Omitted when the message must not go by SMS (cost, or a notice that only belongs in email/in-app). */
+  sms?: string
   push?: { title: string; body: string; url: string }
   inApp?: { title: string; message: string; type: string; actionUrl?: string }
 }

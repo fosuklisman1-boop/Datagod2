@@ -1,4 +1,5 @@
 import { afaFlow } from "./flows/afa"
+import { apiAccessFlow } from "./flows/api-access"
 import { complaintFlow } from "./flows/complaint"
 import { momoClaimFlow } from "./flows/momo-claim"
 import { resultsCheckFlow } from "./flows/results-check"
@@ -17,4 +18,5 @@ export const FLOWS: Record<FlowId, FlowDef<any>> = {
   complaint: complaintFlow,
   momo_claim: momoClaimFlow,
   text_to_buy: textToBuyFlow,
+  api_access: apiAccessFlow,
 }

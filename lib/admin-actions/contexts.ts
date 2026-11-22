@@ -60,7 +60,20 @@ export interface TextToBuyCtx {
   keys: string[]
 }
 
+export interface ApiAccessCtx {
+  /** key = new live key, swap = replacement of an active live key, access = API access for a non-eligible account. */
+  kind: "key" | "swap" | "access"
+  /** Request code (API-XXXXXX). Never a key or key prefix. */
+  code?: string
+  keyType?: "standard" | "commission" | "sms"
+  /** Requester label for the admin alert (name/email). Escaped by emailShell. */
+  who?: string
+  /** Admin's rejection or removal reason. */
+  reason?: string
+}
+
 export interface FlowCtx {
+  api_access: ApiAccessCtx
   withdrawal: WithdrawalCtx
   afa: AfaCtx
   results_check: ResultsCheckCtx

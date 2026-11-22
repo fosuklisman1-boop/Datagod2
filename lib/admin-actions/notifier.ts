@@ -79,8 +79,10 @@ export function createNotifier(registry: Record<string, FlowDef<any>>, deps: Not
               deps.sendEmail({ to: [{ email, name }], subject: msg.emailSubject, htmlContent: msg.emailHtml, userId, referenceId: reference, type }),
             )
           : skipped("user_email", "no email"),
-        phone
-          ? run("user_sms", () => deps.sendSMS({ phone, message: clipSms(msg.sms), type, reference, userId }))
+        !msg.sms
+          ? skipped("user_sms", "no sms for this message")
+          : phone
+          ? run("user_sms", () => deps.sendSMS({ phone, message: clipSms(msg.sms as string), type, reference, userId }))
           : skipped("user_sms", "no phone"),
       ]
       if (msg.push) {
