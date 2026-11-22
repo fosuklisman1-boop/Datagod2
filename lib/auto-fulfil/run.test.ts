@@ -952,3 +952,113 @@ describe("runAutoFulfil: order_dispatch_claims (S1)", () => {
     expect(queueRows(db)).toHaveLength(0)
   })
 })
+
+describe("runAutoFulfil: backpressure and run time (S3)", () => {
+  const ids = (n: number, p = "o") => Array.from({ length: n }, (_, i) => `${p}${String(i).padStart(3, "0")}`)
+  const waitingRows = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ id: `w${i}`, order_id: `w-order-${i}`, source: "auto", status: "pending" }))
+
+  it("waiting automatic rows >= perRun => nothing queued, no candidates read, the run row still finishes", async () => {
+    const o = ids(5)
+    const db = world({
+      settings: on({ perRun: 3 }),
+      ...ALL_ON,
+      candidates: o.map((id) => cand(id, 60)),
+      tables: { orders: o.map((id) => bulk(id)), fulfillment_queue: waitingRows(3) },
+    })
+    const s = await runAutoFulfil(db as any, NOW)
+    expect(s).toMatchObject({ ran: true, queued: 0, scanned: 0 })
+    expect(db.calls.filter((c) => c.kind === "rpc")).toHaveLength(0)
+    expect(autoQueued(db)).toEqual([])
+    expect(Number.isNaN(Date.parse(db.tables.auto_fulfil_runs[0].finished_at))).toBe(false)
+  })
+
+  it("partial room: perRun 3 with 2 waiting => at most 1 queued", async () => {
+    const o = ids(5)
+    const db = world({
+      settings: on({ perRun: 3 }),
+      ...ALL_ON,
+      candidates: o.map((id) => cand(id, 60)),
+      tables: { orders: o.map((id) => bulk(id)), fulfillment_queue: waitingRows(2) },
+    })
+    const s = await runAutoFulfil(db as any, NOW)
+    expect(s.queued).toBe(1)
+    expect(autoQueued(db)).toEqual([o[0]])
+  })
+
+  it("only pending automatic rows count as waiting (admin, processing, failed rows do not)", async () => {
+    const o = ids(5)
+    const db = world({
+      settings: on({ perRun: 2 }),
+      ...ALL_ON,
+      candidates: o.map((id) => cand(id, 60)),
+      tables: {
+        orders: o.map((id) => bulk(id)),
+        fulfillment_queue: [
+          { id: "a", order_id: "x1", source: "admin", status: "pending" },
+          { id: "b", order_id: "x2", source: "auto", status: "processing" },
+          { id: "c", order_id: "x3", source: "auto", status: "failed" },
+        ],
+      },
+    })
+    expect((await runAutoFulfil(db as any, NOW)).queued).toBe(2)
+  })
+
+  it("a failing waiting-rows count fails closed: run error set, nothing queued, throws", async () => {
+    const db = world({ settings: on(), ...ALL_ON, candidates: [cand("o1", 60)], tables: { orders: [bulk("o1")] } })
+    db.failSelect = (t) => (t === "fulfillment_queue" ? { message: "count failed" } : null)
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      await expect(runAutoFulfil(db as any, NOW)).rejects.toThrow()
+    } finally {
+      err.mockRestore()
+    }
+    expect(db.tables.auto_fulfil_runs[0].error).toMatch(/count failed/)
+    expect(queueRows(db)).toHaveLength(0)
+  })
+
+  it("after 40 s of real time no new page is started, but what was found is queued", async () => {
+    const parked = ids(299, "p")
+    const base = 1_000_000
+    let clock = base
+    const spy = vi.spyOn(Date, "now").mockImplementation(() => clock)
+    try {
+      const db = world({
+        settings: on(),
+        ...ALL_ON,
+        candidates: [...parked.map((id) => cand(id, 600)), cand("good", 60), cand("late", 59)],
+        tables: {
+          orders: [...parked.map((id) => bulk(id)), bulk("good"), bulk("late")],
+          auto_fulfil_attempts: parked.map((id) => ({ id: `a-${id}`, run_id: "r0", queue_id: `q-${id}`, order_id: id, order_type: "bulk", outcome: null })),
+        },
+      })
+      const rpc = db.rpcs!.auto_fulfil_candidates
+      db.rpcs!.auto_fulfil_candidates = (a: any) => {
+        const r = rpc(a)
+        clock += 41_000 // reading the first page took 41 s
+        return r
+      }
+      const s = await runAutoFulfil(db as any, NOW)
+      expect(db.calls.filter((c) => c.kind === "rpc")).toHaveLength(1)
+      expect(autoQueued(db)).toEqual(["good"])
+      expect(s.queued).toBe(1)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it("under the time budget paging continues", async () => {
+    const parked = ids(300, "p")
+    const db = world({
+      settings: on(),
+      ...ALL_ON,
+      candidates: [...parked.map((id) => cand(id, 600)), cand("late", 60)],
+      tables: {
+        orders: [...parked.map((id) => bulk(id)), bulk("late")],
+        auto_fulfil_attempts: parked.map((id) => ({ id: `a-${id}`, run_id: "r0", queue_id: `q-${id}`, order_id: id, order_type: "bulk", outcome: null })),
+      },
+    })
+    await runAutoFulfil(db as any, NOW)
+    expect(autoQueued(db)).toEqual(["late"])
+  })
+})

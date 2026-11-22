@@ -25,6 +25,8 @@ export type RunSummary = {
 const SCAN = 300
 /** Hard cap on candidates read per run, so parked orders cannot starve newer ones yet a run stays bounded. */
 const MAX_SCANNED = 3000
+/** No new candidate page starts after this much real time (the cron route's maxDuration is 60 s). */
+const RUN_BUDGET_MS = 40_000
 const CHUNK = 100
 const PAGE = 1000
 const SUMMARY_EVERY_MINUTES = 60
@@ -370,12 +372,29 @@ export async function runAutoFulfil(db: SupabaseClient, now: Date = new Date()):
   const skip = (reason: string) => (summary.skipped[reason] = (summary.skipped[reason] ?? 0) + 1)
 
   let toQueue: Candidate[] = []
+  // Room for new automatic rows: perRun minus the automatic rows already waiting, so the waiting backlog never exceeds
+  // perRun even if the drain is slow. Set inside the try (a read error is recorded on the run row and fails closed).
+  let room = 0
+  const clockStart = Date.now()
   try {
+    const { count: waitingNow, error: waitErr } = await db
+      .from("fulfillment_queue")
+      .select("id", { count: "exact", head: true })
+      .eq("source", "auto")
+      .eq("status", "pending")
+    if (waitErr) throw new Error(`auto-fulfil: waiting rows count failed: ${waitErr.message}`)
+    room = settings.perRun - (waitingNow ?? 0)
+
     // 1+2. Read a page of candidates (oldest first), decide, and read the next page until perRun orders are found, a
     //      page comes back short, or MAX_SCANNED candidates were read. Parked (waiting / needs you) orders therefore
     //      cannot hold every slot. All reads happen before any write.
     const seen = new Set<string>()
-    for (let offset = 0; offset < MAX_SCANNED && toQueue.length < settings.perRun; offset += SCAN) {
+    //      No new page starts after RUN_BUDGET_MS of real time (the route's maxDuration is 60 s); what was found is queued.
+    for (
+      let offset = 0;
+      room > 0 && offset < MAX_SCANNED && toQueue.length < room && Date.now() - clockStart < RUN_BUDGET_MS;
+      offset += SCAN
+    ) {
       const { data, error } = await db.rpc("auto_fulfil_candidates", {
         p_min_age_minutes: settings.minAgeMinutes,
         p_max_age_days: settings.maxAgeDays,
@@ -405,10 +424,10 @@ export async function runAutoFulfil(db: SupabaseClient, now: Date = new Date()):
   }
 
   // 3. Writes, oldest first, one order at a time.
-  const overLimit = toQueue.length - settings.perRun
+  const overLimit = toQueue.length - Math.max(room, 0)
   if (overLimit > 0) {
     summary.skipped.per_run_limit = overLimit
-    toQueue = toQueue.slice(0, settings.perRun)
+    toQueue = toQueue.slice(0, Math.max(room, 0))
   }
   for (const c of toQueue) {
     const { data: qRow, error: qErr } = await db
