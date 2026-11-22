@@ -48,7 +48,8 @@ A supplier receives an MTN order only if that same supplier has approved that nu
    definite answer is saved per supplier for the send step. Blocking is unchanged: blocked only when every supplier
    that answered says no; no answer never blocks. Background checks respect the Hubnet cooldown and skip a supplier
    whose saved answer is still fresh (yes < 30 days, no < 24 h). If a send happens before a background answer is
-   saved, the send step asks that supplier itself.
+   saved, the send step asks that supplier itself. (Call: the background "ask the rest" runs only while the strict
+   switch is on; with it off, checkout is exactly today's.)
 
 ## Calls made while writing (owner may override)
 
