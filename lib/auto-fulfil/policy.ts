@@ -12,6 +12,9 @@ export type FailureEvent = {
 
 export type LatestFailure = { bucket: RetryBucket | "unclassified" | "outcome_unknown"; at: string } | null
 
+/** order_dispatch_claims: last_outcome ('claimed' | 'submitted' | 'unknown' | 'failed') and updated_at as an ISO string. */
+export type DispatchClaim = { outcome: string | null; updatedAt: string | null }
+
 export type CandidateFacts = {
   verdict: Verdict
   everHeldOrReversed: boolean
@@ -19,6 +22,8 @@ export type CandidateFacts = {
   autoTries: number
   /** Automatic attempts that ended 'skipped' (never sent). */
   autoSkips: number
+  /** The order's row in order_dispatch_claims (what the dispatcher last recorded), or null when it has none. */
+  claim: DispatchClaim | null
   blacklisted: boolean
   networkSwitchOn: boolean
 }
@@ -77,6 +82,17 @@ export function decideCandidate(f: CandidateFacts, s: AutoFulfilSettings, now: D
   if (!f.networkSwitchOn) return { kind: "skip", reason: "network_switch_off" }
   if (f.everHeldOrReversed) return { kind: "needs_you", reason: "held_or_reversed_history" }
   if (f.autoSkips >= MAX_AUTO_SKIPS) return { kind: "needs_you", reason: "repeatedly_skipped" }
+
+  // The dispatcher's own record. A claim with no recorded failure may mean the order reached a supplier although our
+  // tracking write was lost, so it must never look "never tried". 'failed' and no claim change nothing; 'submitted'
+  // alone is normal after a refused send (the failure is recorded afterwards), so it only needs a failure at or after it.
+  const claim = f.claim
+  if (claim && claim.outcome !== "failed") {
+    if (claim.outcome !== "submitted") return { kind: "needs_you", reason: "dispatch_outcome_unknown" }
+    const claimAt = claim.updatedAt ? Date.parse(claim.updatedAt) : NaN
+    const failAt = f.failure ? Date.parse(f.failure.at) : NaN
+    if (Number.isNaN(claimAt) || Number.isNaN(failAt) || failAt < claimAt) return { kind: "needs_you", reason: "submitted_without_failure" }
+  }
 
   const failure = f.failure
   if (!failure) {

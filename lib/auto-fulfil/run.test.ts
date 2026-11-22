@@ -882,3 +882,73 @@ describe("runAutoFulfil", () => {
     expect(queueRows(db)).toHaveLength(0)
   })
 })
+
+describe("runAutoFulfil: order_dispatch_claims (S1)", () => {
+  const U1 = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa"
+  const U2 = "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb"
+  const U3 = "cccccccc-3333-4333-8333-cccccccccccc"
+  const U4 = "dddddddd-4444-4444-8444-dddddddddddd"
+  const claimRow = (orderId: string, outcome: string, minsAgo: number) => ({
+    order_id: orderId,
+    attempts: 1,
+    last_outcome: outcome,
+    last_claimed_at: ago(minsAgo + 1),
+    updated_at: ago(minsAgo),
+  })
+
+  it("claimed / unknown claims => needs you; failed claim and no claim => queued", async () => {
+    const db = world({
+      settings: on(),
+      ...ALL_ON,
+      candidates: [cand(U1, 300), cand(U2, 300), cand(U3, 300), cand(U4, 300)],
+      tables: {
+        orders: [bulk(U1), bulk(U2), bulk(U3), bulk(U4)],
+        order_dispatch_claims: [claimRow(U1, "claimed", 60), claimRow(U2, "unknown", 60), claimRow(U3, "failed", 60)],
+      },
+    })
+    const s = await runAutoFulfil(db as any, NOW)
+    expect(s.needsYou).toBe(2)
+    expect(autoQueued(db).sort()).toEqual([U3, U4].sort())
+  })
+
+  it("submitted with no failure => needs you; submitted + a later tracking failure => normal retry rules", async () => {
+    const naive = (m: number) => ago(m).replace("Z", "")
+    const db = world({
+      settings: on(),
+      ...ALL_ON,
+      candidates: [cand(U1, 300), cand(U2, 300), cand(U3, 300)],
+      tables: {
+        orders: [bulk(U1), bulk(U2), bulk(U3)],
+        order_dispatch_claims: [claimRow(U1, "submitted", 60), claimRow(U2, "submitted", 60), claimRow(U3, "submitted", 60)],
+        mtn_fulfillment_tracking: [
+          // U2: refusal recorded after the claim (rate limit, wait over) => retried
+          track(U2, { status: "failed", external_message: "rate limit", created_at: naive(120), updated_at: naive(50) }),
+          // U3: only an older failure => the submit has no outcome on record => needs you
+          track(U3, { status: "failed", external_message: "rate limit", created_at: naive(120), updated_at: naive(90) }),
+        ],
+      },
+    })
+    const s = await runAutoFulfil(db as any, NOW)
+    expect(s.needsYou).toBe(2)
+    expect(autoQueued(db)).toEqual([U2])
+  })
+
+  it("non-uuid ids are not sent to order_dispatch_claims", async () => {
+    const db = world({ settings: on(), ...ALL_ON, candidates: [cand("o1", 60)], tables: { orders: [bulk("o1")] } })
+    await runAutoFulfil(db as any, NOW)
+    expect(db.calls.some((c) => c.table === "order_dispatch_claims")).toBe(false)
+  })
+
+  it("a claims read error fails closed: run error set, nothing queued, throws", async () => {
+    const db = world({ settings: on(), ...ALL_ON, candidates: [cand(U1, 60)], tables: { orders: [bulk(U1)] } })
+    db.failSelect = (t) => (t === "order_dispatch_claims" ? { message: "claims read failed" } : null)
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      await expect(runAutoFulfil(db as any, NOW)).rejects.toThrow()
+    } finally {
+      err.mockRestore()
+    }
+    expect(db.tables.auto_fulfil_runs[0].error).toMatch(/claims read failed/)
+    expect(queueRows(db)).toHaveLength(0)
+  })
+})

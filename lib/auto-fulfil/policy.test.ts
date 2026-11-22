@@ -27,6 +27,7 @@ const facts = (over: Partial<CandidateFacts> = {}): CandidateFacts => ({
   failure: null,
   autoTries: 0,
   autoSkips: 0,
+  claim: null,
   blacklisted: false,
   networkSwitchOn: true,
   ...over,
@@ -283,5 +284,60 @@ describe("decideCandidate", () => {
     expect(
       decideCandidate(facts({ failure: { bucket: "wrong_number", at: iso(-10) }, autoTries: 1 }), custom, NOW),
     ).toEqual({ kind: "queue" })
+  })
+})
+
+describe("decideCandidate: dispatch claim (S1)", () => {
+  const claim = (outcome: string | null, updatedAt: string | null = iso(-30)) => ({ outcome, updatedAt })
+  const rate = (at: string) => ({ bucket: "rate_limited" as const, at })
+
+  it("'claimed' and 'unknown' (and anything unrecognised, or null) => needs_you dispatch_outcome_unknown, even with no failure", () => {
+    for (const outcome of ["claimed", "unknown", "weird", null]) {
+      expect(decideCandidate(facts({ claim: claim(outcome) }), S, NOW)).toEqual({ kind: "needs_you", reason: "dispatch_outcome_unknown" })
+    }
+  })
+
+  it("'claimed' beats a later failure too", () => {
+    expect(decideCandidate(facts({ claim: claim("claimed", iso(-30)), failure: rate(iso(-10)) }), S, NOW)).toEqual({
+      kind: "needs_you",
+      reason: "dispatch_outcome_unknown",
+    })
+  })
+
+  it("'submitted' with no failure => needs_you submitted_without_failure", () => {
+    expect(decideCandidate(facts({ claim: claim("submitted") }), S, NOW)).toEqual({ kind: "needs_you", reason: "submitted_without_failure" })
+  })
+
+  it("'submitted' + an older failure => needs_you submitted_without_failure", () => {
+    expect(decideCandidate(facts({ claim: claim("submitted", iso(-30)), failure: rate(iso(-40)) }), S, NOW)).toEqual({
+      kind: "needs_you",
+      reason: "submitted_without_failure",
+    })
+  })
+
+  it("'submitted' + a failure at or after the claim's updated_at => normal retry rules (rate_limited, waited out => queue)", () => {
+    expect(decideCandidate(facts({ claim: claim("submitted", iso(-30)), failure: rate(iso(-20)) }), S, NOW)).toEqual({ kind: "queue" })
+    expect(decideCandidate(facts({ claim: claim("submitted", iso(-20)), failure: rate(iso(-20)) }), S, NOW)).toEqual({ kind: "queue" })
+  })
+
+  it("'submitted' + a later failure still waits when the wait is not over", () => {
+    const d = decideCandidate(facts({ claim: claim("submitted", iso(-3)), failure: rate(iso(-1)) }), S, NOW)
+    expect(d.kind).toBe("wait")
+  })
+
+  it("'submitted' with an unreadable time on either side => needs_you", () => {
+    expect(decideCandidate(facts({ claim: claim("submitted", null), failure: rate(iso(-20)) }), S, NOW).kind).toBe("needs_you")
+    expect(decideCandidate(facts({ claim: claim("submitted", "garbage"), failure: rate(iso(-20)) }), S, NOW).kind).toBe("needs_you")
+    expect(decideCandidate(facts({ claim: claim("submitted", iso(-30)), failure: rate("garbage") }), S, NOW).kind).toBe("needs_you")
+  })
+
+  it("'failed' claim and no claim are unchanged", () => {
+    expect(decideCandidate(facts({ claim: claim("failed") }), S, NOW)).toEqual({ kind: "queue" })
+    expect(decideCandidate(facts({ claim: null }), S, NOW)).toEqual({ kind: "queue" })
+    expect(decideCandidate(facts({ claim: claim("failed"), failure: rate(iso(-20)) }), S, NOW)).toEqual({ kind: "queue" })
+  })
+
+  it("held/reversed history still wins over the claim", () => {
+    expect(decideCandidate(facts({ everHeldOrReversed: true, claim: claim("claimed") }), S, NOW)).toEqual({ kind: "needs_you", reason: "held_or_reversed_history" })
   })
 })

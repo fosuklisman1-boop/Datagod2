@@ -5,7 +5,7 @@ import { loadSnapshots, normalizeNetwork } from "@/lib/order-queue/load-snapshot
 import { getProviderOptionsForNetwork } from "@/lib/order-queue/supplier-capability"
 import { ORDER_TYPES, type OrderType } from "@/lib/order-queue/types"
 import { notifyAdminsPush } from "@/lib/push-service"
-import { decideCandidate, latestFailure, NON_SEND_SWITCHED_OFF, type Decision, type FailureEvent } from "./policy"
+import { decideCandidate, latestFailure, NON_SEND_SWITCHED_OFF, type Decision, type DispatchClaim, type FailureEvent } from "./policy"
 import { loadAutoFulfilSettings, type AutoFulfilSettings } from "./settings"
 
 export type RunSummary = {
@@ -134,6 +134,8 @@ type History = {
   autoTries: Map<string, number>
   /** Automatic attempts that ended 'skipped' (never sent). */
   autoSkips: Map<string, number>
+  /** order_dispatch_claims rows by order id (uuid orders only). */
+  claims: Map<string, DispatchClaim>
 }
 
 /**
@@ -250,7 +252,19 @@ async function readHistory(db: SupabaseClient, ids: string[]): Promise<History> 
     }
   }
 
-  return { heldOrReversed, liveLog, events, autoTries, autoSkips }
+  // 4. The dispatcher's claim per order (PK order_id, so at most one row each; uuid ids only). Read errors fail closed.
+  const claims = new Map<string, DispatchClaim>()
+  for (const chunk of chunks(uuidIds)) {
+    const { data, error } = await db.from("order_dispatch_claims").select("order_id, last_outcome, updated_at").in("order_id", chunk)
+    if (error) throw new Error(`auto-fulfil: order_dispatch_claims read failed: ${error.message}`)
+    for (const c of (data ?? []) as any[]) {
+      const orderId = String(c.order_id)
+      if (!idSet.has(orderId)) continue
+      claims.set(orderId, { outcome: c.last_outcome ?? null, updatedAt: c.updated_at ? String(c.updated_at) : null })
+    }
+  }
+
+  return { heldOrReversed, liveLog, events, autoTries, autoSkips, claims }
 }
 
 /** Bulk/shop candidates whose order row has queue = 'blacklisted' (only orders and shop_orders have the column). */
@@ -308,6 +322,7 @@ async function decidePage(
         failure: latestFailure(history.events.get(c.id) ?? []),
         autoTries: history.autoTries.get(c.id) ?? 0,
         autoSkips: history.autoSkips.get(c.id) ?? 0,
+        claim: history.claims.get(c.id) ?? null,
         blacklisted: !!c.phone && blacklisted.has(c.phone),
         networkSwitchOn: networkOn(snap?.network ?? c.network, settings, switches),
       },
