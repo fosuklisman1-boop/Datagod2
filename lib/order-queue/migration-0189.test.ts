@@ -52,9 +52,10 @@ const ROLES = `
 
 // Minimal source tables, real column types (see schema reference). Only columns the view and the functions read.
 const TABLES = `
-  CREATE TABLE users (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), email varchar);
+  CREATE TABLE users (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), email varchar, created_at timestamp DEFAULT now());
   CREATE TABLE user_shops (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid, shop_name varchar);
-  CREATE TABLE orders (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid, network varchar, size varchar, price numeric,
+  -- prod: orders.user_id is NOT NULL with a FK to users (prod-notnull.json / prod-constraints.json)
+  CREATE TABLE orders (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE, network varchar, size varchar, price numeric,
     status varchar, phone_number varchar, order_code varchar, transaction_code varchar, created_at timestamp DEFAULT now());
   CREATE TABLE api_orders (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid, network text, volume_gb numeric, price numeric,
     recipient_phone text, api_reference text, status text, created_at timestamptz DEFAULT now());
@@ -68,7 +69,9 @@ const TABLES = `
     package_size varchar, amount numeric, paystack_reference varchar, order_status varchar, payment_status varchar,
     created_at timestamptz DEFAULT now());
   CREATE TABLE mtn_fulfillment_tracking (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), shop_order_id uuid, mtn_order_id text,
-    api_response_payload jsonb, status varchar, external_message text, created_at timestamp DEFAULT now(), order_id varchar,
+    api_response_payload jsonb,
+    status varchar CONSTRAINT valid_status CHECK (status IN ('pending','processing','completed','failed','error','retrying','reversed','abandoned')),
+    external_message text, created_at timestamp DEFAULT now(), order_id varchar,
     provider varchar, api_order_id uuid);
   CREATE INDEX idx_mtn_fulfillment_order_id ON mtn_fulfillment_tracking (order_id);
   CREATE INDEX idx_mtn_fulfillment_shop_order_id ON mtn_fulfillment_tracking (shop_order_id);
@@ -81,6 +84,9 @@ async function makeDb(): Promise<any> {
   await db.exec(TABLES)
   await db.exec(`CREATE VIEW combined_orders_view AS ${COMBINED_ORDERS_VIEW_SQL}`)
   await db.exec(migration())
+  // The general tests insert bare orders rows: give them a default owner. (The selftest test below does NOT, so it must supply user_id itself.)
+  await db.exec(`INSERT INTO users (id, email) VALUES ('${uid(9000)}', 'default@example.com')`)
+  await db.exec(`ALTER TABLE orders ALTER COLUMN user_id SET DEFAULT '${uid(9000)}'`)
   return db
 }
 
@@ -152,6 +158,7 @@ describe.skipIf(!PGliteCtor)("0189 in PGlite", () => {
     await db.exec(ROLES)
     await db.exec(TABLES)
     await db.exec(`CREATE VIEW combined_orders_view AS ${COMBINED_ORDERS_VIEW_SQL}`)
+    await db.exec(`INSERT INTO users (email) VALUES ('selftest-borrowed@example.com')`) // the selftest borrows an existing user
     await expect(db.exec(buildRunString(migration(), read(SELFTEST_FILE)))).rejects.toThrow(/^SELFTEST_OK 0189/)
     await db.exec("ROLLBACK")
     expect((await db.query("SELECT to_regprocedure('public.admin_order_queue_counts(text[],text[],timestamptz,timestamptz,text,text,text)') AS f")).rows[0].f).toBeNull()

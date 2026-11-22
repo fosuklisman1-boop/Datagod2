@@ -31,6 +31,7 @@ DECLARE
   v_f      text;
   v_role   text;
   v_c      jsonb;
+  v_uid    uuid;
 BEGIN
   -- catalog: both functions exist with the agreed result shape ---------------------------------------
   SELECT count(*) INTO v_n FROM pg_proc
@@ -52,13 +53,16 @@ BEGIN
   END LOOP;
 
   -- seed: six orders (one per queue case) and their attempts ------------------------------------------
-  INSERT INTO public.orders (id, network, size, price, status, phone_number, order_code, created_at) VALUES
-    (v_id1, 'mtn', '1', 5, 'pending',    '0599189001', 'ST189-1', now() - interval '1 hour'),
-    (v_id2, 'mtn', '1', 5, 'reversed',   '0599189002', 'ST189-2', now() - interval '1 hour'),
-    (v_id3, 'mtn', '1', 5, 'processing', '0599189003', 'ST189-3', now() - interval '1 hour'),
-    (v_id4, 'mtn', '1', 5, 'processing', '0599189004', 'ST189-4', now() - interval '1 hour'),
-    (v_id5, 'mtn', '1', 5, 'failed',     '0599189005', 'ST189-5', now() - interval '1 hour'),
-    (v_id6, 'mtn', '1', 5, 'completed',  '0599189006', 'ST189-6', now() - interval '1 hour');
+  -- orders.user_id is NOT NULL with a FK to users(id) on prod: borrow any existing user (the rows are rolled back anyway).
+  SELECT u.id INTO v_uid FROM public.users u ORDER BY u.created_at LIMIT 1;
+  IF v_uid IS NULL THEN RAISE EXCEPTION 'FAIL seed: public.users is empty, cannot seed orders (orders.user_id is NOT NULL)'; END IF;
+  INSERT INTO public.orders (id, user_id, network, size, price, status, phone_number, order_code, created_at) VALUES
+    (v_id1, v_uid, 'mtn', '1', 5, 'pending',    '0599189001', 'ST189-1', now() - interval '1 hour'),
+    (v_id2, v_uid, 'mtn', '1', 5, 'reversed',   '0599189002', 'ST189-2', now() - interval '1 hour'),
+    (v_id3, v_uid, 'mtn', '1', 5, 'processing', '0599189003', 'ST189-3', now() - interval '1 hour'),
+    (v_id4, v_uid, 'mtn', '1', 5, 'processing', '0599189004', 'ST189-4', now() - interval '1 hour'),
+    (v_id5, v_uid, 'mtn', '1', 5, 'failed',     '0599189005', 'ST189-5', now() - interval '1 hour'),
+    (v_id6, v_uid, 'mtn', '1', 5, 'completed',  '0599189006', 'ST189-6', now() - interval '1 hour');
   INSERT INTO public.mtn_fulfillment_tracking (order_id, status, external_message, created_at) VALUES
     (v_id3::text, 'abandoned',  'no response',                  now() - interval '30 minutes'),
     (v_id4::text, 'processing', 'sent',                         now() - interval '3 hours'),
