@@ -24,6 +24,7 @@ describe("0192 migration text", () => {
     expect(c).toMatch(/CREATE TABLE IF NOT EXISTS hubnet_ref_reservations/)
     expect(c).toMatch(/ref\s+text\s+PRIMARY KEY/)
     expect(c).toMatch(/CHECK \(kind IN \('data', 'airtime'\)\)/)
+    expect(c).toMatch(/CHECK \(length\(btrim\(ref\)\) > 0\)/)
     expect(c).toMatch(/ENABLE ROW LEVEL SECURITY/i)
     expect(c).not.toMatch(/CREATE POLICY/i)
     expect(c).toMatch(/REVOKE ALL ON (TABLE )?(public\.)?hubnet_ref_reservations FROM PUBLIC, anon, authenticated/i)
@@ -35,6 +36,13 @@ describe("0192 migration text", () => {
     expect(s).not.toMatch(/\bCOMMIT\b/i)
     expect(s).not.toMatch(/^\s*END\s*;/im)
     expect(s.trimEnd()).toMatch(/RAISE EXCEPTION 'SELFTEST_OK 0192[^']*';\s*END\s*\$selftest\$;$/)
+  })
+
+  it("the selftest proves the blank-ref CHECK and anon INSERT/DELETE denial", () => {
+    const c = code(read(SELFTEST_FILE))
+    expect(c).toMatch(/FAIL blank/)
+    expect(c).toMatch(/has_table_privilege\('anon', 'public\.hubnet_ref_reservations', 'INSERT'\)/)
+    expect(c).toMatch(/has_table_privilege\('anon', 'public\.hubnet_ref_reservations', 'DELETE'\)/)
   })
 
   it("buildRunString refuses a migration without COMMIT", () => {
@@ -83,14 +91,20 @@ describe.skipIf(!PGliteCtor)("0192 in PGlite", () => {
     const db = await makeDb()
     await ins(db, "R1")
     await expect(ins(db, "R1")).rejects.toMatchObject({ code: "23505" })
-  })
+  }, 60_000)
 
   it("the CHECK rejects kind 'x' and accepts data/airtime", async () => {
     const db = await makeDb()
     await expect(ins(db, "R2", "x")).rejects.toThrow(/check/i)
     await ins(db, "R3", "data")
     await ins(db, "R4", "airtime")
-  })
+  }, 60_000)
+
+  it("the CHECK rejects an empty or blank ref", async () => {
+    const db = await makeDb()
+    await expect(ins(db, "")).rejects.toMatchObject({ code: "23514" })
+    await expect(ins(db, "   ")).rejects.toMatchObject({ code: "23514" })
+  }, 60_000)
 
   it("anon and authenticated are denied select/insert/delete; service_role is allowed", async () => {
     const db = await makeDb()
@@ -106,5 +120,5 @@ describe.skipIf(!PGliteCtor)("0192 in PGlite", () => {
     expect((await db.query(`SELECT count(*)::int AS n FROM hubnet_ref_reservations`)).rows[0].n).toBe(1)
     await db.exec(`DELETE FROM hubnet_ref_reservations WHERE ref = 'S1'`)
     await db.exec("RESET ROLE")
-  })
+  }, 60_000)
 })

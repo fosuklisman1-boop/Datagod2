@@ -10,7 +10,14 @@ function fakeDb(insertResult: () => any, deleteResult: () => any = () => ({ erro
     from(t: string) {
       return {
         insert(row: any) { calls.push(["insert", t, row]); return Promise.resolve().then(insertResult) },
-        delete() { return { eq(col: string, v: string) { calls.push(["delete", t, col, v]); return Promise.resolve().then(deleteResult) } } },
+        delete() {
+          const filters: [string, string][] = []
+          const q: any = {
+            eq(col: string, v: string) { filters.push([col, v]); return q },
+            then(ok: any, bad: any) { calls.push(["delete", t, ...filters]); return Promise.resolve().then(deleteResult).then(ok, bad) },
+          }
+          return q
+        },
       }
     },
   }
@@ -37,15 +44,27 @@ describe("dbReservations", () => {
   it("getDb throwing => error", async () => {
     expect(await dbReservations(() => { throw new Error("x") }).reserve(r)).toBe("error")
   })
-  it("release deletes by ref", async () => {
+  it("a result with no error field (undefined) => error, not reserved", async () => {
+    expect(await dbReservations(() => fakeDb(() => ({}))).reserve(r)).toBe("error")
+    expect(await dbReservations(() => fakeDb(() => undefined)).reserve(r)).toBe("error")
+  })
+  it("empty or blank ref => error without touching the db", async () => {
     const db = fakeDb(() => ({ error: null }))
-    await dbReservations(() => db).release("REF1")
-    expect(db.calls[0]).toEqual(["delete", "hubnet_ref_reservations", "ref", "REF1"])
+    const res = dbReservations(() => db)
+    expect(await res.reserve({ ...r, ref: "" })).toBe("error")
+    expect(await res.reserve({ ...r, ref: "   " })).toBe("error")
+    expect(await res.reserve({ ...r, ref: undefined as unknown as string })).toBe("error")
+    expect(db.calls).toHaveLength(0)
+  })
+  it("release deletes by ref AND owner order id", async () => {
+    const db = fakeDb(() => ({ error: null }))
+    await dbReservations(() => db).release("REF1", "o1")
+    expect(db.calls[0]).toEqual(["delete", "hubnet_ref_reservations", ["ref", "REF1"], ["order_id", "o1"]])
   })
   it("release swallows returned errors, thrown errors and a null db", async () => {
-    await expect(dbReservations(() => fakeDb(() => ({ error: null }), () => ({ error: { code: "x" } }))).release("R")).resolves.toBeUndefined()
-    await expect(dbReservations(() => fakeDb(() => ({ error: null }), () => { throw new Error("boom") })).release("R")).resolves.toBeUndefined()
-    await expect(dbReservations(() => null).release("R")).resolves.toBeUndefined()
+    await expect(dbReservations(() => fakeDb(() => ({ error: null }), () => ({ error: { code: "x" } }))).release("R", "o1")).resolves.toBeUndefined()
+    await expect(dbReservations(() => fakeDb(() => ({ error: null }), () => { throw new Error("boom") })).release("R", "o1")).resolves.toBeUndefined()
+    await expect(dbReservations(() => null).release("R", "o1")).resolves.toBeUndefined()
   })
 })
 
@@ -62,7 +81,7 @@ describe("defaultHubnetReservations", () => {
     const d = defaultHubnetReservations()
     expect(defaultHubnetReservations()).toBe(d)
     expect(await d.reserve(r)).toBe("error")
-    await expect(d.release("REF1")).resolves.toBeUndefined()
+    await expect(d.release("REF1", "o1")).resolves.toBeUndefined()
   })
 })
 
@@ -71,7 +90,18 @@ describe("memoryReservations", () => {
     const m = memoryReservations()
     expect(await m.reserve(r)).toBe("reserved")
     expect(await m.reserve(r)).toBe("held")
-    await m.release("REF1")
+    await m.release("REF1", "o1")
     expect(await m.reserve(r)).toBe("reserved")
+  })
+  it("release by a different order id leaves the reservation in place", async () => {
+    const m = memoryReservations()
+    expect(await m.reserve(r)).toBe("reserved")
+    await m.release("REF1", "someone-else")
+    expect(await m.reserve(r)).toBe("held")
+  })
+  it("empty or blank ref => error", async () => {
+    const m = memoryReservations()
+    expect(await m.reserve({ ...r, ref: "" })).toBe("error")
+    expect(await m.reserve({ ...r, ref: "  " })).toBe("error")
   })
 })

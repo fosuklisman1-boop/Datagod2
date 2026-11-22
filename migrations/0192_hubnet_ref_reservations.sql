@@ -11,7 +11,7 @@ SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
 
 CREATE TABLE IF NOT EXISTS hubnet_ref_reservations (
-  ref        text        PRIMARY KEY,
+  ref        text        PRIMARY KEY CHECK (length(btrim(ref)) > 0),
   kind       text        NOT NULL CHECK (kind IN ('data', 'airtime')),
   order_id   text        NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()

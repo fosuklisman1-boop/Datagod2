@@ -14,7 +14,7 @@
 -- row are rolled back. PASSES when the error text starts with 'SELFTEST_OK'; any 'FAIL ...' or other error means it failed.
 -- If the client keeps the session open, send `ROLLBACK;`.
 --
--- Seed rows go only into hubnet_ref_reservations with refs 'SELFTEST0192-*'. Scenarios: dupe, kind, privileges.
+-- Seed rows go only into hubnet_ref_reservations with refs 'SELFTEST0192-*'. Scenarios: dupe, kind, blank, privileges.
 
 DO $selftest$
 DECLARE
@@ -39,12 +39,31 @@ BEGIN
     EXCEPTION WHEN check_violation THEN NULL;
     END $x$;
   $inner$;
+
+  -- blank: an empty or whitespace-only ref is refused (it would collide for every order) -----------------
+  EXECUTE $inner$
+    DO $x$ BEGIN
+      INSERT INTO hubnet_ref_reservations (ref, kind, order_id) VALUES ('', 'data', 'selftest-0192-o');
+      RAISE EXCEPTION 'FAIL blank: empty ref was accepted';
+    EXCEPTION WHEN check_violation THEN NULL;
+    END $x$;
+  $inner$;
+  EXECUTE $inner$
+    DO $x$ BEGIN
+      INSERT INTO hubnet_ref_reservations (ref, kind, order_id) VALUES ('   ', 'data', 'selftest-0192-o');
+      RAISE EXCEPTION 'FAIL blank: whitespace-only ref was accepted';
+    EXCEPTION WHEN check_violation THEN NULL;
+    END $x$;
+  $inner$;
+
   INSERT INTO hubnet_ref_reservations (ref, kind, order_id) VALUES ('SELFTEST0192-c', 'airtime', 'selftest-0192-o');
   SELECT count(*) INTO v_n FROM hubnet_ref_reservations WHERE ref LIKE 'SELFTEST0192-%';
   IF v_n <> 2 THEN RAISE EXCEPTION 'FAIL kind: % selftest rows, want 2', v_n; END IF;
 
   -- privileges ----------------------------------------------------------------------------------------
   IF has_table_privilege('anon', 'public.hubnet_ref_reservations', 'SELECT')
+     OR has_table_privilege('anon', 'public.hubnet_ref_reservations', 'INSERT')
+     OR has_table_privilege('anon', 'public.hubnet_ref_reservations', 'DELETE')
      OR has_table_privilege('authenticated', 'public.hubnet_ref_reservations', 'SELECT')
      OR has_table_privilege('authenticated', 'public.hubnet_ref_reservations', 'INSERT')
      OR has_table_privilege('authenticated', 'public.hubnet_ref_reservations', 'DELETE') THEN
@@ -56,5 +75,5 @@ BEGIN
     RAISE EXCEPTION 'FAIL privileges: service_role lacks SELECT/INSERT/DELETE';
   END IF;
 
-  RAISE EXCEPTION 'SELFTEST_OK 0192 one reservation per ref, kind checked, table locked down to service_role';
+  RAISE EXCEPTION 'SELFTEST_OK 0192 one reservation per ref, kind and blank ref checked, table locked down to service_role';
 END $selftest$;
