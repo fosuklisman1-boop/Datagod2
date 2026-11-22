@@ -26,6 +26,7 @@ const facts = (over: Partial<CandidateFacts> = {}): CandidateFacts => ({
   everHeldOrReversed: false,
   failure: null,
   autoTries: 0,
+  autoSkips: 0,
   blacklisted: false,
   networkSwitchOn: true,
   ...over,
@@ -256,6 +257,22 @@ describe("decideCandidate", () => {
 
   it("no failure record and no auto sends => queue", () => {
     expect(decideCandidate(facts({ failure: null, autoTries: 0 }), S, NOW)).toEqual({ kind: "queue" })
+  })
+
+  it("10 or more skipped automatic attempts => needs_you repeatedly_skipped; 9 still queues", () => {
+    expect(decideCandidate(facts({ autoSkips: 10 }), S, NOW)).toEqual({ kind: "needs_you", reason: "repeatedly_skipped" })
+    expect(decideCandidate(facts({ autoSkips: 25, failure: { bucket: "rate_limited", at: iso(-60) } }), S, NOW)).toEqual({
+      kind: "needs_you",
+      reason: "repeatedly_skipped",
+    })
+    expect(decideCandidate(facts({ autoSkips: 9 }), S, NOW)).toEqual({ kind: "queue" })
+  })
+
+  it("a blocked verdict still wins over repeated skips", () => {
+    expect(decideCandidate(facts({ autoSkips: 12, verdict: { kind: "blocked", reason: "completed" } }), S, NOW)).toEqual({
+      kind: "skip",
+      reason: "completed",
+    })
   })
 
   it("uses the settings' rules, not the defaults", () => {

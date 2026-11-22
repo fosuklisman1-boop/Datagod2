@@ -32,7 +32,13 @@ function world(opts: {
   if (opts.mtnSwitch !== undefined) admin_settings.push({ key: "mtn_auto_fulfillment_enabled", value: opts.mtnSwitch })
   if (opts.nonMtnSwitch !== undefined) admin_settings.push({ key: "auto_fulfillment_enabled", value: opts.nonMtnSwitch })
   const db = makeFakeDb({ admin_settings, ...(opts.tables ?? {}) })
-  db.rpcs = { auto_fulfil_candidates: () => ({ data: opts.candidates ?? [], error: null }) }
+  // Pages like the SQL: oldest first, LIMIT p_scan OFFSET p_offset (the candidates are given in that order).
+  db.rpcs = {
+    auto_fulfil_candidates: (a) => {
+      const from = a.p_offset ?? 0
+      return { data: (opts.candidates ?? []).slice(from, from + a.p_scan), error: null }
+    },
+  }
   return db
 }
 
@@ -89,7 +95,7 @@ describe("cancelWaitingAutoRows / off", () => {
       },
     })
     const s = await runAutoFulfil(db as any, NOW)
-    expect(s).toEqual({ ran: false, reason: "off", queued: 0, waiting: 0, needsYou: 0, skipped: {}, cancelled: 1 })
+    expect(s).toEqual({ ran: false, reason: "off", queued: 0, waiting: 0, needsYou: 0, skipped: {}, cancelled: 1, scanned: 0 })
     const byId = Object.fromEntries(queueRows(db).map((r) => [r.id, r]))
     expect(byId.q1).toMatchObject({ status: "failed", error_message: "auto-fulfil switched off" })
     expect(byId.q2).toMatchObject({ status: "pending" })
@@ -114,7 +120,7 @@ describe("cancelWaitingAutoRows / off", () => {
       tables: { orders: [bulk("o1")], fulfillment_queue: [{ id: "q1", order_id: "x1", source: "auto", status: "pending" }] },
     })
     const s = await runAutoFulfil(db as any, NOW)
-    expect(s).toEqual({ ran: false, reason: "invalid_settings", queued: 0, waiting: 0, needsYou: 0, skipped: {}, cancelled: 1 })
+    expect(s).toEqual({ ran: false, reason: "invalid_settings", queued: 0, waiting: 0, needsYou: 0, skipped: {}, cancelled: 1, scanned: 0 })
     expect(autoQueued(db)).toEqual([])
     expect(db.calls.some((c) => c.kind === "rpc")).toBe(false)
   })
@@ -123,6 +129,57 @@ describe("cancelWaitingAutoRows / off", () => {
     const db = makeFakeDb({ fulfillment_queue: [] })
     db.failUpdate = () => ({ message: "boom" })
     await expect(cancelWaitingAutoRows(db as any)).rejects.toThrow()
+  })
+
+  it("cancelling closes the cancelled rows' open attempts as 'skipped' (other attempts untouched)", async () => {
+    const db = makeFakeDb({
+      fulfillment_queue: [
+        { id: "q1", order_id: "x1", source: "auto", status: "pending" },
+        { id: "q3", order_id: "x3", source: "auto", status: "processing" },
+      ],
+      auto_fulfil_attempts: [
+        { id: "a1", queue_id: "q1", order_id: "x1", outcome: null },
+        { id: "a3", queue_id: "q3", order_id: "x3", outcome: null },
+        { id: "a0", queue_id: "q1", order_id: "x1", outcome: "rate_limited" },
+      ],
+    })
+    expect(await cancelWaitingAutoRows(db as any)).toBe(1)
+    const byId = Object.fromEntries(db.tables.auto_fulfil_attempts.map((a) => [a.id, a]))
+    expect(byId.a1.outcome).toBe("skipped")
+    expect(typeof byId.a1.finished_at).toBe("string")
+    expect(byId.a3.outcome).toBeNull() // still being sent by the drain
+    expect(byId.a0.outcome).toBe("rate_limited")
+  })
+
+  it("an attempt update error is logged (ids only) and does not change the cancelled count", async () => {
+    const db = makeFakeDb({
+      fulfillment_queue: [{ id: "q1", order_id: "x1", source: "auto", status: "pending" }],
+      auto_fulfil_attempts: [{ id: "a1", queue_id: "q1", order_id: "x1", outcome: null }],
+    })
+    db.failUpdate = (t) => (t === "auto_fulfil_attempts" ? { message: "boom" } : null)
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      expect(await cancelWaitingAutoRows(db as any)).toBe(1)
+      expect(err).toHaveBeenCalled()
+      expect(err.mock.calls.flat().join(" ")).toContain("q1")
+    } finally {
+      err.mockRestore()
+    }
+  })
+
+  it("switch off then on => the cancelled order is queued again (not needs_you)", async () => {
+    const db = world({ settings: on(), ...ALL_ON, candidates: [cand("o1", 60)], tables: { orders: [bulk("o1")] } })
+    const first = await runAutoFulfil(db as any, NOW)
+    expect(first.queued).toBe(1)
+
+    db.tables.admin_settings.find((r) => r.key === AUTO_FULFIL_SETTINGS_KEY)!.value = on({ enabled: false })
+    const off = await runAutoFulfil(db as any, new Date(NOW.getTime() + 60_000))
+    expect(off.cancelled).toBe(1)
+
+    db.tables.admin_settings.find((r) => r.key === AUTO_FULFIL_SETTINGS_KEY)!.value = on()
+    const again = await runAutoFulfil(db as any, new Date(NOW.getTime() + 20 * 60_000))
+    expect(again).toMatchObject({ queued: 1, needsYou: 0 })
+    expect(queueRows(db).filter((r) => r.order_id === "o1" && r.status === "pending")).toHaveLength(1)
   })
 })
 
@@ -155,7 +212,14 @@ describe("runAutoFulfil", () => {
 
     const rpc = db.calls.find((c) => c.kind === "rpc")!
     expect(rpc.table).toBe("auto_fulfil_candidates")
-    expect(rpc.values).toEqual({ p_min_age_minutes: 10, p_max_age_days: 7, p_networks: DEFAULT_AUTO_FULFIL_SETTINGS.networks, p_scan: 300 })
+    expect(rpc.values).toEqual({
+      p_min_age_minutes: 10,
+      p_max_age_days: 7,
+      p_networks: DEFAULT_AUTO_FULFIL_SETTINGS.networks,
+      p_scan: 300,
+      p_offset: 0,
+    })
+    expect(s.scanned).toBe(3)
 
     const run = db.tables.auto_fulfil_runs[0]
     expect(run).toMatchObject({ id: runId, started_at: NOW.toISOString(), queued: 2, waiting: 0, needs_you: 0, skipped: { per_run_limit: 1 } })
@@ -180,7 +244,7 @@ describe("runAutoFulfil", () => {
       tables: { orders: [bulk("o1")], auto_fulfil_runs: [{ id: "live", started_at: ago(1), finished_at: null, summary_sent: false }] },
     })
     const s = await runAutoFulfil(db as any, NOW)
-    expect(s).toEqual({ ran: false, reason: "busy", queued: 0, waiting: 0, needsYou: 0, skipped: {}, cancelled: 0 })
+    expect(s).toEqual({ ran: false, reason: "busy", queued: 0, waiting: 0, needsYou: 0, skipped: {}, cancelled: 0, scanned: 0 })
     expect(db.tables.auto_fulfil_runs).toHaveLength(1)
     expect(db.calls.some((c) => c.kind === "rpc")).toBe(false)
     expect(db.calls.some((c) => c.kind === "insert" || c.kind === "update" || c.kind === "delete")).toBe(false)
@@ -559,7 +623,7 @@ describe("runAutoFulfil", () => {
     expect(autoQueued(db)).toEqual(["room"])
   })
 
-  it("failed queue rows of any source are failure events (at = completed_at ?? last_attempted_at ?? enqueued_at); non-send messages ignored", async () => {
+  it("failed queue rows of any source are failure events (at = last_attempted_at ?? completed_at ?? enqueued_at, the claim time); non-send messages ignored", async () => {
     const db = world({
       settings: on(),
       ...ALL_ON,
@@ -568,7 +632,7 @@ describe("runAutoFulfil", () => {
         orders: [bulk("w1"), bulk("w2"), bulk("w3"), bulk("n1"), bulk("u1")],
         fulfillment_queue: [
           // rate_limited waits 2 min: each of these failed 1 minute ago by its own best timestamp.
-          { id: "f1", order_id: "w1", source: "admin", status: "failed", error_message: "Rate limit hit", enqueued_at: ago(100), last_attempted_at: ago(90), completed_at: ago(1) },
+          { id: "f1", order_id: "w1", source: "admin", status: "failed", error_message: "Rate limit hit", enqueued_at: ago(100), last_attempted_at: ago(1), completed_at: ago(90) },
           { id: "f2", order_id: "w2", source: "auto", status: "failed", error_message: "rate limit", enqueued_at: ago(100), last_attempted_at: ago(1), completed_at: null },
           { id: "f3", order_id: "w3", source: "admin", status: "failed", error_message: "rate limit", enqueued_at: ago(1), last_attempted_at: null, completed_at: null },
           // A drain skip that never reached a supplier is not a failure.
@@ -582,6 +646,52 @@ describe("runAutoFulfil", () => {
     expect(s.waiting).toBe(3)
     expect(s.needsYou).toBe(1)
     expect(autoQueued(db)).toEqual(["n1"])
+  })
+
+  it("C1: a tracking failure written during the send (after the claim) beats the vaguer queue failure => classified 'rejected', waits 60 min", async () => {
+    const naive = (mins: number) => ago(mins).replace("Z", "")
+    const db = world({
+      settings: on(),
+      ...ALL_ON,
+      candidates: [cand("c1", 300)],
+      tables: {
+        orders: [bulk("c1")],
+        // claim at T = 30 min ago; the supplier refusal is written to tracking at T+5 s; the queue row is failed at T+6 s
+        // (stamped completed_at by an older drain) with an unknown message.
+        fulfillment_queue: [
+          { id: "q1", order_id: "c1", source: "admin", status: "failed", error_message: "Something unknown", enqueued_at: ago(31), last_attempted_at: ago(30), completed_at: ago(30 - 6 / 60) },
+        ],
+        mtn_fulfillment_tracking: [
+          track("c1", { status: "failed", external_message: "some refusal", created_at: naive(120), updated_at: naive(30 - 5 / 60) }),
+        ],
+      },
+    })
+    const s = await runAutoFulfil(db as any, NOW)
+    expect(s.needsYou).toBe(0)
+    expect(s.waiting).toBe(1) // rejected waits 60 min from the failure; 30 min have passed
+    expect(autoQueued(db)).toEqual([])
+  })
+
+  it("C1: a tracking failure older than the claim loses to the newer unknown queue failure => unclassified, needs you", async () => {
+    const naive = (mins: number) => ago(mins).replace("Z", "")
+    const db = world({
+      settings: on(),
+      ...ALL_ON,
+      candidates: [cand("c2", 300)],
+      tables: {
+        orders: [bulk("c2")],
+        fulfillment_queue: [
+          { id: "q2", order_id: "c2", source: "admin", status: "failed", error_message: "Something unknown", enqueued_at: ago(31), last_attempted_at: ago(30), completed_at: ago(29) },
+        ],
+        mtn_fulfillment_tracking: [
+          track("c2", { status: "failed", external_message: "some refusal", created_at: naive(120), updated_at: naive(90) }),
+        ],
+      },
+    })
+    const s = await runAutoFulfil(db as any, NOW)
+    expect(s.needsYou).toBe(1)
+    expect(s.waiting).toBe(0)
+    expect(autoQueued(db)).toEqual([])
   })
 
   it("tracking timestamps without a zone are read as UTC", async () => {
@@ -598,6 +708,91 @@ describe("runAutoFulfil", () => {
     const s = await runAutoFulfil(db as any, NOW)
     expect(s.waiting).toBe(1)
     expect(queueRows(db)).toHaveLength(0)
+  })
+
+  it("a tracking row updated in place is timed by updated_at (UTC), not its old created_at", async () => {
+    const naive = (mins: number) => ago(mins).replace("Z", "")
+    const db = world({
+      settings: on(),
+      ...ALL_ON,
+      candidates: [cand("u1", 300), cand("u2", 300)],
+      tables: {
+        orders: [bulk("u1"), bulk("u2")],
+        mtn_fulfillment_tracking: [
+          // created at purchase 2 h ago, refused (rate limit, 2 min wait) 1 min ago => still waiting
+          track("u1", { status: "failed", external_message: "rate limit", created_at: naive(120), updated_at: naive(1) }),
+          // no updated_at => falls back to created_at (wait long over)
+          track("u2", { status: "failed", external_message: "rate limit", created_at: naive(120), updated_at: null }),
+        ],
+      },
+    })
+    const s = await runAutoFulfil(db as any, NOW)
+    expect(s.waiting).toBe(1)
+    expect(autoQueued(db)).toEqual(["u2"])
+  })
+
+  it("10 skipped automatic attempts => needs you (repeatedly_skipped), not queued again", async () => {
+    const skips = (orderId: string, n: number) =>
+      Array.from({ length: n }, (_, i) => ({ id: `${orderId}-s${i}`, run_id: "r0", queue_id: `${orderId}-q${i}`, order_id: orderId, order_type: "bulk", outcome: "skipped" }))
+    const db = world({
+      settings: on(),
+      ...ALL_ON,
+      candidates: [cand("loop", 60), cand("fine", 60)],
+      tables: { orders: [bulk("loop"), bulk("fine")], auto_fulfil_attempts: [...skips("loop", 10), ...skips("fine", 9)] },
+    })
+    const s = await runAutoFulfil(db as any, NOW)
+    expect(s.needsYou).toBe(1)
+    expect(autoQueued(db)).toEqual(["fine"])
+  })
+
+  describe("paging past parked orders", () => {
+    const parked = (n: number) => Array.from({ length: n }, (_, i) => `p${String(i).padStart(4, "0")}`)
+
+    it("300 parked (needs you) orders on page 1 + 1 eligible on page 2 => the eligible one is queued", async () => {
+      const ids = parked(300)
+      const db = world({
+        settings: on(),
+        ...ALL_ON,
+        candidates: [...ids.map((id) => cand(id, 600)), cand("late", 60)],
+        tables: {
+          orders: [...ids.map((id) => bulk(id)), bulk("late")],
+          // an earlier auto send with no failure on record => needs you
+          auto_fulfil_attempts: ids.map((id) => ({ id: `a-${id}`, run_id: "r0", queue_id: `q-${id}`, order_id: id, order_type: "bulk", outcome: null })),
+        },
+      })
+      const s = await runAutoFulfil(db as any, NOW)
+      expect(s).toMatchObject({ queued: 1, needsYou: 300, scanned: 301 })
+      expect(autoQueued(db)).toEqual(["late"])
+      expect(db.calls.filter((c) => c.kind === "rpc").map((c) => c.values!.p_offset)).toEqual([0, 300])
+    })
+
+    it("stops paging once perRun orders are found", async () => {
+      const db = world({
+        settings: on({ perRun: 2 }),
+        ...ALL_ON,
+        candidates: Array.from({ length: 400 }, (_, i) => cand(`o${String(i).padStart(3, "0")}`, 600 - i)),
+        tables: { orders: Array.from({ length: 400 }, (_, i) => bulk(`o${String(i).padStart(3, "0")}`)) },
+      })
+      const s = await runAutoFulfil(db as any, NOW)
+      expect(s.queued).toBe(2)
+      expect(s.scanned).toBe(300)
+      expect(db.calls.filter((c) => c.kind === "rpc")).toHaveLength(1)
+    })
+
+    it("scans at most 3000 candidates per run", async () => {
+      // 3300 orders that are not found (skipped), then one eligible order past the cap.
+      const ids = parked(3300)
+      const db = world({
+        settings: on(),
+        ...ALL_ON,
+        candidates: [...ids.map((id) => cand(id, 600)), cand("late", 60)],
+        tables: { orders: [bulk("late")] },
+      })
+      const s = await runAutoFulfil(db as any, NOW)
+      expect(s.scanned).toBe(3000)
+      expect(s.queued).toBe(0)
+      expect(db.calls.filter((c) => c.kind === "rpc")).toHaveLength(10)
+    }, 30_000)
   })
 
   it("tracking message falls back to api_response_payload.message", async () => {

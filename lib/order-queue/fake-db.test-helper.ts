@@ -1,7 +1,7 @@
 // In-memory stand-in for the slice of the supabase-js query builder that
 // load-snapshots.ts and enqueue.ts use. Test-only (no real database).
 //
-// Supports: from(t).select(cols).in/eq/order/range (awaitable), update(v).eq/in/select (awaitable),
+// Supports: from(t).select(cols).in/eq/order/range (awaitable), update(v).eq/in/is/select (awaitable),
 // insert(row) (awaitable, or .select(cols).single() to get the row back with a generated id when it has none),
 // delete().eq/in (awaitable), rpc(name, args) via `rpcs`. Select also supports gte (ISO strings compare as text),
 // is(col, null), limit(n), maybeSingle(), order(col, { ascending: false }) and select(cols, { count: "exact", head: true })
@@ -133,6 +133,10 @@ export function makeFakeDb(tables: Record<string, Row[]> = {}): FakeDb {
             },
             eq(col: string, val: any) {
               call.filters.push({ op: "eq", col, val })
+              return q
+            },
+            is(col: string, val: any) {
+              call.filters.push({ op: "is", col, val })
               return q
             },
             select() {

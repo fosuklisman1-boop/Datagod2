@@ -17,6 +17,8 @@ export type CandidateFacts = {
   everHeldOrReversed: boolean
   failure: LatestFailure
   autoTries: number
+  /** Automatic attempts that ended 'skipped' (never sent). */
+  autoSkips: number
   blacklisted: boolean
   networkSwitchOn: boolean
 }
@@ -26,6 +28,9 @@ export type Decision =
   | { kind: "wait"; until: string }
   | { kind: "needs_you"; reason: string }
   | { kind: "skip"; reason: string }
+
+/** An order the drain skipped this many times without sending goes to a person (no endless queue/skip loop). */
+export const MAX_AUTO_SKIPS = 10
 
 // Queue messages the drain writes itself when it skips a job without ever calling a supplier.
 export const NON_SEND_SWITCHED_OFF = "auto-fulfil switched off"
@@ -71,6 +76,7 @@ export function decideCandidate(f: CandidateFacts, s: AutoFulfilSettings, now: D
   if (f.blacklisted) return { kind: "skip", reason: "blacklisted" }
   if (!f.networkSwitchOn) return { kind: "skip", reason: "network_switch_off" }
   if (f.everHeldOrReversed) return { kind: "needs_you", reason: "held_or_reversed_history" }
+  if (f.autoSkips >= MAX_AUTO_SKIPS) return { kind: "needs_you", reason: "repeatedly_skipped" }
 
   const failure = f.failure
   if (!failure) {

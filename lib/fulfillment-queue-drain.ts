@@ -73,7 +73,7 @@ async function skipRow(supabase: SupabaseClient, row: { id: string; order_id: st
   console.warn(`[FULFILLMENT-QUEUE] order ${row.order_id} skipped: ${reason}`)
   await supabase
     .from("fulfillment_queue")
-    .update({ status: "failed", error_message: reason, completed_at: new Date().toISOString() })
+    .update({ status: "failed", error_message: reason })
     .eq("id", row.id)
 }
 
@@ -253,7 +253,9 @@ export async function drainFulfillmentQueue(supabase: SupabaseClient): Promise<D
 
       await supabase
         .from("fulfillment_queue")
-        .update({ status: "failed", error_message: msg, completed_at: new Date().toISOString() })
+        // No completed_at on failure: the failure time is last_attempted_at (the claim). A tracking failure written during
+        // the send must stay newer than this vaguer queue event, or the auto-fulfil policy cannot classify the refusal.
+        .update({ status: "failed", error_message: msg })
         .eq("id", row.id)
 
       if (isAuto) {
