@@ -1,12 +1,12 @@
--- 0189_admin_order_queue.selftest.sql
+-- 0190_admin_order_queue.selftest.sql
 --
--- NOT A MIGRATION. Self-rolling-back dry run for 0189_admin_order_queue.sql.
+-- NOT A MIGRATION. Self-rolling-back dry run for 0190_admin_order_queue.sql.
 --
 -- IMPORTANT: the run string must be built by CODE, never by hand or by a regex strip, and that code must
 -- ASSERT before anything is sent to production that the run string contains no COMMIT and no bare `END;`
 -- statement, and that it ends with this DO block (which always RAISEs). (The 0130 incident lesson.)
--- Build it as lib/order-queue/migration-0189.test.ts does (lib/order-queue/migration-0189-run.ts):
---   1. 0189_admin_order_queue.sql with BEGIN kept (and both SET LOCALs) and ONLY its final COMMIT line removed;
+-- Build it as lib/order-queue/migration-0190.test.ts does (lib/order-queue/migration-0190-run.ts):
+--   1. 0190_admin_order_queue.sql with BEGIN kept (and both SET LOCALs) and ONLY its final COMMIT line removed;
 --   2. followed by this file from the line that STARTS (column 0) with the DO keyword onward. The header
 --      is not part of the run string (it names the forbidden words).
 --   The DO body has no bare `END;`: the block closes with `END $selftest$;`.
@@ -106,5 +106,5 @@ BEGIN
   SELECT c.n INTO v_n FROM public.admin_order_queue_counts(NULL, NULL, NULL, NULL, '059918900', NULL, 'outcome_unknown') c WHERE c.view = 'held';
   IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL reasons: outcome_unknown held count is %, want 1', v_n; END IF;
 
-  RAISE EXCEPTION 'SELFTEST_OK 0189 admin_order_queue and counts: shape, grants, views, counts and failure reasons';
+  RAISE EXCEPTION 'SELFTEST_OK 0190 admin_order_queue and counts: shape, grants, views, counts and failure reasons';
 END $selftest$;

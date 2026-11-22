@@ -1,19 +1,19 @@
-// lib/order-queue/migration-0189.test.ts
-// migrations/0189_admin_order_queue.sql and its self-test, run in PGlite (WASM Postgres). Nothing here touches a real database.
+// lib/order-queue/migration-0190.test.ts
+// migrations/0190_admin_order_queue.sql and its self-test, run in PGlite (WASM Postgres). Nothing here touches a real database.
 // The source tables behind combined_orders_view are created here in minimal form; the view is the real prod definition.
 import { describe, it, expect } from "vitest"
 import { readFileSync } from "fs"
 import { join } from "path"
-import { buildRunString, code } from "./migration-0189-run"
-import { COMBINED_ORDERS_VIEW_SQL } from "./migration-0189.view-fixture"
+import { buildRunString, code } from "./migration-0190-run"
+import { COMBINED_ORDERS_VIEW_SQL } from "./migration-0190.view-fixture"
 import { FAILURE_REASON_FIXTURES } from "./failure-reason.fixtures"
 
 const read = (f: string) => readFileSync(join(process.cwd(), "migrations", f), "utf8").replace(/\r\n/g, "\n")
-const FILE = "0189_admin_order_queue.sql"
-const SELFTEST_FILE = "0189_admin_order_queue.selftest.sql"
+const FILE = "0190_admin_order_queue.sql"
+const SELFTEST_FILE = "0190_admin_order_queue.selftest.sql"
 const migration = () => read(FILE)
 
-describe("0189 migration text", () => {
+describe("0190 migration text", () => {
   it("is one transaction with timeouts and exactly one COMMIT", () => {
     const c = code(migration())
     expect(c).toMatch(/^BEGIN;\s*$/m)
@@ -31,7 +31,7 @@ describe("0189 migration text", () => {
     const s = code(buildRunString(migration(), read(SELFTEST_FILE)))
     expect(s).not.toMatch(/\bCOMMIT\b/i)
     expect(s).not.toMatch(/^\s*END\s*;/im)
-    expect(s.trimEnd()).toMatch(/RAISE EXCEPTION 'SELFTEST_OK 0189[^']*';\s*END\s*\$selftest\$;$/)
+    expect(s.trimEnd()).toMatch(/RAISE EXCEPTION 'SELFTEST_OK 0190[^']*';\s*END\s*\$selftest\$;$/)
   })
 })
 
@@ -152,14 +152,14 @@ const SEEDS: Seed[] = [
   { n: 11, status: "processing" }, // no attempt at all
 ]
 
-describe.skipIf(!PGliteCtor)("0189 in PGlite", () => {
+describe.skipIf(!PGliteCtor)("0190 in PGlite", () => {
   it("the self-rolling-back run string reports SELFTEST_OK and leaves nothing behind", async () => {
     const db = new PGliteCtor()
     await db.exec(ROLES)
     await db.exec(TABLES)
     await db.exec(`CREATE VIEW combined_orders_view AS ${COMBINED_ORDERS_VIEW_SQL}`)
     await db.exec(`INSERT INTO users (email) VALUES ('selftest-borrowed@example.com')`) // the selftest borrows an existing user
-    await expect(db.exec(buildRunString(migration(), read(SELFTEST_FILE)))).rejects.toThrow(/^SELFTEST_OK 0189/)
+    await expect(db.exec(buildRunString(migration(), read(SELFTEST_FILE)))).rejects.toThrow(/^SELFTEST_OK 0190/)
     await db.exec("ROLLBACK")
     expect((await db.query("SELECT to_regprocedure('public.admin_order_queue_counts(text[],text[],timestamptz,timestamptz,text,text,text)') AS f")).rows[0].f).toBeNull()
   }, 60_000)

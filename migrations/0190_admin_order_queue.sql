@@ -1,4 +1,4 @@
--- 0189_admin_order_queue.sql
+-- 0190_admin_order_queue.sql
 --
 -- Admin order work queue: two read-only SQL functions over combined_orders_view + mtn_fulfillment_tracking. ADDITIVE; service-role
 -- only. NOT applied by the implementing agent. One transaction. Idempotent (CREATE OR REPLACE + REVOKE/GRANT). Creates NO table and
@@ -21,9 +21,9 @@
 --   SELECT to_regprocedure('public.admin_order_queue(text,text[],text[],text[],timestamptz,timestamptz,text,text,text,int,int)');  -- NULL
 --   SELECT to_regclass('public.combined_orders_view'), to_regclass('public.mtn_fulfillment_tracking');                             -- both non-NULL
 --
--- Self-test (self-rolling-back dry run): migrations/0189_admin_order_queue.selftest.sql
+-- Self-test (self-rolling-back dry run): migrations/0190_admin_order_queue.selftest.sql
 -- The run string must be built by CODE which asserts it contains no COMMIT and no bare END; statement
--- (the 0130 incident lesson); lib/order-queue/migration-0189.test.ts builds and checks it.
+-- (the 0130 incident lesson); lib/order-queue/migration-0190.test.ts builds and checks it.
 
 BEGIN;
 SET LOCAL lock_timeout = '5s';

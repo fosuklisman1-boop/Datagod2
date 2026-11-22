@@ -18,7 +18,7 @@
 - Bulk cap: **200** orders per request; page size ≤ **200**.
 - Supplier pick is a **hard pin** — never fall through to the retry sequence.
 - All new/changed routes use `verifyAdminAccess` (same as today).
-- Migrations: next free numbers at time of writing **0189** (step 1) and **0190** (step 2) — re-check `ls migrations` before creating; follow the 0182 pattern (`BEGIN;` + `SET LOCAL lock_timeout = '5s'` + `statement_timeout` + exactly one `COMMIT`, a `.selftest.sql` ending in `RAISE EXCEPTION 'SELFTEST_OK 0189 …'`, a `migration-0189-run.ts` run-string builder, a PGlite test).
+- Migrations: next free numbers at time of writing **0190** (step 1) and **0191** (step 2) — re-check `ls migrations` before creating; follow the 0182 pattern (`BEGIN;` + `SET LOCAL lock_timeout = '5s'` + `statement_timeout` + exactly one `COMMIT`, a `.selftest.sql` ending in `RAISE EXCEPTION 'SELFTEST_OK 0190 …'`, a `migration-0190-run.ts` run-string builder, a PGlite test).
 - New functions: `SECURITY DEFINER`, `SET search_path = public, pg_temp`, `REVOKE ALL … FROM PUBLIC, anon, authenticated`, `GRANT EXECUTE … TO service_role`.
 - Desktop: every new layout widens at `lg:` and goes multi-column; navy `--primary` accent.
 - Prod: migrations follow precheck → self-rolling-back dry run → owner OK → apply → verify. `next build` with placeholder env before pushing main; fetch/merge origin/main first.
@@ -50,10 +50,10 @@
 - [ ] **Step 4: Implement** as an ordered keyword list (first match wins) after the outcome-unknown check.
 - [ ] **Step 5: Run** — PASS. **Step 6: Commit** `feat(order-queue): failure-reason buckets`.
 
-### Task 2: Migration 0189 — `admin_order_queue` + counts
+### Task 2: Migration 0190 — `admin_order_queue` + counts
 
 **Files:**
-- Create: `migrations/0189_admin_order_queue.sql`, `migrations/0189_admin_order_queue.selftest.sql`, `lib/order-queue/migration-0189-run.ts`, `lib/order-queue/migration-0189.test.ts`
+- Create: `migrations/0190_admin_order_queue.sql`, `migrations/0190_admin_order_queue.selftest.sql`, `lib/order-queue/migration-0190-run.ts`, `lib/order-queue/migration-0190.test.ts`
 
 **Interfaces:**
 - Consumes: `FAILURE_REASON_FIXTURES` (Task 1) — the SQL bucket CASE must agree with every fixture.
@@ -65,10 +65,10 @@
 - Latest attempt: LATERAL over `mtn_fulfillment_tracking` where `coalesce(order_id::text, shop_order_id::text, api_order_id::text) = v.id`, `ORDER BY created_at DESC LIMIT 1`; `last_error` = `left(coalesce(external_message, api_response_payload->>'message'), 120)`.
 
 - [ ] **Step 1: Write the PGlite test** (0182 test shape): migration text rules; run-string rules; in PGlite create minimal source tables behind `combined_orders_view` + `mtn_fulfillment_tracking`, apply the migration, then assert: each view returns exactly the seeded rows; counts equal list totals; a search of `a,b)` runs without error and matches only that literal; `p_limit 5000` returns ≤200 rows; for every `FAILURE_REASON_FIXTURES` entry the SQL `failure_reason` equals `expected`; roles `authenticated` and `anon` cannot EXECUTE either function.
-- [ ] **Step 2: Run** `npx vitest run lib/order-queue/migration-0189.test.ts` — FAIL.
-- [ ] **Step 3: Write the migration + selftest** (selftest seeds rows, asserts the view counts, raises `SELFTEST_OK 0189`).
-- [ ] **Step 4: Run** — PASS. Then on prod, read-only, run the self-rolling-back run string with an `EXPLAIN ANALYZE` of the default `needs_action` call; record the timing in the commit message (target < 1.5 s). If slower, add the missing index (e.g. expression index on `(coalesce(order_id::text, shop_order_id::text), created_at desc)`) inside 0189 and re-test.
-- [ ] **Step 5: Commit** `feat(order-queue): admin_order_queue function (0189)` — not applied to prod yet (Task 9).
+- [ ] **Step 2: Run** `npx vitest run lib/order-queue/migration-0190.test.ts` — FAIL.
+- [ ] **Step 3: Write the migration + selftest** (selftest seeds rows, asserts the view counts, raises `SELFTEST_OK 0190`).
+- [ ] **Step 4: Run** — PASS. Then on prod, read-only, run the self-rolling-back run string with an `EXPLAIN ANALYZE` of the default `needs_action` call; record the timing in the commit message (target < 1.5 s). If slower, add the missing index (e.g. expression index on `(coalesce(order_id::text, shop_order_id::text), created_at desc)`) inside 0190 and re-test.
+- [ ] **Step 5: Commit** `feat(order-queue): admin_order_queue function (0190)` — not applied to prod yet (Task 9).
 
 ### Task 3: Queue API + hardening of the old list route
 
@@ -98,7 +98,7 @@
 - [ ] **Step 4: Run tests** — PASS; then headless screenshots at 500 px and 1440 px (memory `reference-headless-screenshots`): no horizontal page scroll at 500 px; filters in a left column at `lg`.
 - [ ] **Step 5: Commit** `feat(order-queue): reshape payment status page into a work queue (step 1)`.
 
-**Step 1 release:** run Task 9 for migration 0189 + push, then continue with Step 2.
+**Step 1 release:** run Task 9 for migration 0190 + push, then continue with Step 2.
 
 ---
 
@@ -120,17 +120,17 @@
 - [ ] **Step 1: Failing tests** — pending + no attempts ⇒ eligible; pending + latest failed ⇒ eligible; completed ⇒ blocked completed; processing + latest processing ⇒ blocked live_at_supplier; processing + latest abandoned ⇒ risky held; processing + `UNKNOWN_x` id ⇒ risky held; reversed ⇒ risky reversed; failed ⇒ blocked not_pending; queued ⇒ blocked already_queued (wins over risky); pending with `hasLiveAttempt` ⇒ blocked live_at_supplier; Telecel + `spfastit` ⇒ blocked supplier_cannot_serve_network; `null` ⇒ blocked not_found. Ack: 0 risky + no ack ⇒ ok; 3 risky + ack 3 ⇒ ok; 3 risky + ack 2 or missing ⇒ `{ok:false, expected:3}`.
 - [ ] **Steps 2–4:** run FAIL → implement → run PASS. **Step 5: Commit** `feat(order-queue): bulk-send eligibility rules`.
 
-### Task 6: Migration 0190 — queue duplicate guard + send log
+### Task 6: Migration 0191 — queue duplicate guard + send log
 
 **Files:**
-- Create: `migrations/0190_bulk_send_guard.sql`, `migrations/0190_bulk_send_guard.selftest.sql`, `lib/order-queue/migration-0190-run.ts`, `lib/order-queue/migration-0190.test.ts`
+- Create: `migrations/0191_bulk_send_guard.sql`, `migrations/0191_bulk_send_guard.selftest.sql`, `lib/order-queue/migration-0191-run.ts`, `lib/order-queue/migration-0191.test.ts`
 
 **Interfaces:**
 - Produces: unique index `fulfillment_queue_one_live_per_order ON fulfillment_queue(order_id) WHERE status IN ('pending','processing')`; table `admin_bulk_send_log(id uuid primary key default gen_random_uuid(), admin_id uuid not null, supplier text not null, batch_id uuid, accepted_ids text[] not null, rejected jsonb not null default '[]', risky_ids text[] not null default '{}', created_at timestamptz not null default now())`, RLS enabled, no policies, `REVOKE ALL … FROM anon, authenticated`.
 
 - [ ] **Step 0: Prod precheck (read-only):** `select order_id, count(*) from fulfillment_queue where status in ('pending','processing') group by 1 having count(*) > 1` must return nothing; otherwise stop and report to the owner (the index would fail to build).
 - [ ] **Step 1: Failing PGlite test** — migration text rules; a second `pending` row for the same `order_id` ⇒ unique violation; `INSERT … ON CONFLICT (order_id) WHERE status IN ('pending','processing') DO NOTHING` inserts 0 rows; a `completed` row plus a new `pending` row for the same order is allowed; role `authenticated` cannot select from or insert into the log.
-- [ ] **Steps 2–4:** FAIL → write migration + selftest → PASS. **Step 5: Commit** `feat(order-queue): one live queue row per order + bulk send log (0190)`.
+- [ ] **Steps 2–4:** FAIL → write migration + selftest → PASS. **Step 5: Commit** `feat(order-queue): one live queue row per order + bulk send log (0191)`.
 
 ### Task 7: Hardened enqueue + drain supplier fix
 
@@ -164,7 +164,7 @@
 - [ ] Related tests: `npx vitest run lib/order-queue lib/fulfillment-queue-drain.test.ts app/api/admin/orders app/api/admin/fulfillment lib/mtn-fulfillment lib/non-mtn-fulfillment.test.ts` — PASS (known unrelated failures per memory `feedback-testing-discipline` excepted, listed in the report).
 - [ ] `npx tsc --noEmit -p .` — no errors in touched files.
 - [ ] Fresh opus review of the step's diff; fix findings with failing tests first.
-- [ ] Prod migration protocol for 0189 (step 1) / 0190 (step 2): precheck → self-rolling-back run string (expect `SELFTEST_OK`) → **owner OK** → apply → verify functions/grants (`has_function_privilege('authenticated', 'admin_order_queue(…)', 'EXECUTE')` = false) and index/table exist.
+- [ ] Prod migration protocol for 0190 (step 1) / 0191 (step 2): precheck → self-rolling-back run string (expect `SELFTEST_OK`) → **owner OK** → apply → verify functions/grants (`has_function_privilege('authenticated', 'admin_order_queue(…)', 'EXECUTE')` = false) and index/table exist.
 - [ ] `git fetch && git merge origin/main`, placeholder-env `npm run build` (reaches "Generating static pages (N/N)", exit 0), **owner OK**, `git push origin HEAD:main`, watch the deploy to READY + aliased.
 - [ ] Live check: as admin, each tab count matches its list; filter "Failure reason: Not enabled on MTN" shows AgentPortal refusals; step 2: send one eligible order to a supplier and see it in the results panel.
 - [ ] Update memory (`project-order-work-queue.md` + MEMORY.md line) and give the owner the WhatsApp channel post (Post now / Hold).
