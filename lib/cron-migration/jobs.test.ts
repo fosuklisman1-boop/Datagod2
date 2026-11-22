@@ -10,14 +10,14 @@ const byPath = (p: string) => specs.find((s) => s.path === p)!
 
 describe("buildJobSpecs", () => {
   it("builds one spec per real vercel.json cron, none unclassified", () => {
-    expect(specs).toHaveLength(50)
-    expect(new Set(specs.map((s) => s.path)).size).toBe(50)
+    expect(specs).toHaveLength(51)
+    expect(new Set(specs.map((s) => s.path)).size).toBe(51)
     expect(specs.every((s) => ["A", "B", "C"].includes(s.batch))).toBe(true)
   })
 
-  it("batch sizes match the plan (15 / 11 / 24)", () => {
+  it("batch sizes match the plan (15 / 11 / 25)", () => {
     const n = (b: string) => specs.filter((s) => s.batch === b).length
-    expect([n("A"), n("B"), n("C")]).toEqual([15, 11, 24])
+    expect([n("A"), n("B"), n("C")]).toEqual([15, 11, 25])
   })
 
   it("schedules the sub-agent price reminders every 5 minutes as an overlap-safe, non-fulfillment job", () => {
@@ -38,6 +38,7 @@ describe("buildJobSpecs", () => {
   it("puts provider status syncs and money jobs in fulfillment batch C", () => {
     for (const p of [
       "/api/cron/drain-fulfillment-queue",
+      "/api/cron/auto-fulfil-pending",
       "/api/cron/verify-pending-payments",
       "/api/cron/withdrawals-status-check",
       "/api/cron/reconcile-paystack-refunds",

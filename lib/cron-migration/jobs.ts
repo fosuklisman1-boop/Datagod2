@@ -71,6 +71,7 @@ const C_EXACT = new Set(
     "verify-pending-payments",
     "withdrawals-status-check",
     "drain-fulfillment-queue",
+    "auto-fulfil-pending", // only inserts queue rows; overlapping runs cannot both queue one order (0191 unique index)
     "reconcile-paystack-refunds",
     "expire-stale-bot-orders",
     "hubtel-payments-sweep", // confirms + fulfils Hubtel collections; overlap-safe via the atomic claim (0152)

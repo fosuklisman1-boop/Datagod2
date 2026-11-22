@@ -2,14 +2,17 @@
 // load-snapshots.ts and enqueue.ts use. Test-only (no real database).
 //
 // Supports: from(t).select(cols).in/eq/order/range (awaitable), update(v).eq/in/select (awaitable),
-// insert(row) (awaitable). fulfillment_queue enforces the 0191 partial unique index (23505).
+// insert(row) (awaitable, or .select(cols).single() to get the row back with a generated id when it has none),
+// delete().eq/in (awaitable), rpc(name, args) via `rpcs`. Select also supports gte (ISO strings compare as text),
+// limit(n) and maybeSingle().
+// fulfillment_queue enforces the 0191 partial unique index (23505).
 
 type Row = Record<string, any>
-type Filter = { op: "in" | "eq"; col: string; val: any }
+type Filter = { op: "in" | "eq" | "gte"; col: string; val: any }
 
 export type Call = {
   table: string
-  kind: "select" | "update" | "insert"
+  kind: "select" | "update" | "insert" | "delete" | "rpc"
   cols?: string
   filters: Filter[]
   values?: Row
@@ -27,19 +30,31 @@ export type FakeDb = {
   failSelect?: (table: string) => { message: string } | null
   /** Runs before each update is applied (lets a test change a row "concurrently"). */
   beforeUpdate?: (table: string, values: Row, filters: Filter[]) => void
+  /** rpc(name, args) handlers; a missing handler returns an error. */
+  rpcs?: Record<string, (args: Row) => { data: any; error: { message: string } | null }>
   from: (table: string) => any
+  rpc: (name: string, args?: Row) => Promise<{ data: any; error: { message: string } | null }>
 }
 
 const LIVE = ["pending", "processing"]
 
 function matches(row: Row, filters: Filter[]) {
-  return filters.every((f) => (f.op === "eq" ? row[f.col] === f.val : (f.val as any[]).includes(row[f.col])))
+  return filters.every((f) => {
+    if (f.op === "eq") return row[f.col] === f.val
+    if (f.op === "gte") return row[f.col] != null && String(row[f.col]) >= String(f.val)
+    return (f.val as any[]).includes(row[f.col])
+  })
 }
 
 export function makeFakeDb(tables: Record<string, Row[]> = {}): FakeDb {
   const db: FakeDb = {
     tables,
     calls: [],
+    async rpc(name: string, args: Row = {}) {
+      db.calls.push({ table: name, kind: "rpc", values: args, filters: [] })
+      const h = db.rpcs?.[name]
+      return h ? h(args) : { data: null, error: { message: `no rpc ${name}` } }
+    },
     from(table: string) {
       const rows = () => (db.tables[table] ??= [])
       return {
@@ -47,6 +62,7 @@ export function makeFakeDb(tables: Record<string, Row[]> = {}): FakeDb {
           const call: Call = { table, kind: "select", cols, filters: [] }
           db.calls.push(call)
           let orderCol: string | null = null
+          let single = false
           const q: any = {
             in(col: string, val: any[]) {
               call.filters.push({ op: "in", col, val })
@@ -56,12 +72,24 @@ export function makeFakeDb(tables: Record<string, Row[]> = {}): FakeDb {
               call.filters.push({ op: "eq", col, val })
               return q
             },
+            gte(col: string, val: any) {
+              call.filters.push({ op: "gte", col, val })
+              return q
+            },
             order(col: string) {
               orderCol = col
               return q
             },
             range(a: number, b: number) {
               call.range = [a, b]
+              return q
+            },
+            limit(n: number) {
+              call.range = [0, n - 1]
+              return q
+            },
+            maybeSingle() {
+              single = true
               return q
             },
             then(ok: any, bad: any) {
@@ -78,7 +106,7 @@ export function makeFakeDb(tables: Record<string, Row[]> = {}): FakeDb {
                 for (const k of cols.split(",").map((s) => s.trim())) o[k] = r[k] ?? null
                 return o
               })
-              return Promise.resolve({ data: picked, error: null }).then(ok, bad)
+              return Promise.resolve({ data: single ? (picked[0] ?? null) : picked, error: null }).then(ok, bad)
             },
           }
           return q
@@ -127,10 +155,40 @@ export function makeFakeDb(tables: Record<string, Row[]> = {}): FakeDb {
                 error: { code: "23505", message: 'duplicate key value violates unique constraint "fulfillment_queue_one_live_per_order"' },
               }
             }
-            rows().push({ status: "pending", ...row })
-            return { data: null, error: null }
+            const stored: Row = { status: "pending", ...row }
+            if (withId && stored.id === undefined) stored.id = `gen-${table}-${rows().length + 1}`
+            rows().push(stored)
+            return { data: withId ? stored : null, error: null }
           }
-          return { then: (ok: any, bad: any) => Promise.resolve(run()).then(ok, bad) }
+          let withId = false
+          return {
+            then: (ok: any, bad: any) => Promise.resolve(run()).then(ok, bad),
+            select() {
+              withId = true
+              return {
+                single: () => ({ then: (ok: any, bad: any) => Promise.resolve(run()).then(ok, bad) }),
+              }
+            },
+          }
+        },
+        delete() {
+          const call: Call = { table, kind: "delete", filters: [] }
+          db.calls.push(call)
+          const q: any = {
+            in(col: string, val: any[]) {
+              call.filters.push({ op: "in", col, val })
+              return q
+            },
+            eq(col: string, val: any) {
+              call.filters.push({ op: "eq", col, val })
+              return q
+            },
+            then(ok: any, bad: any) {
+              db.tables[table] = rows().filter((r) => !matches(r, call.filters))
+              return Promise.resolve({ data: null, error: null }).then(ok, bad)
+            },
+          }
+          return q
         },
       }
     },
