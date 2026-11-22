@@ -10,12 +10,24 @@ const h = vi.hoisted(() => ({
 }))
 
 function builder(table: string) {
+  const mine: Array<[string, unknown[]]> = []
   const b: any = new Proxy({}, {
     get(_t, prop: string) {
       if (prop === "then") {
-        return (res: (v: unknown) => void) => res(table === "ai_conversations" ? { data: h.conv, count: h.count, error: null } : { data: h.msgs, error: null })
+        return (res: (v: unknown) => void) => {
+          if (table === "ai_conversations") return res({ data: h.conv, count: h.count, error: null })
+          // Honour .in() / .eq("conversation_id") / .limit() like PostgREST would.
+          let rows = h.msgs as any[]
+          for (const [p, a] of mine) {
+            if (p === "eq" && a[0] === "conversation_id") rows = rows.filter((m) => m.conversation_id === a[1])
+            if (p === "in" && a[0] === "conversation_id") rows = rows.filter((m) => (a[1] as string[]).includes(m.conversation_id))
+          }
+          const lim = mine.find(([p]) => p === "limit")
+          if (lim) rows = rows.slice(0, lim[1][0] as number)
+          return res({ data: rows, error: null })
+        }
       }
-      return (...args: unknown[]) => { h.calls.push([table, prop, args]); return b }
+      return (...args: unknown[]) => { h.calls.push([table, prop, args]); mine.push([prop, args]); return b }
     },
   })
   return b
@@ -73,5 +85,21 @@ describe("GET /api/admin/ai-conversations", () => {
     expect(c).toContainEqual(["ai_conversations", "is", ["reviewed_at", null]])
     expect(c).toContainEqual(["ai_conversations", "gte", ["last_at", "2026-11-01T00:00:00.000Z"]])
     expect(c).toContainEqual(["ai_conversations", "lte", ["last_at", "2026-11-20T23:59:59.999Z"]])
+  })
+})
+
+describe("previews", () => {
+  it("every conversation on the page gets its preview even when one has many messages", async () => {
+    const ids = Array.from({ length: 25 }, (_, i) => `c${i}`)
+    h.count = 25
+    h.conv = ids.map((id) => ({ id, context: "home", user_id: null, shop_id: null, started_at: "t0", last_at: "t1", message_count: 1, flagged: false, flag_reasons: [], reviewed_at: null }))
+    // c0 is a long conversation whose rows come first; a capped single query would starve the rest.
+    h.msgs = [
+      ...Array.from({ length: 200 }, (_, i) => ({ conversation_id: "c0", text: `long ${i}` })),
+      ...ids.slice(1).map((id) => ({ conversation_id: id, text: `first of ${id}` })),
+    ]
+    const body = await (await get()).json()
+    expect(body.conversations[0].preview).toBe("long 0")
+    for (const c of body.conversations.slice(1)) expect(c.preview).toBe(`first of ${c.id}`)
   })
 })

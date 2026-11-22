@@ -6,7 +6,7 @@ import ReactMarkdown from "react-markdown"
 import { useDraggableFloatingPosition } from "@/hooks/use-draggable-floating-position"
 import { ChatWelcome, ChatInput, HandoffButton, MessageText, CopyAnnounceProvider, SuggestionChips, TypingIndicator, useAssistantProfile } from "@/components/ai/chat"
 import { createIdleTimeout } from "@/lib/ai-chat-ui/idle-timeout"
-import { widgetVisible, isAssistantOffResponse, ASSISTANT_OFF_MESSAGE } from "@/lib/ai-chat-ui/widget-visibility"
+import { widgetVisible, isAssistantOffResponse, assistantOffMessage, showTryAgain } from "@/lib/ai-chat-ui/widget-visibility"
 import { followupsFor } from "@/lib/ai-chat-ui/suggestions"
 import { newConversationKey, pingConversationEvent } from "@/lib/ai-chat-ui/conversation-events"
 import { historyKey, safeClear, safeLoad, safeSave, trimHistory } from "@/lib/ai-chat-ui/history"
@@ -184,7 +184,7 @@ export function HomeAIChatWidget() {
       })
 
       if (!res.ok && (await isAssistantOffResponse(res))) {
-        setMessages(prev => [...prev, { role: "assistant", content: ASSISTANT_OFF_MESSAGE, timestamp: Date.now() }])
+        setMessages(prev => [...prev, assistantOffMessage()])
         return
       }
       if (!res.ok || !res.body) throw new Error("Request failed")
@@ -291,7 +291,7 @@ export function HomeAIChatWidget() {
                   }
                   {msg.isError && (
                     <div className="mt-2 flex flex-wrap items-center gap-3">
-                      <button onClick={retryLast} disabled={isStreaming} className="text-xs font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50">Try again</button>
+                      {showTryAgain(msg) && <button onClick={retryLast} disabled={isStreaming} className="text-xs font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50">Try again</button>}
                       <HandoffButton mode="whatsapp" messages={messages} conversationKey={conversationKeyRef.current} whatsappNumber={whatsapp} />
                     </div>
                   )}

@@ -3,6 +3,7 @@
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import type { ProviderName } from "@/lib/ai-provider-config"
+import { otherModelSelected } from "@/lib/ai-console/engine"
 import { catalogFor, costPer1000Messages, formatCostPer1000, MESSAGE_TOKEN_ASSUMPTION } from "@/lib/ai-models/catalog"
 
 function usd(n: number): string {
@@ -10,10 +11,10 @@ function usd(n: number): string {
 }
 
 export function ModelCards({
-  provider, model, onChange, modelError = false,
-}: { provider: ProviderName; model: string; onChange: (model: string) => void; modelError?: boolean }) {
+  provider, model, onChange, modelError = false, mixed = false,
+}: { provider: ProviderName; model: string; onChange: (model: string) => void; modelError?: boolean; mixed?: boolean }) {
   const models = catalogFor(provider)
-  const isOther = !models.some((m) => m.id === model)
+  const isOther = otherModelSelected(models.map((m) => m.id), model, mixed)
   const src = models[0]
   return (
     <div className="space-y-2">

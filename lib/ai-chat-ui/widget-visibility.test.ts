@@ -27,3 +27,21 @@ describe("assistant_off_message", () => {
   })
   it("has the copy", () => expect(ASSISTANT_OFF_MESSAGE).toBe("The assistant is switched off right now."))
 })
+
+describe("assistant_off_bubble", () => {
+  it("is flagged isError so history, API history and chips all skip it", async () => {
+    const { assistantOffMessage } = await import("./widget-visibility")
+    const m = assistantOffMessage(123)
+    expect(m).toEqual({ role: "assistant", content: ASSISTANT_OFF_MESSAGE, timestamp: 123, isError: true })
+    expect([{ role: "user", content: "hi" }, m].filter((x: any) => !x.isError)).toHaveLength(1)
+  })
+})
+
+describe("showTryAgain", () => {
+  it("is false for the switched-off bubble, true for other errors", async () => {
+    const { showTryAgain, assistantOffMessage } = await import("./widget-visibility")
+    expect(showTryAgain(assistantOffMessage(1))).toBe(false)
+    expect(showTryAgain({ role: "assistant", content: "Something went wrong.", isError: true })).toBe(true)
+    expect(showTryAgain({ role: "assistant", content: "ok" })).toBe(false)
+  })
+})

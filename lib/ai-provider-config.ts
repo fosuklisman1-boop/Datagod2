@@ -48,7 +48,7 @@ export const PROVIDER_MODELS: Record<ProviderName, { id: string; label: string }
   groq: [
     { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B (Balanced)" },
     { id: "llama-3.1-8b-instant", label: "Llama 3.1 8B (Fast)" },
-    { id: "gemma2-9b-it", label: "Gemma 2 9B (Fast)" },
+    { id: "gemma2-9b-it", label: "Gemma 2 9B (may be retired)" },
   ],
 }
 

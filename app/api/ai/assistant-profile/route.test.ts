@@ -19,7 +19,8 @@ describe("assistant-profile route", () => {
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ name: "DATAGOD AI", audiences: ALL_ON })
     expect(res.headers.get("Cache-Control")).toBe("public, max-age=60")
-    expect(Object.keys(route)).toEqual(["GET"])
+    expect(Object.keys(route).sort()).toEqual(["GET", "dynamic"])
+    expect(route.dynamic).toBe("force-dynamic")
   })
 
   it("profile_returns_audiences", async () => {

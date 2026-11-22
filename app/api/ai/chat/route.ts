@@ -490,8 +490,21 @@ export async function POST(req: NextRequest) {
   const encoder = new TextEncoder()
   const stream = new ReadableStream({
     async start(controller) {
+      // A throw from enqueue means the client disconnected; that is not a server error and must not flag the chat.
+      let clientGone = false
+      const CLIENT_GONE = new Error("client disconnected")
+      function trySend(data: Record<string, unknown>) {
+        if (clientGone) return
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
+        } catch {
+          clientGone = true
+        }
+      }
+      // Used by the agent loop: once the client is gone, throw so the loop stops (no more LLM or tool calls).
       function send(data: Record<string, unknown>) {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
+        trySend(data)
+        if (clientGone) throw CLIENT_GONE
       }
 
       try {
@@ -552,13 +565,13 @@ export async function POST(req: NextRequest) {
           msg = "The AI service is temporarily unavailable. Please try again shortly."
         }
         // A client that went away is not a server error: only real provider/server failures flag the chat.
-        const aborted = req.signal.aborted || (err as { name?: string } | null)?.name === "AbortError"
+        const aborted = clientGone || req.signal.aborted || (err as { name?: string } | null)?.name === "AbortError"
         if (!aborted) streamErrored = true
         if (!streamText && !aborted) streamText = msg
-        send({ type: "error", content: msg })
+        trySend({ type: "error", content: msg })
       } finally {
         markStreamDone()
-        controller.close()
+        try { controller.close() } catch { /* already closed by a cancel */ }
       }
     },
   })

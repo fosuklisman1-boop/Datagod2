@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { X } from "lucide-react"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { supabase } from "@/lib/supabase"
 import { reasonLabel } from "@/lib/ai-console/review"
 
@@ -94,11 +95,12 @@ export function TranscriptDialog({ id, onClose, onReview, busy }: { id: string; 
 
   const c = detail?.conversation
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center" role="dialog" aria-modal="true" aria-label="Conversation transcript" onClick={onClose}>
-      <div className="flex max-h-[90vh] w-full flex-col rounded-t-2xl bg-background sm:max-w-2xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+    // Radix Dialog: Escape closes, focus moves in on open and back to the opener on close, Tab stays inside.
+    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent showCloseButton={false} aria-describedby={undefined} className="flex max-h-[90vh] w-full max-w-2xl flex-col gap-0 rounded-2xl bg-background p-0 sm:max-w-2xl">
         <div className="flex items-start justify-between gap-3 border-b border-border p-4">
           <div className="min-w-0 space-y-1">
-            <p className="text-sm font-semibold">{c ? `${c.audience} conversation` : "Conversation"}</p>
+            <DialogTitle className="text-sm font-semibold leading-normal">{c ? `${c.audience} conversation` : "Conversation"}</DialogTitle>
             {c && <p className="text-xs text-muted-foreground">{c.context} · {c.message_count} messages · {fmtTime(c.started_at)}{c.user ? ` · user ${c.user}` : ""}{c.shop ? ` · shop ${c.shop}` : ""}</p>}
             {c && <ReasonChips reasons={c.flag_reasons} />}
           </div>
@@ -119,7 +121,7 @@ export function TranscriptDialog({ id, onClose, onReview, busy }: { id: string; 
             <Button disabled={busy} onClick={() => onReview(c.id)}>Mark reviewed</Button>
           </div>
         )}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }

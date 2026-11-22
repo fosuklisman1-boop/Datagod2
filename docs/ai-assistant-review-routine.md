@@ -41,3 +41,17 @@ npx tsx scripts/ai-eval/run.ts --provider <anthropic|openai|gemini|deepseek|groq
 | card_failed | A confirm card (order, wallet, withdrawal and so on) was tapped but the action failed. | Check the user's order or wallet really is in the state they expect, and contact them if money is involved. |
 
 If a reason on screen is not in this list, open the chat and judge it by the same question every time: did the assistant tell the truth about money and orders, and did it stay within what it is allowed to do?
+
+## What redaction does NOT catch
+
+Stored transcripts are redacted (phone numbers, card numbers, emails, long digit runs, secrets that follow a keyword such as PIN, OTP or code). It is a safety net, not a guarantee. It does NOT catch:
+
+- People's names (a customer typing their full name or a relative's name).
+- Alphanumeric passwords or secrets such as "hunter2", unless they follow a keyword the redactor knows.
+- Short reference numbers typed without a keyword like PIN, OTP or code (for example a bare "4821").
+
+Treat every transcript as personal data: review it on the console only, do not copy it into chat apps or tickets, and let the retention job delete it on schedule.
+
+## What the answer-test script does NOT prove about roles
+
+The answer-test script runs the assistant with stubbed tools. The stubs skip the per-role checks inside the real tool executor, so a role scenario only proves that a tool was not offered or not called for that role. It does not prove the real executor would refuse the call. Role enforcement is covered by the tool-registry and executor tests, not by this script.

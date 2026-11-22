@@ -83,3 +83,14 @@ describe("model id guard and name trim", () => {
     expect(changedSettings(base(), applyEngine(base(), "openai", " gpt-4o "))).toMatchObject({ admin_model: "gpt-4o" })
   })
 })
+
+describe("otherModelSelected", () => {
+  it("highlights Other only for a single, non-catalog model", async () => {
+    const { otherModelSelected } = await import("./engine")
+    const ids = ["a", "b"]
+    expect(otherModelSelected(ids, "custom-x", false)).toBe(true)
+    expect(otherModelSelected(ids, "a", false)).toBe(false)
+    expect(otherModelSelected(ids, "", true)).toBe(false) // mixed: neutral
+    expect(otherModelSelected(ids, "custom-x", true)).toBe(false)
+  })
+})

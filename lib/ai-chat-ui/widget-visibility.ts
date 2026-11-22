@@ -27,3 +27,13 @@ export async function isAssistantOffResponse(res: { status: number; clone: () =>
     return false
   }
 }
+
+/** The "switched off" bubble. isError keeps it out of saved history, the history sent to the API and follow-up chips. */
+export function assistantOffMessage(now: number = Date.now()) {
+  return { role: "assistant" as const, content: ASSISTANT_OFF_MESSAGE, timestamp: now, isError: true as const }
+}
+
+/** Try again is for failed answers; the switched-off notice has nothing to retry. */
+export function showTryAgain(m: { role?: string; content: string; isError?: boolean }): boolean {
+  return !!m.isError && m.content !== ASSISTANT_OFF_MESSAGE
+}
