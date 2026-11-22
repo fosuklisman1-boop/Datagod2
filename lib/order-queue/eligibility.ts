@@ -7,6 +7,7 @@ export type OrderSnapshot = {
   status: string
   network: string
   latestAttempt: { status: string; mtnOrderId: string | null } | null
+  /** true when ANY tracking row for the order has status pending/processing/completed and an mtn_order_id that does not start with UNKNOWN_ (held rows are `abandoned` with UNKNOWN_ ids, so they never count as live). */
   hasLiveAttempt: boolean
   queued: boolean
 }
@@ -27,14 +28,11 @@ const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase()
  *
  * Precedence (first match wins):
  *   not_found -> already_queued -> completed -> supplier_cannot_serve_network
- *   -> hasLiveAttempt on a non-processing order => live_at_supplier
+ *   -> hasLiveAttempt (or latest attempt itself live) on ANY order => live_at_supplier
  *   -> reversed => risky(reversed)
  *   -> processing: held (latest attempt abandoned or UNKNOWN_ id) => risky(held), else live_at_supplier
  *   -> pending => eligible
  *   -> anything else => not_pending
- *
- * A processing order is decided by the held rule alone, so hasLiveAttempt does not turn a held order
- * into a plain block (the abandoned attempt is the very thing the admin is acknowledging).
  */
 export function judgeOrder(o: OrderSnapshot | null, supplier: string): Verdict {
   if (!o) return blocked("not_found")
@@ -43,15 +41,19 @@ export function judgeOrder(o: OrderSnapshot | null, supplier: string): Verdict {
   const status = norm(o.status)
   if (status === "completed") return blocked("completed")
 
-  const canServe = getProviderOptionsForNetwork(o.network).some((p) => p.value === supplier)
+  const canServe = getProviderOptionsForNetwork((o.network ?? "").trim()).some((p) => p.value === supplier)
   if (!canServe) return blocked("supplier_cannot_serve_network")
 
-  if (status !== "processing" && o.hasLiveAttempt) return blocked("live_at_supplier")
+  // A live attempt NEVER allows a bulk send, whatever the order status (no exception for held orders).
+  // Defence in depth: also treat the latest attempt as live itself, so a stale hasLiveAttempt flag cannot cause a double send.
+  const a = o.latestAttempt
+  const latestIsLive =
+    !!a && ["pending", "processing", "completed"].includes(norm(a.status)) && !(a.mtnOrderId ?? "").startsWith("UNKNOWN_")
+  if (o.hasLiveAttempt || latestIsLive) return blocked("live_at_supplier")
 
   if (status === "reversed") return { kind: "risky", why: "reversed" }
 
   if (status === "processing") {
-    const a = o.latestAttempt
     const held = !!a && (norm(a.status) === "abandoned" || (a.mtnOrderId ?? "").startsWith("UNKNOWN_"))
     return held ? { kind: "risky", why: "held" } : blocked("live_at_supplier")
   }
