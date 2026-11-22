@@ -160,15 +160,15 @@ export default function OrderConfirmation() {
               <div className="space-y-2 p-3 bg-card/50 rounded-lg text-sm">
                 <div>
                   <p className="text-xs text-muted-foreground">Customer Name</p>
-                  <p className="font-semibold">{order.customer_name}</p>
+                  <p className="font-semibold">{order.customer_name || "N/A"}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Phone Number</p>
-                  <p className="font-semibold font-mono">{order.customer_phone}</p>
+                  <p className="font-semibold font-mono">{order.customer_phone || "N/A"}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Email</p>
-                  <p className="font-semibold">{order.customer_email}</p>
+                  <p className="font-semibold">{order.customer_email || "N/A"}</p>
                 </div>
               </div>
             </div>

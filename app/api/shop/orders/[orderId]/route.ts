@@ -63,7 +63,7 @@ export async function GET(
       shopWhatsapp: settings?.whatsapp_link || null,
     })
   } catch (error) {
-    console.error("[SHOP-ORDER-GET] ✗ Error:", error)
+    console.error("[SHOP-ORDER-GET] ✗ Error:", error instanceof Error ? error.message : "unknown")
     return NextResponse.json(
       { error: "Failed to load order details. Please try again." },
       { status: 500 }
