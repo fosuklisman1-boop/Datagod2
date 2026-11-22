@@ -8,7 +8,13 @@ const BATCH_SIZE = 20
 
 // A row stuck in 'processing' for longer than this is considered orphaned
 // (its worker died mid-run) and is reset to 'pending' for the next tick.
-const STALE_MS = 4 * 60 * 1000
+// COUPLED to `maxDuration` (300 s) in app/api/cron/drain-fulfillment-queue/route.ts:
+// claim_fulfillment_queue stamps last_attempted_at once, at claim, and a tick can
+// legitimately run until maxDuration. This MUST stay strictly greater than
+// maxDuration plus a margin, or a later tick (every minute) resets rows the live
+// tick is still going to send and the order is sent to a supplier twice.
+// Raise this whenever maxDuration is raised.
+export const STALE_MS = 6 * 60 * 1000
 
 type DrainResult = {
   claimed: number
