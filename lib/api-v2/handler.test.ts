@@ -434,3 +434,71 @@ describe("runV2 API access grants", () => {
     expect(deps.store.logRequest).toHaveBeenCalledTimes(1)
   })
 })
+
+describe("runV2 request logging", () => {
+  it("schedules exactly one callback that writes the log and touches last_used", async () => {
+    const scheduled: Array<() => Promise<void>> = []
+    const deps: any = { ...makeDeps(), schedule: (w: () => Promise<void>) => scheduled.push(w) }
+    const r = await runV2(deps, OPTS, ok, input(validKey()))
+    expect(r.status).toBe(200)
+    expect(scheduled).toHaveLength(1)
+    expect(deps.store.logRequest).not.toHaveBeenCalled()
+    await scheduled[0]()
+    expect(deps.store.logRequest).toHaveBeenCalledTimes(1)
+    expect(deps.store.touchLastUsed).toHaveBeenCalledWith("key-1")
+  })
+
+  it("measures duration before scheduling, not when the callback runs", async () => {
+    let t = 0
+    const scheduled: Array<() => Promise<void>> = []
+    const deps: any = { ...makeDeps(), now: () => new Date(t), schedule: (w: () => Promise<void>) => scheduled.push(w) }
+    t = 1000
+    const p = runV2(deps, OPTS, async () => { t = 1250; return { status: 200, data: {} } }, input(validKey()))
+    await p
+    t = 999999
+    await scheduled[0]()
+    expect((deps.store.logRequest.mock.calls as any)[0][0].durationMs).toBe(250)
+  })
+
+  it("logs a safe reason slug, never the message text", async () => {
+    const scheduled: Array<() => Promise<void>> = []
+    const deps: any = { ...makeDeps(), schedule: (w: () => Promise<void>) => scheduled.push(w) }
+    const h = async () => ({ status: 409, error: { status: 409 as const, message: "OUTCOME_UNKNOWN: for 0241234567" } })
+    await runV2(deps, OPTS, h, input(validKey()))
+    await scheduled[0]()
+    const p = (deps.store.logRequest.mock.calls as any)[0][0]
+    expect(p.errorReason).toBe("outcome_unknown")
+    expect(JSON.stringify(p)).not.toContain("0241234567")
+  })
+
+  it("logs key_pending for a pending key and null for a success", async () => {
+    const run = async (over: any, h: any) => {
+      const scheduled: Array<() => Promise<void>> = []
+      const deps: any = { ...makeDeps(over), schedule: (w: () => Promise<void>) => scheduled.push(w) }
+      await runV2(deps, OPTS, h, input(validKey()))
+      await scheduled[0]()
+      return (deps.store.logRequest.mock.calls as any)[0][0].errorReason
+    }
+    expect(await run({ row: { status: "pending" } }, ok)).toBe("key_pending")
+    expect(await run({}, ok)).toBeNull()
+  })
+
+  it("one failing write never stops the other, and the callback never rejects", async () => {
+    const scheduled: Array<() => Promise<void>> = []
+    const deps: any = { ...makeDeps(), schedule: (w: () => Promise<void>) => scheduled.push(w) }
+    deps.store.logRequest = vi.fn(async () => { throw new Error("db down") })
+    await runV2(deps, OPTS, ok, input(validKey()))
+    await expect(scheduled[0]()).resolves.toBeUndefined()
+    expect(deps.store.touchLastUsed).toHaveBeenCalledWith("key-1")
+  })
+
+  it("a throwing schedule leaves the response unchanged and still runs the work", async () => {
+    const deps: any = { ...makeDeps(), schedule: () => { throw new Error("no request scope") } }
+    const r = await runV2(deps, OPTS, ok, input(validKey()))
+    expect(r.status).toBe(200)
+    expect(r.body).toMatchObject({ success: true, data: { env: "live" } })
+    await new Promise((res) => setTimeout(res, 0))
+    expect(deps.store.logRequest).toHaveBeenCalledTimes(1)
+    expect(deps.store.touchLastUsed).toHaveBeenCalledTimes(1)
+  })
+})

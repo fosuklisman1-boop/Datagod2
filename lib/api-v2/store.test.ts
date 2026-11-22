@@ -306,3 +306,49 @@ describe("listActiveRoles", () => {
     expect(await listActiveRoles({ from: () => { throw new Error("boom") } })).toBe("error")
   })
 })
+
+describe("logRequest error_reason", () => {
+  const base = { keyId: "k", userId: "u", method: "POST", endpoint: "/x", statusCode: 403, ip: "i", durationMs: 1, environment: "live" as const }
+
+  it("writes error_reason when one is given", async () => {
+    const { client, ops } = makeFake()
+    await logRequest(client, { ...base, errorReason: "key_pending" })
+    const inserts = ops.filter((o) => o.table === "api_v2_logs" && o.op === "insert")
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0].payload.error_reason).toBe("key_pending")
+  })
+
+  it("omits the column for a null reason, so success logs never need the new column", async () => {
+    const { client, ops } = makeFake()
+    await logRequest(client, { ...base, statusCode: 200, errorReason: null })
+    expect("error_reason" in ops.find((o) => o.op === "insert")!.payload).toBe(false)
+  })
+
+  it("retries once without error_reason when the column does not exist yet (before migration 0194)", async () => {
+    for (const code of ["PGRST204", "42703"]) {
+      const ops: any[] = []
+      let calls = 0
+      const client: any = {
+        from(table: string) {
+          return {
+            insert(p: any) {
+              ops.push({ table, payload: p })
+              calls++
+              return Promise.resolve({ data: null, error: calls === 1 ? { code } : null })
+            },
+          }
+        },
+      }
+      await logRequest(client, { ...base, errorReason: "key_pending" })
+      expect(ops).toHaveLength(2)
+      expect("error_reason" in ops[1].payload).toBe(false)
+      expect(ops[1].payload.status_code).toBe(403)
+    }
+  })
+
+  it("does not retry other insert errors", async () => {
+    const { client, ops } = makeFake({ insertError: { code: "23503" } })
+    await logRequest(client, { ...base, errorReason: "key_pending" })
+    expect(ops.filter((o) => o.op === "insert")).toHaveLength(1)
+  })
+})

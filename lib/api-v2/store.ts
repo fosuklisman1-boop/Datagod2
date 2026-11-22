@@ -204,13 +204,15 @@ export async function logRequest(
     endpoint: string
     statusCode: number
     errorCode?: number
+    /** A slug from lib/api-v2/log-reason.ts, never free text. */
+    errorReason?: string | null
     ip: string
     durationMs: number
     environment: Environment
   }
 ): Promise<void> {
   try {
-    await client.from("api_v2_logs").insert({
+    const row: Record<string, unknown> = {
       key_id: p.keyId,
       user_id: p.userId,
       method: p.method,
@@ -220,7 +222,17 @@ export async function logRequest(
       ip_address: p.ip,
       duration_ms: p.durationMs,
       environment: p.environment,
-    })
+    }
+    // error_reason arrives with migration 0194. A success never needs it, and an error log written before the
+    // column exists is retried once without it rather than lost.
+    if (p.errorReason) row.error_reason = p.errorReason
+    const res = await client.from("api_v2_logs").insert(row)
+    const code = (res?.error as { code?: string } | null | undefined)?.code
+    if ("error_reason" in row && (code === "PGRST204" || code === "42703")) {
+      const { error_reason: _omit, ...rest } = row
+      void _omit
+      await client.from("api_v2_logs").insert(rest)
+    }
   } catch {
     // never throws
   }

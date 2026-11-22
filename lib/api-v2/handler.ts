@@ -1,5 +1,6 @@
-import type { NextRequest, NextResponse } from "next/server"
+import { after, type NextRequest, type NextResponse } from "next/server"
 import { applyRateLimit } from "@/lib/rate-limiter"
+import { logReason } from "./log-reason"
 import {
   extractKey,
   decideAccess,
@@ -66,6 +67,24 @@ export interface V2Deps {
     opts?: { pgFallback?: boolean }
   ): Promise<{ allowed: boolean; remaining: number; resetAt: number; degraded?: boolean; fallback?: boolean }>
   now(): Date
+  /**
+   * Runs post-response work (the request log and last_used touch). withV2 passes next's after(), so the
+   * writes survive the function freezing. Optional: without it the work runs fire-and-forget.
+   */
+  schedule?(work: () => Promise<void>): void
+}
+
+/** Never throws and never affects the response: a throwing scheduler falls back to a caught fire-and-forget. */
+function scheduleSafely(schedule: V2Deps["schedule"], work: () => Promise<void>): void {
+  const fallback = () => {
+    void work().catch(() => {})
+  }
+  if (!schedule) return fallback()
+  try {
+    schedule(work)
+  } catch {
+    fallback()
+  }
 }
 
 export interface V2Input {
@@ -144,29 +163,34 @@ export async function runV2(
   if (!user) return unauthorized()
 
   const ip = clientIp(input.headers)
-  const finish = (outcome: V2Outcome, errorCode?: number): V2Outcome => {
-    // Fire and forget; the store functions never throw, the catch is belt and braces.
+  const finish = (outcome: V2Outcome, errorCode?: number, message?: string): V2Outcome => {
     try {
-      void deps.store
-        .logRequest({
-          keyId: row.id,
-          userId: row.user_id,
-          method: input.method,
-          endpoint: opts.endpoint,
-          statusCode: outcome.status,
-          errorCode,
-          ip,
-          durationMs: deps.now().getTime() - start,
-          environment: row.environment,
-        })
-        .catch(() => {})
-      void deps.store.touchLastUsed(row.id).catch(() => {})
+      // Measured now, not when the scheduled work runs.
+      const entry = {
+        keyId: row.id,
+        userId: row.user_id,
+        method: input.method,
+        endpoint: opts.endpoint,
+        statusCode: outcome.status,
+        errorCode,
+        errorReason: logReason(outcome.status, message),
+        ip,
+        durationMs: deps.now().getTime() - start,
+        environment: row.environment,
+      }
+      // One callback awaits both writes; neither failure stops the other and it never rejects.
+      scheduleSafely(deps.schedule, async () => {
+        await Promise.allSettled([
+          Promise.resolve().then(() => deps.store.logRequest(entry)),
+          Promise.resolve().then(() => deps.store.touchLastUsed(row.id)),
+        ])
+      })
     } catch {
-      // ignore
+      // logging must never affect the response
     }
     return outcome
   }
-  const failLogged = (status: V2ErrorStatus, message: string) => finish(fail(status, message), status)
+  const failLogged = (status: V2ErrorStatus, message: string) => finish(fail(status, message), status, message)
 
   const accessInput = {
     keyStatus: row.status,
@@ -229,6 +253,7 @@ export function withV2(
       },
       rateLimit: applyRateLimit,
       now: () => new Date(),
+      schedule: (work) => after(work),
     }
     try {
       const out = await runV2(deps, opts, handler, { headers: req.headers, method: req.method, request: req })
