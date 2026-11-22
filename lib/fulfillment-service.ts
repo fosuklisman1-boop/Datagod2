@@ -311,6 +311,19 @@ export async function processManualFulfillment(
     // (async/queued model). Gating on !order_id would wrongly trigger the failure path
     // and send a failure SMS even when the fallback took the order.
     if (!mtnResponse.success) {
+      // Strict supplier verification refused the admin-pinned supplier (it has not
+      // approved the number, or could not check it). Nothing was sent: the order
+      // goes back to pending with no tracking write, no retry_count bump and no
+      // admin alert; the caller (Send to supplier / per-row Fulfill) shows the message.
+      if (mtnResponse.error_type === "SUPPLIER_NOT_APPROVED" || mtnResponse.error_type === "SUPPLIER_CHECK_UNAVAILABLE") {
+        await supabase
+          .from(tableName)
+          .update({ [statusField]: "pending", updated_at: new Date().toISOString() })
+          .eq("id", orderId)
+          .eq(statusField, "processing")
+        console.warn(`${logPrefix} MTN pinned supplier refused (${mtnResponse.error_type}) — order back to pending`)
+        return { success: false, message: mtnResponse.message || "Supplier has not approved this number", orderId }
+      }
       // Re-hold on ANY gate hold (registration or whitelist), matching every
       // other MTN dispatch site (lib/mtn-hold.ts's callers). This used to be
       // narrowed to NUMBER_NOT_REGISTERED only, so a local fallback-provider
@@ -322,12 +335,17 @@ export async function processManualFulfillment(
       // so the 24h whitelist-retry cron (which only scans held_registration
       // rows) could never find it and its "retrying every 24h" message was false.
       if (mtnResponse.held) {
-        const holdReason = mtnResponse.error_type === "WHITELIST_BLOCKED"
-          ? "number blocked by whitelist provider check"
-          : "number pending MTN registration"
+        const holdReason = mtnResponse.error_type === "STRICT_HOLD"
+          ? "waiting for a supplier to approve this number"
+          : mtnResponse.error_type === "WHITELIST_BLOCKED"
+            ? "number blocked by whitelist provider check"
+            : "number pending MTN registration"
         console.log(`${logPrefix} MTN gate hold — ${holdReason}`)
         const { holdMtnOrder } = await import("@/lib/mtn-hold")
-        await holdMtnOrder({ table: tableName as any, orderId, phone })
+        await holdMtnOrder({
+          table: tableName as any, orderId, phone,
+          errorType: mtnResponse.error_type, strictReason: mtnResponse.strictHoldReason,
+        })
         return { success: false, message: `Held: ${holdReason}`, orderId }
       }
       if (isOutcomeUnknown(mtnResponse)) {

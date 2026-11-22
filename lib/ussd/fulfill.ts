@@ -84,10 +84,23 @@ export async function fulfillUssdOrder(
       const mtnResponse = await createMTNOrder(orderRequest)
 
       if (!mtnResponse.success || !mtnResponse.order_id) {
+        if (mtnResponse.error_type === "SUPPLIER_NOT_APPROVED" || mtnResponse.error_type === "SUPPLIER_CHECK_UNAVAILABLE") {
+          // Strict verification refused the admin-pinned supplier: nothing was sent.
+          // Pending, no tracking row (no retry count), no alert; the caller shows the message.
+          console.warn("[USSD-FULFILL] MTN pinned supplier refused:", mtnResponse.error_type)
+          await markUssdOrderStatus(orderId, 'pending', orderTable)
+          return { success: false, message: mtnResponse.message }
+        }
         if (mtnResponse.held) {
           const { holdMtnOrder } = await import("@/lib/mtn-hold")
-          await holdMtnOrder({ table: orderTable, orderId, phone: normalizedPhone })
-          return { success: false, message: "Held: number pending MTN registration", held: true }
+          await holdMtnOrder({
+            table: orderTable, orderId, phone: normalizedPhone,
+            errorType: mtnResponse.error_type, strictReason: mtnResponse.strictHoldReason,
+          })
+          const heldMessage = mtnResponse.error_type === "STRICT_HOLD"
+            ? "Held: waiting for a supplier to approve this number"
+            : "Held: number pending MTN registration"
+          return { success: false, message: heldMessage, held: true }
         }
         if (isOutcomeUnknown(mtnResponse)) {
           // Provider may have created the order — keep it `processing`, never re-fulfillable.

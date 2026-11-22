@@ -26,7 +26,12 @@ export interface FulfillmentDeps {
     resp: MTNOrderResponse,
     provider: string
   ): Promise<void>
-  holdMtnOrder(p: { orderId: string; phone: string }): Promise<{ held: boolean }>
+  holdMtnOrder(p: {
+    orderId: string
+    phone: string
+    errorType?: string
+    strictReason?: "rejected" | "unanswered"
+  }): Promise<{ held: boolean }>
   markProcessing(orderId: string): Promise<void>
   holdOutcomeUnknown?(p: { orderId: string; req: MTNOrderRequest; res: MTNOrderResponse; provider: string }): Promise<void>
   createNonMtnOrder(req: NonMTNOrderParams): Promise<unknown>
@@ -69,7 +74,7 @@ export async function dispatchFulfillment(deps: FulfillmentDeps, o: FulfillmentT
         // Provider may have created it: UNKNOWN_ tracking + order stays processing + admin alert.
         await deps.holdOutcomeUnknown?.({ orderId: o.orderId, req, res, provider: res.provider || "datakazina" })
       } else if (res.held) {
-        await deps.holdMtnOrder({ orderId: o.orderId, phone: o.local })
+        await deps.holdMtnOrder({ orderId: o.orderId, phone: o.local, errorType: res.error_type, strictReason: res.strictHoldReason })
       } else if (res.order_id) {
         await deps.saveMtnTracking(o.orderId, res.order_id, req, res, res.provider || "sykes")
         if (res.success) await deps.markProcessing(o.orderId)
@@ -105,9 +110,9 @@ export function realFulfillmentDeps(): FulfillmentDeps {
       const m = await import("@/lib/mtn-fulfillment")
       await m.saveMTNTracking(orderId, mtnOrderId, req, resp, "api", provider)
     },
-    holdMtnOrder: async ({ orderId, phone }) => {
+    holdMtnOrder: async ({ orderId, phone, errorType, strictReason }) => {
       const { holdMtnOrder } = await import("@/lib/mtn-hold")
-      return holdMtnOrder({ table: "api_orders", orderId, phone })
+      return holdMtnOrder({ table: "api_orders", orderId, phone, errorType, strictReason })
     },
     markProcessing: async (orderId) => {
       const { createClient } = await import("@supabase/supabase-js")

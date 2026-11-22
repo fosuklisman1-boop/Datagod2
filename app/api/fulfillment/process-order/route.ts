@@ -297,7 +297,10 @@ async function handleMTNAutoFulfillment(
     if (!mtnResponse.success || !mtnResponse.order_id) {
       if (mtnResponse.held) {
         const { holdMtnOrder } = await import("@/lib/mtn-hold")
-        await holdMtnOrder({ table: "shop_orders", orderId: shopOrderId, phone: phoneNumber })
+        await holdMtnOrder({
+          table: "shop_orders", orderId: shopOrderId, phone: phoneNumber,
+          errorType: mtnResponse.error_type, strictReason: mtnResponse.strictHoldReason,
+        })
         return NextResponse.json({
           success: true,
           message: "Order held pending MTN number registration",

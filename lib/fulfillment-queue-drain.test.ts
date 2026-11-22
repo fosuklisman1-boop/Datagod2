@@ -163,6 +163,19 @@ describe("drainFulfillmentQueue — re-checks the order is still pending before 
     expect(processManualFulfillment.mock.calls).toEqual([["s1", "shop", "hubnet", true]])
   })
 
+  it("a strict pin refusal fails the queue row with the refusal message (shop and ussd)", async () => {
+    processManualFulfillment.mockResolvedValue({ success: false, message: "Hubnet hasn't approved this number", orderId: "s1" })
+    fulfillUssdOrder.mockResolvedValue({ success: false, message: "Hubnet couldn't check this number right now" })
+    const sb = fakeSupabase([
+      { id: "q1", order_id: "s1", order_type: "shop", provider: "hubnet" },
+      { id: "q2", order_id: "u1", order_type: "ussd", provider: "hubnet" },
+    ])
+    const r = await drainFulfillmentQueue(sb)
+    expect(r).toMatchObject({ completed: 0, failed: 2 })
+    expect(failedUpdate(sb, "q1").values).toEqual({ status: "failed", error_message: "Hubnet hasn't approved this number" })
+    expect(failedUpdate(sb, "q2").values).toEqual({ status: "failed", error_message: "Hubnet couldn't check this number right now" })
+  })
+
   it("reads each type's own status column from its own table", async () => {
     const sb = fakeSupabase([
       { id: "q1", order_id: "b1", order_type: "bulk", provider: null },

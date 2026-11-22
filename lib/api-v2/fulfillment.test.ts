@@ -49,9 +49,18 @@ describe("dispatchFulfillment: MTN", () => {
     const d = makeDeps({ createMtnOrder: vi.fn(async () => ({ success: false, held: true, message: "held" })) as any })
     const r = await dispatchFulfillment(d, base)
     expect(r.outcome).toBe("mtn")
-    expect(d.holdMtnOrder).toHaveBeenCalledWith({ orderId: "ord-1", phone: "0249990204" })
+    expect(d.holdMtnOrder).toHaveBeenCalledWith({ orderId: "ord-1", phone: "0249990204", errorType: undefined, strictReason: undefined })
     expect(d.saveMtnTracking).not.toHaveBeenCalled()
     expect(d.markProcessing).not.toHaveBeenCalled()
+  })
+
+  it("a strict hold passes errorType and the reason to holdMtnOrder", async () => {
+    const d = makeDeps({
+      createMtnOrder: vi.fn(async () => ({ success: false, held: true, message: "held", error_type: "STRICT_HOLD", strictHoldReason: "rejected" })) as any,
+    })
+    await dispatchFulfillment(d, base)
+    expect(d.holdMtnOrder).toHaveBeenCalledWith({ orderId: "ord-1", phone: "0249990204", errorType: "STRICT_HOLD", strictReason: "rejected" })
+    expect(d.saveMtnTracking).not.toHaveBeenCalled()
   })
 
   it("OUTCOME_UNKNOWN holds via holdOutcomeUnknown: no plain tracking, not left pending", async () => {

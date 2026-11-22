@@ -472,7 +472,10 @@ export async function POST(request: NextRequest) {
 
                 if (mtnResult.held) {
                   const { holdMtnOrder } = await import("@/lib/mtn-hold")
-                  await holdMtnOrder({ table: "orders", orderId: String(order.id), phone: normalizedPhone })
+                  await holdMtnOrder({
+                    table: "orders", orderId: String(order.id), phone: normalizedPhone,
+                    errorType: mtnResult.error_type, strictReason: mtnResult.strictHoldReason,
+                  })
                   continue
                 }
 

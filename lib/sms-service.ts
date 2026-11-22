@@ -94,6 +94,10 @@ export const SMSTemplates = {
   mtnRegistrationHold: (phone: string) =>
     `DTGOD: ${phone} is being activated for ${networkColor("MTN")} data service. Your order will be delivered automatically once activation completes (usually within a day).`,
 
+  // Strict supplier verification: order held until a supplier approves the number. Sent once per order.
+  mtnStrictHold: (phone: string) =>
+    `DTGOD: Your MTN data order for ${phone} is being checked with our suppliers and will be delivered automatically once approved.`,
+
   // Storefront order confirmation with the shop's "Buy again" link — always ONE segment (1 credit);
   // the link is shortened/dropped when it would overflow (see lib/sms/shop-order-confirmation).
   shopOrderConfirmed: (network: string, volume: string, phone: string, ownerPhone: string, subdomain?: string | null) =>

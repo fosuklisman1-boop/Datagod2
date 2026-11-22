@@ -8,7 +8,7 @@
 // 'held_registration' is deliberately NOT 'pending': the admin manual-fulfill
 // queue and verify-pending-payments both select 'pending', so a held order is
 // invisible to them by construction (no doomed provider pushes).
-import { createClient } from "@supabase/supabase-js"
+import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -56,16 +56,132 @@ function serviceClient() {
   return createClient(supabaseUrl, serviceRoleKey)
 }
 
+export const STRICT_HOLDS_TABLE = "mtn_strict_holds"
+export type StrictHoldReason = "rejected" | "unanswered"
+
+/** The relation is not there yet (0194 not applied): Postgres undefined_table or PostgREST's schema-cache miss. */
+function isMissingTable(error: { code?: string } | null | undefined): boolean {
+  return error?.code === "42P01" || error?.code === "PGRST205"
+}
+
+/**
+ * Does this order have an OPEN strict hold (strict supplier verification)?
+ * The registry/whitelist releasers must leave those to the strict re-check.
+ * Read error = true (never release what cannot be classified); a missing
+ * table = false (no strict hold can exist before 0194 is applied).
+ */
+export async function isStrictHeld(db: SupabaseClient, table: MtnOrderTable, orderId: string): Promise<boolean> {
+  try {
+    const { data, error } = await db
+      .from(STRICT_HOLDS_TABLE)
+      .select("order_id")
+      .eq("order_table", table)
+      .eq("order_id", orderId)
+      .eq("state", "open")
+      .maybeSingle()
+    if (error) return !isMissingTable(error)
+    return !!data
+  } catch {
+    return true
+  }
+}
+
+/**
+ * Record (or re-open) the strict hold row and send the one strict-hold SMS
+ * the order ever gets. Returns false when the hold row could not be written.
+ */
+async function recordStrictHold(
+  supabase: SupabaseClient,
+  table: MtnOrderTable,
+  orderId: string,
+  phone: string,
+  reason: StrictHoldReason
+): Promise<boolean> {
+  const { normalizeGhanaPhone } = await import("@/lib/phone-format")
+  const storedPhone = normalizeGhanaPhone(phone) ?? phone
+  const now = new Date().toISOString()
+
+  const { data: existing, error: readErr } = await supabase
+    .from(STRICT_HOLDS_TABLE)
+    .select("state")
+    .eq("order_table", table)
+    .eq("order_id", orderId)
+    .maybeSingle()
+  if (readErr) {
+    console.error(`[MTN-HOLD] strict hold read failed for ${table}/${orderId}:`, readErr.code ?? "error")
+    return false
+  }
+
+  let writeErr: { code?: string } | null = null
+  if (!existing) {
+    const { error } = await supabase.from(STRICT_HOLDS_TABLE).insert({
+      order_table: table, order_id: orderId, phone: storedPhone, reason,
+      state: "open", held_at: now, last_checked_at: null, sms_sent: false, closed_at: null,
+    })
+    writeErr = error
+    if (error?.code === "23505") {
+      // Created between the read and the insert: re-open it (an open row keeps its held_at).
+      const { error: upErr } = await supabase.from(STRICT_HOLDS_TABLE)
+        .update({ reason, phone: storedPhone, state: "open", closed_at: null })
+        .eq("order_table", table).eq("order_id", orderId)
+      writeErr = upErr
+    }
+  } else if ((existing as { state?: string }).state === "open") {
+    // Still open: keep held_at (the 72 h limit runs from the first hold) and sms_sent.
+    const { error } = await supabase.from(STRICT_HOLDS_TABLE)
+      .update({ reason, phone: storedPhone })
+      .eq("order_table", table).eq("order_id", orderId)
+    writeErr = error
+  } else {
+    // Released/expired earlier and held again: a new hold episode. sms_sent is kept (one SMS per order).
+    const { error } = await supabase.from(STRICT_HOLDS_TABLE)
+      .update({ reason, phone: storedPhone, state: "open", held_at: now, last_checked_at: null, closed_at: null })
+      .eq("order_table", table).eq("order_id", orderId)
+    writeErr = error
+  }
+  if (writeErr) {
+    console.error(`[MTN-HOLD] strict hold write failed for ${table}/${orderId}:`, writeErr.code ?? "error")
+    return false
+  }
+
+  // Claim the one SMS atomically (sms_sent false -> true), then send. Best-effort.
+  const { data: claimed, error: claimErr } = await supabase.from(STRICT_HOLDS_TABLE)
+    .update({ sms_sent: true })
+    .eq("order_table", table).eq("order_id", orderId).eq("sms_sent", false)
+    .select("order_id")
+  if (claimErr || !claimed || claimed.length === 0) return true
+  try {
+    const { sendSMS, SMSTemplates } = await import("@/lib/sms-service")
+    await sendSMS({
+      phone,
+      message: SMSTemplates.mtnStrictHold(phone),
+      type: "mtn_strict_hold",
+      reference: orderId,
+    })
+  } catch {
+    console.warn(`[MTN-HOLD] strict hold SMS failed for ${orderId} (non-fatal)`)
+  }
+  return true
+}
+
 /**
  * Mark an order held (guarded: only from an in-flight status) and send the
  * one-time hold SMS. Best-effort SMS — never fails the hold.
+ *
+ * errorType "STRICT_HOLD" (strict supplier verification): also records an
+ * open mtn_strict_holds row with the reason and sends the strict-hold SMS
+ * once per order (re-holds send nothing). If that row cannot be written the
+ * order is put back to pending (never stranded in an untracked hold).
+ * Any other errorType: unchanged (registration SMS on every hold).
  */
 export async function holdMtnOrder(params: {
   table: MtnOrderTable
   orderId: string
   phone: string
+  errorType?: string
+  strictReason?: StrictHoldReason
 }): Promise<{ held: boolean }> {
-  const { table, orderId, phone } = params
+  const { table, orderId, phone, errorType, strictReason } = params
   const supabase = serviceClient()
   const statusCol = statusColumnFor(table)
 
@@ -81,7 +197,23 @@ export async function holdMtnOrder(params: {
     return { held: false }
   }
 
-  console.log(`[MTN-HOLD] HELD ${table}/${orderId} (${phone})`)
+  if (errorType === "STRICT_HOLD") {
+    const reason: StrictHoldReason = strictReason === "rejected" ? "rejected" : "unanswered"
+    const recorded = await recordStrictHold(supabase, table, orderId, phone, reason)
+    if (!recorded) {
+      await supabase
+        .from(table)
+        .update({ [statusCol]: "pending", updated_at: new Date().toISOString() })
+        .eq("id", orderId)
+        .eq(statusCol, HOLD_STATUS)
+      console.error(`[MTN-HOLD] strict hold not recorded for ${table}/${orderId}: order back to pending`)
+      return { held: false }
+    }
+    console.log(`[MTN-HOLD] STRICT HELD ${table}/${orderId} (${reason})`)
+    return { held: true }
+  }
+
+  console.log(`[MTN-HOLD] HELD ${table}/${orderId}`)
   try {
     const { sendSMS, SMSTemplates } = await import("@/lib/sms-service")
     await sendSMS({
@@ -156,6 +288,8 @@ export async function releaseHeldMtnOrders(
 
     for (const row of candidates) {
       if (!registered.has(row._norm)) continue
+      // A strict hold waits for its supplier approval (strict re-check job), never the registry.
+      if (await isStrictHeld(supabase, table, row.id)) continue
 
       // Atomic claim: held_registration -> pending.
       const { data: claimed, error: claimErr } = await supabase
@@ -221,6 +355,8 @@ export async function releaseWhitelistHeldOrders(
       .in(phoneCol, [...phoneSet])
 
     for (const row of (rows ?? []) as any[]) {
+      // A strict hold waits for its supplier approval (strict re-check job), never this releaser.
+      if (await isStrictHeld(supabase, table, row.id)) continue
       const { data: claimed } = await supabase
         .from(table)
         .update({ [statusCol]: "pending", updated_at: new Date().toISOString() })
@@ -274,13 +410,15 @@ export async function getHeldOrderPhones(): Promise<string[]> {
     const phoneCol = phoneColumnFor(table)
     const { data, error } = await supabase
       .from(table)
-      .select(phoneCol)
+      .select(`id, ${phoneCol}`)
       .eq(statusCol, HOLD_STATUS)
     if (error) {
       console.error(`[MTN-HOLD] getHeldOrderPhones select failed for ${table}:`, error)
       continue
     }
     for (const row of (data as any[]) ?? []) {
+      // Strict holds are re-checked by the strict job, not by the whitelist releaser this list feeds.
+      if (await isStrictHeld(supabase, table, String((row as any).id))) continue
       const norm = normalizeGhanaPhone(String((row as any)[phoneCol] ?? ""))
       if (norm) phones.add(norm)
     }
