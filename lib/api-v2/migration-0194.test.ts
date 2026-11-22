@@ -15,9 +15,51 @@ describe("0194 migration text", () => {
   it("is one transaction with timeouts and exactly one COMMIT", () => {
     const c = code(migration())
     expect(c.match(/^BEGIN;\s*$/gm)).toHaveLength(1)
-    expect(c).toMatch(/SET LOCAL lock_timeout = '5s';/)
-    expect(c).toMatch(/SET LOCAL statement_timeout = '60s';/)
+    expect(c).toMatch(/SET LOCAL lock_timeout = '2s';/)
+    expect(c).toMatch(/SET LOCAL statement_timeout = '15s';/)
     expect(c.match(/\bCOMMIT\b/g)).toHaveLength(1)
+  })
+
+  it("takes locks on live tables as late as possible: functions, then the FK tables, then hot ALTERs, indexes, backfill, and the DROP INDEX last", () => {
+    const c = code(migration())
+    const lastFn = c.lastIndexOf("CREATE OR REPLACE FUNCTION")
+    const firstTable = c.indexOf("CREATE TABLE IF NOT EXISTS public.api_v2_access_requests")
+    const lastTable = c.indexOf("CREATE TABLE IF NOT EXISTS public.api_v2_access_grants")
+    const firstHot = c.search(/ALTER TABLE public\.api_v2_(config|keys|logs)\b/)
+    const idxCode = c.indexOf("CREATE UNIQUE INDEX IF NOT EXISTS api_v2_keys_request_code_key")
+    const idxActive = c.indexOf("CREATE UNIQUE INDEX IF NOT EXISTS api_v2_keys_one_active_per_slot")
+    const idxPending = c.indexOf("CREATE UNIQUE INDEX IF NOT EXISTS api_v2_keys_one_pending_per_slot")
+    const backfill = c.indexOf("WHERE environment = 'live' AND status = 'pending' AND request_code IS NULL")
+    const drop = c.indexOf("DROP INDEX IF EXISTS public.api_v2_keys_one_live_per_type")
+    for (const n of [lastFn, firstTable, lastTable, firstHot, idxCode, idxActive, idxPending, backfill, drop]) expect(n).toBeGreaterThan(0)
+    expect(firstHot).toBeGreaterThan(lastFn)
+    expect(firstTable).toBeGreaterThan(lastFn)
+    expect(firstHot).toBeGreaterThan(lastTable)
+    expect(idxCode).toBeGreaterThan(firstHot)
+    expect(backfill).toBeGreaterThan(Math.max(idxCode, idxActive, idxPending))
+    expect(drop).toBeGreaterThan(Math.max(idxActive, idxPending, backfill))
+    // nothing but the final COMMIT follows the DROP INDEX
+    expect(c.slice(drop).replace(/^[^;]*;\s*/, "").trim()).toBe("COMMIT;")
+    // no function needs a table to exist when it is created
+    expect(c).not.toMatch(/%ROWTYPE/)
+  })
+
+  it("the header lists every lock: table, mode, what it blocks, held until the end, quiet window, harmless lock timeout", () => {
+    const m = migration()
+    const header = m.slice(0, m.indexOf("\nBEGIN;"))
+    expect(header).toMatch(/LOCKS[\s\S]*api_v2_config[^\n]*ACCESS EXCLUSIVE/)
+    expect(header).toMatch(/api_v2_keys[^\n]*ACCESS EXCLUSIVE/)
+    expect(header).toMatch(/api_v2_logs[^\n]*ACCESS EXCLUSIVE/)
+    expect(header).toMatch(/auth\.users[^\n]*SHARE ROW EXCLUSIVE/)
+    expect(header).toMatch(/until the (final )?statement that ends the transaction|until the transaction ends/i)
+    expect(header).toMatch(/quiet window/)
+    expect(header).toMatch(/lock timeout[^\n]*(harmless|safe)[^\n]*retry/i)
+  })
+
+  it("decision functions never take a plain FOR UPDATE (FOR NO KEY UPDATE does not conflict with the key-share of api_v2_logs inserts)", () => {
+    const c = code(migration())
+    expect(c).not.toMatch(/\bFOR\s+UPDATE\b/)
+    expect((c.match(/\bFOR NO KEY UPDATE\b/g) ?? []).length).toBe(4)
   })
 
   it("the run string has no COMMIT, no bare END; in the self-test, and ends by raising", () => {
