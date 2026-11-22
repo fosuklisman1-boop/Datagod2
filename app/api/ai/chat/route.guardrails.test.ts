@@ -3,6 +3,7 @@ import { NextRequest } from "next/server"
 
 const h = vi.hoisted(() => ({
   runAgenticLoop: vi.fn(),
+  recordTurn: vi.fn(),
   terminalDraftsSince: vi.fn(),
   suspended: false,
   userRead: "ok" as "ok" | "missing" | "error",
@@ -33,6 +34,7 @@ vi.mock("@/lib/ai-providers", () => ({
 }))
 vi.mock("@/lib/custom-domain-lookup", () => ({ resolveCustomDomain: async () => (h.domainServices ? { services: h.domainServices } : null) }))
 vi.mock("@/lib/ai-agentic-loop", () => ({ runAgenticLoop: h.runAgenticLoop }))
+vi.mock("@/lib/ai-console/transcripts", () => ({ recordTurn: h.recordTurn }))
 vi.mock("@/lib/ai-drafts/repo", () => ({ terminalDraftsSince: h.terminalDraftsSince }))
 
 import { POST } from "./route"
@@ -182,5 +184,29 @@ describe("storefront prompt", () => {
     expect(await storefrontSystem(["airtime"])).not.toContain("prepare_checkout")
     expect(await storefrontSystem(["data_bundles", "airtime"])).toContain("prepare_checkout")
     expect(await storefrontSystem(null)).toContain("prepare_checkout")
+  })
+})
+
+describe("client disconnect", () => {
+  it("a send that throws because the client went away does not flag the chat as error", async () => {
+    const turns: Array<{ extraReasons: string[] }> = []
+    h.recordTurn.mockImplementation(async (_s: unknown, t: { extraReasons: string[] }) => { turns.push(t) })
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    h.runAgenticLoop.mockImplementation(async (a: { onEvent: (e: Record<string, unknown>) => void }) => {
+      await gate
+      a.onEvent({ type: "text", content: "late" }) // enqueue on a cancelled stream throws
+      return { text: "late", toolsUsed: [] }
+    })
+    const req = new NextRequest("http://localhost/api/ai/chat", {
+      method: "POST",
+      headers: { authorization: "Bearer tok", "content-type": "application/json" },
+      body: JSON.stringify({ context: "dashboard", messages: [{ role: "user", content: "hi" }], conversationKey: CK }),
+    })
+    const res = await POST(req)
+    await res.body!.cancel()
+    release()
+    await vi.waitFor(() => expect(turns).toHaveLength(1))
+    expect(turns[0].extraReasons).toEqual([])
   })
 })

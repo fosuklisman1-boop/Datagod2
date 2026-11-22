@@ -68,7 +68,7 @@ export const MODEL_CATALOG: Record<ProviderName, CatalogModel[]> = {
       description: "Open model on Groq. Price not published on the page we could read.", checkedOn: DAY, sourceUrl: GROQ },
     { id: "llama-3.1-8b-instant", label: "Llama 3.1 8B", inUsdPerM: null, outUsdPerM: null, tools: false,
       description: "Small, very fast open model. Price not published on the page we could read.", checkedOn: DAY, sourceUrl: GROQ },
-    { id: "gemma2-9b-it", label: "Gemma 2 9B", inUsdPerM: null, outUsdPerM: null, tools: false,
+    { id: "gemma2-9b-it", label: "Gemma 2 9B (may be retired)", inUsdPerM: null, outUsdPerM: null, tools: false,
       description: "Small open model. Not on Groq's current model page.", checkedOn: DAY, sourceUrl: GROQ },
   ],
 }

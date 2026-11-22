@@ -143,7 +143,7 @@ export function EngineCard({ form, setForm, keyInfo, nameError }: {
 
         <div className="space-y-2">
           <Label className="text-sm font-medium">Model</Label>
-          <ModelCards provider={provider} model={model} modelError={hasEmptyModel(form)} onChange={(m) => setForm(applyEngine(form, provider, m))} />
+          <ModelCards provider={provider} model={model} modelError={hasEmptyModel(form)} mixed={mixed} onChange={(m) => setForm(applyEngine(form, provider, m))} />
         </div>
 
         <KeyField

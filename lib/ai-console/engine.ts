@@ -48,6 +48,11 @@ export function applyEngine(f: ConsoleForm, provider: ProviderName, model: strin
   }
 }
 
+/** The "Other model" card is highlighted only for one shared non-catalog model; while contexts differ (mixed) nothing is. */
+export function otherModelSelected(catalogIds: string[], model: string, mixed: boolean): boolean {
+  return !mixed && !catalogIds.includes(model)
+}
+
 /** True when any chat context has a blank model id (the "Other model" box was cleared). */
 export function hasEmptyModel(f: ConsoleForm): boolean {
   return [f.storefront_model, f.dashboard_model, f.admin_model, f.whatsapp_model].some((m) => m.trim() === "")

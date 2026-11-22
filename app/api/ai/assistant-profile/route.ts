@@ -3,6 +3,8 @@ import { createClient } from "@supabase/supabase-js"
 import { loadAIConfig } from "@/lib/ai-console/load-config"
 import { resolveAssistantSettings } from "@/lib/ai-console/settings"
 
+export const dynamic = "force-dynamic"
+
 // Public, no auth: the name and which audiences have the assistant are the same for everyone. Config is read with the
 // service role (never exposed); a read error falls back to defaults (assistant on, default name).
 export async function GET() {

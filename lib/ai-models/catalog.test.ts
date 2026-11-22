@@ -59,3 +59,13 @@ describe("current DeepSeek models (R6) and tools badges", () => {
     expect(find("gemini", "gemini-2.5-pro").tools).toBe(true)
   })
 })
+
+describe("gemma2 retirement note", () => {
+  it("is labelled as possibly retired and unpriced, id kept", () => {
+    const m = MODEL_CATALOG.groq.find((x) => x.id === "gemma2-9b-it")!
+    expect(m.label).toBe("Gemma 2 9B (may be retired)")
+    expect(m.inUsdPerM).toBeNull()
+    expect(m.outUsdPerM).toBeNull()
+    expect(PROVIDER_MODELS.groq.find((x) => x.id === "gemma2-9b-it")!.label).toBe("Gemma 2 9B (may be retired)")
+  })
+})

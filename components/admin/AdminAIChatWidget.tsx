@@ -10,7 +10,7 @@ import { parseDraftParam } from "@/lib/ai-drafts/deep-link"
 import { ChatWelcome, ChatInput, SuggestionChips, TypingIndicator, useAssistantProfile } from "@/components/ai/chat"
 import { AssistantMarkdown } from "@/components/ai/chat/AssistantMarkdown"
 import { createIdleTimeout } from "@/lib/ai-chat-ui/idle-timeout"
-import { widgetVisible, isAssistantOffResponse, ASSISTANT_OFF_MESSAGE } from "@/lib/ai-chat-ui/widget-visibility"
+import { widgetVisible, isAssistantOffResponse, assistantOffMessage } from "@/lib/ai-chat-ui/widget-visibility"
 import { followupsFor } from "@/lib/ai-chat-ui/suggestions"
 import { historyKey, safeClear, safeLoad, safeSave, trimHistory } from "@/lib/ai-chat-ui/history"
 
@@ -225,7 +225,7 @@ export function AdminAIChatWidget() {
       })
 
       if (!res.ok && (await isAssistantOffResponse(res))) {
-        setMessages(prev => [...prev, { role: "assistant", content: ASSISTANT_OFF_MESSAGE, timestamp: Date.now() }])
+        setMessages(prev => [...prev, assistantOffMessage()])
         return
       }
       if (!res.ok || !res.body) throw new Error("Request failed")

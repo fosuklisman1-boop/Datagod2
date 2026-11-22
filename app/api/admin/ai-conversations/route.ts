@@ -31,18 +31,18 @@ export async function GET(req: NextRequest) {
   const rows = (data ?? []) as Array<Record<string, any>>
   const ids = rows.map((r) => r.id as string)
   const preview = new Map<string, string>()
-  if (ids.length > 0) {
-    const { data: msgs } = await supabase
+  // One 1-row query per conversation (at most PAGE_SIZE, in parallel) so a long conversation can never starve the others.
+  await Promise.all(ids.map(async (id) => {
+    const { data: first } = await supabase
       .from("ai_conversation_messages")
-      .select("conversation_id, text")
-      .in("conversation_id", ids)
+      .select("text")
+      .eq("conversation_id", id)
       .eq("role", "user")
       .order("id", { ascending: true })
-      .limit(ids.length * 4)
-    for (const m of (msgs ?? []) as Array<{ conversation_id: string; text: string }>) {
-      if (!preview.has(m.conversation_id)) preview.set(m.conversation_id, previewText(m.text))
-    }
-  }
+      .limit(1)
+    const text = (first as Array<{ text: string }> | null)?.[0]?.text
+    if (typeof text === "string") preview.set(id, previewText(text))
+  }))
 
   // Weekly-review numbers (unaffected by the list filters).
   const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString()
