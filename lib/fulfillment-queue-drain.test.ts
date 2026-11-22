@@ -8,7 +8,9 @@ vi.mock("@/lib/ussd/fulfill", () => ({ fulfillUssdOrder: (...a: unknown[]) => fu
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => ({}) }))
 vi.mock("@/lib/cron-auth", () => ({ verifyCronAuth: () => ({ authorized: true }) }))
 
-import { drainFulfillmentQueue, STALE_MS } from "./fulfillment-queue-drain"
+import { drainFulfillmentQueue, STALE_MS, AUTO_PER_TICK, TIME_BUDGET_MS } from "./fulfillment-queue-drain"
+import { DEFAULT_AUTO_FULFIL_SETTINGS } from "@/lib/auto-fulfil/settings"
+import { NON_SEND_SWITCHED_OFF, NON_SEND_NOT_PENDING_PREFIX, NON_SEND_UNREADABLE } from "@/lib/auto-fulfil/policy"
 import { maxDuration } from "@/app/api/cron/drain-fulfillment-queue/route"
 
 type Call = { table: string; values: any; filters: { op: string; col: string; val: unknown }[] }
@@ -17,7 +19,19 @@ type Call = { table: string; values: any; filters: { op: string; col: string; va
  * Minimal supabase double: the reset-stale update, the claim RPC, the order reads and the queue row updates.
  * `orders` maps an order id to its row (any table); unknown ids read as a pending MTN order.
  */
-function fakeSupabase(claimed: any[], orders: Record<string, any> = {}, failRead: (id: string) => boolean = () => false) {
+type FakeOpts = {
+  /** admin_settings auto_fulfil_pending value; undefined = no row (the off defaults). */
+  settings?: unknown
+  /** auto_fulfil_attempts update result. */
+  attemptResult?: { data: any; error: any } | "throw"
+}
+
+function fakeSupabase(
+  claimed: any[],
+  orders: Record<string, any> = {},
+  failRead: (id: string) => boolean = () => false,
+  opts: FakeOpts = {},
+) {
   const updates: Call[] = []
   const reads: { table: string; cols: string; id: string }[] = []
   const sb = {
@@ -29,16 +43,27 @@ function fakeSupabase(claimed: any[], orders: Record<string, any> = {}, failRead
         update: (values: any) => {
           const call: Call = { table, values, filters: [] }
           updates.push(call)
+          const result = () => {
+            if (table !== "auto_fulfil_attempts") return Promise.resolve({ data: [], error: null })
+            const r = opts.attemptResult ?? { data: [{ id: "att" }], error: null }
+            return r === "throw" ? Promise.reject(new Error("network down")) : Promise.resolve(r)
+          }
           const chain: any = {
             eq: (col: string, val: unknown) => (call.filters.push({ op: "eq", col, val }), chain),
             lt: (col: string, val: unknown) => (call.filters.push({ op: "lt", col, val }), chain),
-            select: () => Promise.resolve({ data: [], error: null }),
-            then: (ok: any, bad: any) => Promise.resolve({ error: null }).then(ok, bad),
+            in: (col: string, val: unknown) => (call.filters.push({ op: "in", col, val }), chain),
+            is: (col: string, val: unknown) => (call.filters.push({ op: "is", col, val }), chain),
+            select: () => result(),
+            then: (ok: any, bad: any) => result().then(ok, bad),
           }
           return chain
         },
         select: (cols: string) => ({
           eq: (_c: string, id: string) => {
+            if (table === "admin_settings") {
+              const res = () => Promise.resolve({ data: opts.settings === undefined ? null : { value: opts.settings }, error: null })
+              return { single: res, maybeSingle: res }
+            }
             reads.push({ table, cols, id })
             const res = () =>
               failRead(id)
@@ -181,6 +206,289 @@ describe("drainFulfillmentQueue — re-checks the order is still pending before 
     expect(failedUpdate(sb, "q1").values).toEqual({ status: "failed", error_message: "order status unreadable" })
     expect(failedUpdate(sb, "q2").values).toEqual({ status: "failed", error_message: "order status unreadable" })
     expect(r).toMatchObject({ completed: 1, failed: 2 })
+  })
+})
+
+const ON = { ...DEFAULT_AUTO_FULFIL_SETTINGS, enabled: true }
+const queueUpdate = (sb: any, queueId: string) =>
+  sb.updates.find((u: Call) => u.table === "fulfillment_queue" && u.filters.some((f) => f.col === "id" && f.val === queueId))
+const attemptUpdates = (sb: any) => sb.updates.filter((u: Call) => u.table === "auto_fulfil_attempts")
+const attemptFor = (sb: any, queueId: string) =>
+  attemptUpdates(sb).find((u: Call) => u.filters.some((f) => f.col === "queue_id" && f.val === queueId))
+
+describe("drainFulfillmentQueue — split claim and auto rows", () => {
+  it("claims via claim_fulfillment_queue_split(20, 5)", async () => {
+    const sb = fakeSupabase([])
+    await drainFulfillmentQueue(sb)
+    expect(sb.rpc).toHaveBeenCalledTimes(1)
+    expect(sb.rpc).toHaveBeenCalledWith("claim_fulfillment_queue_split", { p_limit: 20, p_auto_limit: 5 })
+    expect(AUTO_PER_TICK).toBe(5)
+    expect(TIME_BUDGET_MS).toBe(240_000)
+  })
+
+  it("auto row with switch off: no supplier call, row failed 'auto-fulfil switched off', attempt outcome 'skipped'", async () => {
+    const sb = fakeSupabase(
+      [
+        { id: "q1", order_id: "s1", order_type: "shop", provider: null, source: "auto" },
+        { id: "q2", order_id: "u1", order_type: "ussd", provider: null, source: "auto" },
+      ],
+      {},
+      () => false,
+      { settings: { ...ON, enabled: false } },
+    )
+    const r = await drainFulfillmentQueue(sb)
+    expect(processManualFulfillment).not.toHaveBeenCalled()
+    expect(fulfillUssdOrder).not.toHaveBeenCalled()
+    expect(r).toMatchObject({ completed: 0, failed: 2 })
+    expect(queueUpdate(sb, "q1").values).toEqual({ status: "failed", error_message: NON_SEND_SWITCHED_OFF })
+    expect(queueUpdate(sb, "q2").values).toEqual({ status: "failed", error_message: "auto-fulfil switched off" })
+    expect(attemptFor(sb, "q1").values).toMatchObject({ outcome: "skipped" })
+    expect(attemptFor(sb, "q2").values).toMatchObject({ outcome: "skipped" })
+    expect(typeof attemptFor(sb, "q1").values.finished_at).toBe("string")
+    // switch is checked before the order is even read
+    expect(sb.reads).toEqual([])
+  })
+
+  it("auto row with invalid settings fails closed: no supplier call, skipped", async () => {
+    const sb = fakeSupabase([{ id: "q1", order_id: "s1", order_type: "shop", provider: null, source: "auto" }], {}, () => false, {
+      settings: { enabled: true, junk: 1 },
+    })
+    await drainFulfillmentQueue(sb)
+    expect(processManualFulfillment).not.toHaveBeenCalled()
+    expect(queueUpdate(sb, "q1").values.error_message).toBe(NON_SEND_SWITCHED_OFF)
+    expect(attemptFor(sb, "q1").values.outcome).toBe("skipped")
+  })
+
+  it("auto row with no settings row (defaults are off): no supplier call", async () => {
+    const sb = fakeSupabase([{ id: "q1", order_id: "s1", order_type: "shop", provider: null, source: "auto" }])
+    await drainFulfillmentQueue(sb)
+    expect(processManualFulfillment).not.toHaveBeenCalled()
+    expect(queueUpdate(sb, "q1").values.error_message).toBe(NON_SEND_SWITCHED_OFF)
+  })
+
+  it("an admin row is still sent while the auto switch is off", async () => {
+    const sb = fakeSupabase(
+      [
+        { id: "q1", order_id: "s1", order_type: "shop", provider: null, source: "auto" },
+        { id: "q2", order_id: "s2", order_type: "shop", provider: "hubnet", source: "admin" },
+      ],
+      {},
+      () => false,
+      { settings: { ...ON, enabled: false } },
+    )
+    const r = await drainFulfillmentQueue(sb)
+    expect(processManualFulfillment.mock.calls).toEqual([["s2", "shop", "hubnet", true]])
+    expect(r).toMatchObject({ completed: 1, failed: 1 })
+    expect(attemptUpdates(sb)).toHaveLength(1)
+  })
+
+  it("auto row failure 'Rate limit exceeded' => attempt outcome rate_limited, fulfil called with suppressFailureAlerts", async () => {
+    processManualFulfillment.mockResolvedValue({ success: false, message: "Rate limit exceeded" })
+    fulfillUssdOrder.mockResolvedValue({ success: false, message: "Rate limit exceeded" })
+    const sb = fakeSupabase(
+      [
+        { id: "q1", order_id: "s1", order_type: "shop", provider: null, source: "auto" },
+        { id: "q2", order_id: "u1", order_type: "ussd", provider: null, source: "auto" },
+      ],
+      {},
+      () => false,
+      { settings: ON },
+    )
+    const r = await drainFulfillmentQueue(sb)
+    expect(processManualFulfillment.mock.calls).toEqual([["s1", "shop", undefined, true, { suppressFailureAlerts: true }]])
+    expect(fulfillUssdOrder.mock.calls).toEqual([
+      ["u1", "MTN", "0240000000", "1GB", true, "ussd_orders", undefined, { suppressFailureAlerts: true }],
+    ])
+    expect(r).toMatchObject({ completed: 0, failed: 2 })
+    expect(queueUpdate(sb, "q1").values).toEqual({ status: "failed", error_message: "Rate limit exceeded" })
+    expect(attemptFor(sb, "q1").values).toMatchObject({ outcome: "rate_limited" })
+    expect(attemptFor(sb, "q2").values).toMatchObject({ outcome: "rate_limited" })
+  })
+
+  it("auto row success => queue completed, attempt outcome sent (only a still-empty outcome is written)", async () => {
+    const sb = fakeSupabase([{ id: "q1", order_id: "s1", order_type: "shop", provider: null, source: "auto" }], {}, () => false, { settings: ON })
+    const r = await drainFulfillmentQueue(sb)
+    expect(r).toMatchObject({ completed: 1, failed: 0 })
+    expect(queueUpdate(sb, "q1").values.status).toBe("completed")
+    const a = attemptFor(sb, "q1")
+    expect(a.values).toMatchObject({ outcome: "sent" })
+    expect(a.filters).toContainEqual({ op: "is", col: "outcome", val: null })
+  })
+
+  it("auto row whose message matches no rule => unclassified", async () => {
+    processManualFulfillment.mockResolvedValue({ success: false, message: "something odd" })
+    const sb = fakeSupabase([{ id: "q1", order_id: "s1", order_type: "shop", provider: null, source: "auto" }], {}, () => false, { settings: ON })
+    await drainFulfillmentQueue(sb)
+    expect(attemptFor(sb, "q1").values.outcome).toBe("unclassified")
+  })
+
+  it("auto ussd row with result.held => attempt outcome held", async () => {
+    fulfillUssdOrder.mockResolvedValue({ success: false, message: "Held: number pending MTN registration", held: true })
+    const sb = fakeSupabase([{ id: "q1", order_id: "u1", order_type: "ussd", provider: null, source: "auto" }], {}, () => false, { settings: ON })
+    await drainFulfillmentQueue(sb)
+    expect(queueUpdate(sb, "q1").values.status).toBe("failed")
+    expect(attemptFor(sb, "q1").values.outcome).toBe("held")
+  })
+
+  it("auto row failure that leaves the order no longer pending (outcome unknown) => held", async () => {
+    const orders: Record<string, any> = {}
+    processManualFulfillment.mockImplementation(async (id: string) => {
+      orders[id] = { order_status: "processing" }
+      return { success: false, message: "Rate limit exceeded" }
+    })
+    const sb = fakeSupabase([{ id: "q1", order_id: "s1", order_type: "shop", provider: null, source: "auto" }], orders, () => false, {
+      settings: ON,
+    })
+    await drainFulfillmentQueue(sb)
+    expect(attemptFor(sb, "q1").values.outcome).toBe("held")
+  })
+
+  it("auto row failure whose order status cannot be re-read => unclassified (not a known refusal)", async () => {
+    let calls = 0
+    processManualFulfillment.mockImplementation(async () => {
+      calls++
+      return { success: false, message: "Rate limit exceeded" }
+    })
+    const sb = fakeSupabase([{ id: "q1", order_id: "s1", order_type: "shop", provider: null, source: "auto" }], {}, () => calls > 0, {
+      settings: ON,
+    })
+    await drainFulfillmentQueue(sb)
+    expect(processManualFulfillment).toHaveBeenCalledTimes(1)
+    expect(attemptFor(sb, "q1").values.outcome).toBe("unclassified")
+  })
+
+  it("auto row whose call throws is still recorded (classified) and fails the queue row", async () => {
+    processManualFulfillment.mockRejectedValue(new Error("Insufficient balance"))
+    const sb = fakeSupabase([{ id: "q1", order_id: "s1", order_type: "shop", provider: null, source: "auto" }], {}, () => false, { settings: ON })
+    const r = await drainFulfillmentQueue(sb)
+    expect(r).toMatchObject({ failed: 1 })
+    expect(queueUpdate(sb, "q1").values).toEqual({ status: "failed", error_message: "Insufficient balance" })
+    expect(attemptFor(sb, "q1").values.outcome).not.toBe("sent")
+  })
+
+  it("auto row whose order is no longer pending: no supplier call, attempt outcome skipped", async () => {
+    const sb = fakeSupabase([{ id: "q1", order_id: "s1", order_type: "shop", provider: null, source: "auto" }], { s1: { order_status: "completed" } }, () => false, {
+      settings: ON,
+    })
+    await drainFulfillmentQueue(sb)
+    expect(processManualFulfillment).not.toHaveBeenCalled()
+    expect(queueUpdate(sb, "q1").values.error_message).toBe(`${NON_SEND_NOT_PENDING_PREFIX} (completed)`)
+    expect(attemptFor(sb, "q1").values.outcome).toBe("skipped")
+  })
+
+  it("auto row with unreadable order: no supplier call, attempt outcome skipped", async () => {
+    const sb = fakeSupabase([{ id: "q1", order_id: "s1", order_type: "shop", provider: null, source: "auto" }], {}, (id) => id === "s1", {
+      settings: ON,
+    })
+    await drainFulfillmentQueue(sb)
+    expect(processManualFulfillment).not.toHaveBeenCalled()
+    expect(queueUpdate(sb, "q1").values.error_message).toBe(NON_SEND_UNREADABLE)
+    expect(attemptFor(sb, "q1").values.outcome).toBe("skipped")
+  })
+
+  it.each([
+    ["an error", { data: null, error: { message: "boom" } }],
+    ["zero matched rows (attempt row not inserted yet)", { data: [], error: null }],
+    ["a thrown error", "throw" as const],
+  ])("attempt write with %s never changes the queue outcome or throws", async (_label, attemptResult) => {
+    const sb = fakeSupabase(
+      [
+        { id: "q1", order_id: "s1", order_type: "shop", provider: null, source: "auto" },
+        { id: "q2", order_id: "s2", order_type: "shop", provider: null, source: "auto" },
+      ],
+      {},
+      () => false,
+      { settings: ON, attemptResult },
+    )
+    const r = await drainFulfillmentQueue(sb)
+    expect(r).toMatchObject({ completed: 2, failed: 0 })
+    expect(queueUpdate(sb, "q1").values.status).toBe("completed")
+    expect(queueUpdate(sb, "q2").values.status).toBe("completed")
+    expect(processManualFulfillment).toHaveBeenCalledTimes(2)
+  })
+
+  it("settings are read once per tick", async () => {
+    const sb = fakeSupabase(
+      [
+        { id: "q1", order_id: "s1", order_type: "shop", provider: null, source: "auto" },
+        { id: "q2", order_id: "s2", order_type: "shop", provider: null, source: "auto" },
+      ],
+      {},
+      () => false,
+      { settings: ON },
+    )
+    const from = vi.spyOn(sb, "from")
+    await drainFulfillmentQueue(sb)
+    expect(from.mock.calls.filter((c) => c[0] === "admin_settings")).toHaveLength(1)
+  })
+})
+
+describe("drainFulfillmentQueue — admin rows unchanged", () => {
+  it("admin row is called without suppressFailureAlerts", async () => {
+    processManualFulfillment.mockResolvedValue({ success: false, message: "Rate limit exceeded" })
+    fulfillUssdOrder.mockResolvedValue({ success: false, message: "Rate limit exceeded" })
+    const sb = fakeSupabase(
+      [
+        { id: "q1", order_id: "s1", order_type: "shop", provider: "hubnet", source: "admin" },
+        { id: "q2", order_id: "u1", order_type: "ussd", provider: null, source: "admin" },
+        { id: "q3", order_id: "b1", order_type: "bulk", provider: null }, // pre-0193 shape: no source column
+      ],
+      {},
+      () => false,
+      { settings: ON },
+    )
+    await drainFulfillmentQueue(sb)
+    expect(processManualFulfillment.mock.calls).toEqual([
+      ["s1", "shop", "hubnet", true],
+      ["b1", "bulk", undefined, true],
+    ])
+    expect(fulfillUssdOrder.mock.calls).toEqual([["u1", "MTN", "0240000000", "1GB", true, "ussd_orders", undefined]])
+    expect(attemptUpdates(sb)).toEqual([])
+    expect(queueUpdate(sb, "q1").values).toEqual({ status: "failed", error_message: "Rate limit exceeded" })
+  })
+})
+
+describe("drainFulfillmentQueue — time budget", () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-11-22T12:00:00.000Z"))
+  })
+  afterEach(() => vi.useRealTimers())
+
+  it("rows left after the time budget go back to pending unsent", async () => {
+    processManualFulfillment.mockImplementation(async () => {
+      vi.setSystemTime(Date.now() + TIME_BUDGET_MS + 1_000)
+      return { success: true, message: "ok" }
+    })
+    const sb = fakeSupabase(
+      [
+        { id: "q1", order_id: "s1", order_type: "shop", provider: null, source: "admin" },
+        { id: "q2", order_id: "s2", order_type: "shop", provider: null, source: "admin" },
+        { id: "q3", order_id: "u1", order_type: "ussd", provider: null, source: "auto" },
+      ],
+      {},
+      () => false,
+      { settings: ON },
+    )
+    const r = await drainFulfillmentQueue(sb)
+    expect(processManualFulfillment).toHaveBeenCalledTimes(1)
+    expect(fulfillUssdOrder).not.toHaveBeenCalled()
+    const back = sb.updates.find((u: Call) => u.table === "fulfillment_queue" && u.filters.some((f) => f.op === "in" && f.col === "id"))!
+    expect(back.values).toEqual({ status: "pending" })
+    expect(back.filters).toContainEqual({ op: "in", col: "id", val: ["q2", "q3"] })
+    expect(back.filters).toContainEqual({ op: "eq", col: "status", val: "processing" })
+    expect(r).toMatchObject({ claimed: 3, completed: 1, failed: 0, requeued: 2 })
+    // the requeued auto row's attempt stays open (no outcome written)
+    expect(attemptUpdates(sb)).toEqual([])
+  })
+
+  it("a fast tick sends every row", async () => {
+    const sb = fakeSupabase([
+      { id: "q1", order_id: "s1", order_type: "shop", provider: null, source: "admin" },
+      { id: "q2", order_id: "s2", order_type: "shop", provider: null, source: "admin" },
+    ])
+    const r = await drainFulfillmentQueue(sb)
+    expect(r).toMatchObject({ completed: 2, requeued: 0 })
   })
 })
 
