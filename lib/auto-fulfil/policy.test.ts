@@ -3,6 +3,9 @@ import {
   decideCandidate,
   isNonSendQueueMessage,
   latestFailure,
+  NON_SEND_NOT_PENDING_PREFIX,
+  NON_SEND_SWITCHED_OFF,
+  NON_SEND_UNREADABLE,
   type CandidateFacts,
   type FailureEvent,
 } from "./policy"
@@ -116,6 +119,13 @@ describe("latestFailure", () => {
 })
 
 describe("isNonSendQueueMessage", () => {
+  it("exported constants are the drain's exact strings", () => {
+    expect(NON_SEND_SWITCHED_OFF).toBe("auto-fulfil switched off")
+    expect(NON_SEND_NOT_PENDING_PREFIX).toBe("order no longer pending")
+    expect(NON_SEND_UNREADABLE).toBe("order status unreadable")
+    expect(isNonSendQueueMessage(`${NON_SEND_NOT_PENDING_PREFIX} (failed)`)).toBe(true)
+  })
+
   it("matches the drain's own skip messages (trimmed)", () => {
     expect(isNonSendQueueMessage("auto-fulfil switched off")).toBe(true)
     expect(isNonSendQueueMessage("  auto-fulfil switched off ")).toBe(true)
@@ -226,6 +236,26 @@ describe("decideCandidate", () => {
     ])
     expect(failure).toEqual({ bucket: "rejected", at: iso(-90) })
     expect(decideCandidate(facts({ failure, autoTries: 0 }), S, NOW)).toEqual({ kind: "queue" })
+  })
+
+  it("unreadable failure time => needs_you unreadable_failure_time (never skips the wait)", () => {
+    const failure = latestFailure([tracking("not-a-date", "failed", "rate limit exceeded")])
+    expect(failure).toEqual({ bucket: "rate_limited", at: "not-a-date" })
+    expect(decideCandidate(facts({ failure, autoTries: 1 }), S, NOW)).toEqual({
+      kind: "needs_you",
+      reason: "unreadable_failure_time",
+    })
+  })
+
+  it("no failure record but an earlier auto send => needs_you unaccounted_auto_send", () => {
+    expect(decideCandidate(facts({ failure: null, autoTries: 1 }), S, NOW)).toEqual({
+      kind: "needs_you",
+      reason: "unaccounted_auto_send",
+    })
+  })
+
+  it("no failure record and no auto sends => queue", () => {
+    expect(decideCandidate(facts({ failure: null, autoTries: 0 }), S, NOW)).toEqual({ kind: "queue" })
   })
 
   it("uses the settings' rules, not the defaults", () => {

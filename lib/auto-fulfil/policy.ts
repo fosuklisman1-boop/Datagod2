@@ -27,10 +27,14 @@ export type Decision =
   | { kind: "needs_you"; reason: string }
   | { kind: "skip"; reason: string }
 
-/** Queue messages the drain writes itself when it skips a job without ever calling a supplier. */
+// Queue messages the drain writes itself when it skips a job without ever calling a supplier.
+export const NON_SEND_SWITCHED_OFF = "auto-fulfil switched off"
+export const NON_SEND_NOT_PENDING_PREFIX = "order no longer pending"
+export const NON_SEND_UNREADABLE = "order status unreadable"
+
 export function isNonSendQueueMessage(message: string | null): boolean {
   const m = (message ?? "").trim()
-  return m === "auto-fulfil switched off" || m.startsWith("order no longer pending") || m === "order status unreadable"
+  return m === NON_SEND_SWITCHED_OFF || m.startsWith(NON_SEND_NOT_PENDING_PREFIX) || m === NON_SEND_UNREADABLE
 }
 
 function bucketOf(e: FailureEvent): NonNullable<LatestFailure>["bucket"] | null {
@@ -40,8 +44,9 @@ function bucketOf(e: FailureEvent): NonNullable<LatestFailure>["bucket"] | null 
   }
   if (e.status !== "failed" || isNonSendQueueMessage(e.message)) return null
   // A queue message alone is not proof of a definite supplier refusal, so no keyword => unclassified.
-  const r = classifyMessage(e.message)
-  return r === null || r === "none" ? "unclassified" : r
+  // The keyword rules only ever yield retry buckets (never "none", "rejected" or "outcome_unknown").
+  const r = classifyMessage(e.message) as RetryBucket | null
+  return r ?? "unclassified"
 }
 
 const timeOf = (at: string) => {
@@ -68,7 +73,10 @@ export function decideCandidate(f: CandidateFacts, s: AutoFulfilSettings, now: D
   if (f.everHeldOrReversed) return { kind: "needs_you", reason: "held_or_reversed_history" }
 
   const failure = f.failure
-  if (!failure) return { kind: "queue" }
+  if (!failure) {
+    // An earlier automatic send left no failure record: we cannot tell whether it was created, so never send twice.
+    return f.autoTries > 0 ? { kind: "needs_you", reason: "unaccounted_auto_send" } : { kind: "queue" }
+  }
   if (failure.bucket === "outcome_unknown") return { kind: "needs_you", reason: "outcome_unknown" }
   if (failure.bucket === "unclassified") return { kind: "needs_you", reason: "unclassified" }
 
@@ -76,7 +84,10 @@ export function decideCandidate(f: CandidateFacts, s: AutoFulfilSettings, now: D
   if (!rule.retry) return { kind: "needs_you", reason: failure.bucket }
   if (f.autoTries >= rule.maxTries) return { kind: "needs_you", reason: "out_of_tries" }
 
-  const until = new Date(Date.parse(failure.at) + rule.waitMinutes * 60_000)
+  const failedAt = Date.parse(failure.at)
+  // Fail closed: without a readable failure time the wait cannot be honoured.
+  if (Number.isNaN(failedAt)) return { kind: "needs_you", reason: "unreadable_failure_time" }
+  const until = new Date(failedAt + rule.waitMinutes * 60_000)
   if (now.getTime() < until.getTime()) return { kind: "wait", until: until.toISOString() }
   return { kind: "queue" }
 }
