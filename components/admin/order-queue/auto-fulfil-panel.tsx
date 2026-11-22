@@ -41,6 +41,20 @@ const ENDPOINT = "/api/admin/auto-fulfil"
 export const SWITCH_LABEL = "Auto-fulfil pending orders"
 export const turnOnCopy = (minAgeMinutes: number) =>
   `Orders older than ${minAgeMinutes} minutes will be sent to suppliers automatically. Turn on?`
+export const UNREADABLE_SETTINGS_LINE = "Your saved settings could not be read, so the default settings will be saved."
+/** Lines of the turn-on confirmation. Turning on while the saved settings are unreadable saves the defaults: say so. */
+export const turnOnLines = (minAgeMinutes: number, settingsValid: boolean): string[] =>
+  settingsValid ? [turnOnCopy(minAgeMinutes)] : [turnOnCopy(minAgeMinutes), UNREADABLE_SETTINGS_LINE]
+
+/** Shown when the server refused a save because the switch was changed since this panel last loaded (409). */
+export const enabledChangedMessage = (nowEnabled: boolean | null): string =>
+  `Auto-fulfil was switched ${nowEnabled === null ? "on or off" : nowEnabled ? "on" : "off"} by someone else — check and save again.`
+
+/** The PUT body. Only the switch itself sends toggle: true, so a stale "Save settings" can never flip `enabled`. */
+export const saveBody = (value: AutoFulfilSettings, toggle: boolean): string =>
+  JSON.stringify(toggle ? { ...value, toggle: true } : value)
+
+class EnabledChangedError extends Error {}
 
 type PanelState = {
   settings: AutoFulfilSettings
@@ -68,6 +82,7 @@ async function callApi(init?: RequestInit): Promise<PanelState> {
     cache: "no-store",
   })
   const body = await res.json().catch(() => ({}))
+  if (res.status === 409 && body?.error === "enabled_changed") throw new EnabledChangedError("enabled_changed")
   if (!res.ok || !body?.settings) throw new Error(errorText(res.status, body?.error))
   return body as PanelState
 }
@@ -120,14 +135,25 @@ export function AutoFulfilPanel() {
 
   /** PUT the full object. Returns the error text, or null on success. */
   const save = useCallback(
-    async (value: AutoFulfilSettings, replaceForm: boolean): Promise<string | null> => {
+    async (value: AutoFulfilSettings, replaceForm: boolean, toggle: boolean): Promise<string | null> => {
       savingRef.current = true
       setSaving(true)
       const ticket = ++ticketRef.current
       try {
-        apply(ticket, await callApi({ method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(value) }), replaceForm)
+        apply(ticket, await callApi({ method: "PUT", headers: { "Content-Type": "application/json" }, body: saveBody(value, toggle) }), replaceForm)
         return null
       } catch (e) {
+        // Any failed save (a refused stale change, or "saved, but ..." after a partial write) leaves the screen unsure what
+        // is stored: reload it so the switch shows the truth. A form with unsaved edits keeps them.
+        let nowEnabled: boolean | null = null
+        try {
+          const fresh = await callApi()
+          apply(++ticketRef.current, fresh, false)
+          nowEnabled = fresh.settings.enabled
+        } catch {
+          // The reload failed too; the poll will retry.
+        }
+        if (e instanceof EnabledChangedError) return enabledChangedMessage(nowEnabled)
         return e instanceof Error ? e.message : "Could not save auto-fulfil settings"
       } finally {
         savingRef.current = false
@@ -141,7 +167,7 @@ export function AutoFulfilPanel() {
   const setEnabled = async (enabled: boolean) => {
     if (!state) return
     setSwitchError(null)
-    const err = await save({ ...structuredClone(state.settings), enabled }, false)
+    const err = await save({ ...structuredClone(state.settings), enabled }, false, true)
     if (err) setSwitchError(err)
   }
 
@@ -158,7 +184,7 @@ export function AutoFulfilPanel() {
       setFormError(parsed.error)
       return
     }
-    const err = await save(parsed.value, true)
+    const err = await save(parsed.value, true, false)
     if (err) setFormError(err)
   }
 
@@ -268,7 +294,13 @@ export function AutoFulfilPanel() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Turn on auto-fulfil?</AlertDialogTitle>
-            <AlertDialogDescription>{turnOnCopy(state?.settings.minAgeMinutes ?? 0)}</AlertDialogDescription>
+            <AlertDialogDescription className="space-y-2">
+              {turnOnLines(state?.settings.minAgeMinutes ?? 0, state?.valid !== false).map((line) => (
+                <span key={line} className="block">
+                  {line}
+                </span>
+              ))}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
