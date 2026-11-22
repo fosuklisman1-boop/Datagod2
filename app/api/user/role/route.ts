@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { rightsForUser } from "@/lib/roles/permissions-repo"
 import { RoleReadError } from "@/lib/roles/repo"
+import { hasGrant } from "@/lib/api-v2/store"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -31,13 +32,22 @@ export async function GET(request: NextRequest) {
       .maybeSingle()
     if (error) throw new RoleReadError()
     const skin = row?.theme?.skin === "dealer" ? "dealer" : "default"
+    // A per-person API access grant (admin-approved) shows the Developer page for a role without account.api.
+    // UI only: every API route checks the grant itself. A failed read means no grant here.
+    let apiGrant = false
+    let list = rights.kind === "set" ? [...rights.caps] : null
+    if (list && !list.includes("account.api")) {
+      apiGrant = (await hasGrant(supabase, user.id)) === true
+      if (apiGrant) list = [...list, "account.api"]
+    }
     return NextResponse.json({
       slug,
       name: row?.name ?? slug,
       badge_color: row?.badge_color ?? null,
       icon: row?.icon ?? null,
       theme: { skin },
-      rights: rights.kind === "set" ? [...rights.caps] : rights.kind,
+      rights: list ?? rights.kind,
+      apiGrant,
     })
   } catch {
     return NextResponse.json({ error: "Couldn't load your role. Please try again." }, { status: 503 })

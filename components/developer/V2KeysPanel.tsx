@@ -9,7 +9,9 @@ import type { AccessSummary, DashboardAccessState } from "@/lib/api-v2/key-issue
 import type { V2KeySummary } from "@/lib/api-v2/key-slots"
 import { GenerateKeyDialog, type IssuedKey } from "./GenerateKeyDialog"
 import { KeysExplainer, LoadErrorCallout, V2KeysCard } from "./V2KeysCard"
-import { slotId } from "./V2KeyBlock"
+import { slotId, type SlotRejection } from "./V2KeyBlock"
+import type { ApprovalInfo } from "./approval/MessageAdminButton"
+import type { AccessRequestView } from "./approval/AccessRequestPanel"
 
 async function authHeader(): Promise<Record<string, string>> {
   const { data: { session } } = await supabase.auth.getSession()
@@ -33,6 +35,10 @@ export function V2KeysPanel({ onAccessStateChange }: { onAccessStateChange?: (st
   const [busySlot, setBusySlot] = useState<string | null>(null)
   // The full key exists only here, between a successful POST and the dialog closing.
   const [issued, setIssued] = useState<IssuedKey | null>(null)
+  const [approval, setApproval] = useState<ApprovalInfo | null>(null)
+  const [rejections, setRejections] = useState<SlotRejection[]>([])
+  const [accessRequest, setAccessRequest] = useState<AccessRequestView | null>(null)
+  const [accessBusy, setAccessBusy] = useState(false)
   const inFlight = useRef(false)
 
   const load = useCallback(async () => {
@@ -49,6 +55,14 @@ export function V2KeysPanel({ onAccessStateChange }: { onAccessStateChange?: (st
       setKeys(Array.isArray(data.keys) ? (data.keys as V2KeySummary[]) : [])
       setAccess(a)
       setSmsAvailable(data.smsAvailable === true)
+      const ap = data.approval as { contact?: unknown; email?: unknown } | undefined
+      setApproval({
+        contact: typeof ap?.contact === "string" ? ap.contact : null,
+        email: typeof ap?.email === "string" ? ap.email : null,
+      })
+      setRejections(Array.isArray(data.rejections) ? (data.rejections as SlotRejection[]) : [])
+      const ar = data.accessRequest as AccessRequestView | null | undefined
+      setAccessRequest(ar && typeof ar.code === "string" ? ar : null)
       setLoadError(null)
     } catch {
       toast.error(LOAD_FAILED)
@@ -101,6 +115,7 @@ export function V2KeysPanel({ onAccessStateChange }: { onAccessStateChange?: (st
           key_type: type,
           environment: env,
           status: data.status === "active" ? "active" : "pending",
+          request_code: typeof data.request_code === "string" ? data.request_code : null,
         })
         await load()
       } catch {
@@ -124,6 +139,39 @@ export function V2KeysPanel({ onAccessStateChange }: { onAccessStateChange?: (st
       }
     })
 
+  /** Step 1 of screen B: create the request. The WhatsApp button only appears after it exists (no pop-up block). */
+  const requestAccess = async () => {
+    if (accessBusy) return
+    setAccessBusy(true)
+    try {
+      const res = await fetch("/api/user/v2-api-access", { method: "POST", headers: await authHeader() })
+      const data = await readJson(res)
+      if (res.status === 201) toast.success("Request sent. Now message the admin with your code.")
+      else toast.error(typeof data.error === "string" ? data.error : "Could not send your request")
+      await load()
+    } catch {
+      toast.error("Could not send your request")
+    } finally {
+      setAccessBusy(false)
+    }
+  }
+
+  const cancelAccess = async () => {
+    if (accessBusy) return
+    setAccessBusy(true)
+    try {
+      const res = await fetch("/api/user/v2-api-access", { method: "DELETE", headers: await authHeader() })
+      const data = await readJson(res)
+      if (res.ok) toast.success("Request cancelled")
+      else toast.error(typeof data.error === "string" ? data.error : "Could not cancel the request")
+      await load()
+    } catch {
+      toast.error("Could not cancel the request")
+    } finally {
+      setAccessBusy(false)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <KeysExplainer />
@@ -138,9 +186,15 @@ export function V2KeysPanel({ onAccessStateChange }: { onAccessStateChange?: (st
           busySlot={busySlot}
           onGenerate={(t, e) => void generate(t, e)}
           onRevoke={(k) => void revoke(k)}
+          approval={approval}
+          rejections={rejections}
+          accessRequest={accessRequest}
+          accessBusy={accessBusy}
+          onRequestAccess={() => void requestAccess()}
+          onCancelAccess={() => void cancelAccess()}
         />
       )}
-      <GenerateKeyDialog issued={issued} onClose={() => setIssued(null)} />
+      <GenerateKeyDialog issued={issued} onClose={() => setIssued(null)} approval={approval} />
     </div>
   )
 }

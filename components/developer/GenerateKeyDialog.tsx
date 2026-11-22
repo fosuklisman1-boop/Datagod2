@@ -9,6 +9,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Callout } from "@/components/developer/docs/Callout"
 import { CopyButton } from "@/components/developer/docs/CodeTabs"
 import type { Environment, KeyStatus, KeyType } from "@/lib/api-v2/keys"
+import type { ApprovalInfo } from "./approval/MessageAdminButton"
+import { WaitingForApproval } from "./approval/WaitingForApproval"
 
 /** The one-time result of POST /api/user/v2-keys. Lives only in the page's component state until the dialog closes. */
 export interface IssuedKey {
@@ -16,6 +18,8 @@ export interface IssuedKey {
   key_type: KeyType
   environment: Environment
   status: KeyStatus
+  /** Live keys: the code to quote to the admin. */
+  request_code?: string | null
 }
 
 const TYPE_LABEL: Record<KeyType, string> = { standard: "Standard", commission: "Commission", sms: "SMS" }
@@ -30,12 +34,14 @@ export function IssuedKeyBody({
   onCopied,
   saved,
   onSavedChange,
+  approval,
 }: {
   issued: IssuedKey
   acknowledged: boolean
   onCopied: () => void
   saved: boolean
   onSavedChange: (v: boolean) => void
+  approval?: ApprovalInfo | null
 }) {
   const env = issued.environment === "live" ? "live" : "test"
   return (
@@ -61,10 +67,7 @@ export function IssuedKeyBody({
       </div>
 
       {issued.status === "pending" ? (
-        <Callout tone="info" title="Waiting for approval">
-          Live keys must be approved by an admin before they can make requests. The status on this page changes to Active once
-          approved; you can configure your integration in the meantime.
-        </Callout>
+        <WaitingForApproval code={issued.request_code ?? null} approval={approval ?? null} />
       ) : (
         <Callout tone="info" title="Ready to use">
           This {env} key is active now. Send it in the <code className="font-mono text-foreground">Authorization</code> header on every request, as shown in the documentation.
@@ -87,15 +90,23 @@ export function IssuedKeyBody({
  * Done button stays disabled until the key was copied or the "I have saved" box is ticked.
  * `onClose` must drop the key from state; nothing here persists it.
  */
-export function GenerateKeyDialog({ issued, onClose }: { issued: IssuedKey | null; onClose: () => void }) {
+export function GenerateKeyDialog({
+  issued,
+  onClose,
+  approval,
+}: {
+  issued: IssuedKey | null
+  onClose: () => void
+  approval?: ApprovalInfo | null
+}) {
   return (
     <Dialog open={issued !== null} onOpenChange={() => { /* closing is only possible through Done */ }}>
-      {issued && <IssuedKeyDialogContent key={issued.key} issued={issued} onClose={onClose} />}
+      {issued && <IssuedKeyDialogContent key={issued.key} issued={issued} onClose={onClose} approval={approval} />}
     </Dialog>
   )
 }
 
-function IssuedKeyDialogContent({ issued, onClose }: { issued: IssuedKey; onClose: () => void }) {
+function IssuedKeyDialogContent({ issued, onClose, approval }: { issued: IssuedKey; onClose: () => void; approval?: ApprovalInfo | null }) {
   const [copied, setCopied] = useState(false)
   const [saved, setSaved] = useState(false)
   const acknowledged = copied || saved
@@ -118,7 +129,7 @@ function IssuedKeyDialogContent({ issued, onClose }: { issued: IssuedKey; onClos
           {TYPE_LABEL[issued.key_type]} {issued.environment} key generated. Copy it before closing this window.
         </DialogDescription>
       </DialogHeader>
-      <IssuedKeyBody issued={issued} acknowledged={acknowledged} onCopied={() => setCopied(true)} saved={saved} onSavedChange={setSaved} />
+      <IssuedKeyBody issued={issued} acknowledged={acknowledged} onCopied={() => setCopied(true)} saved={saved} onSavedChange={setSaved} approval={approval} />
       <DialogFooter>
         <Button onClick={onClose} disabled={!acknowledged} className="h-10 rounded-xl px-6">
           Done

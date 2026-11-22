@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button"
 import type { Environment, KeyType } from "@/lib/api-v2/keys"
 import { offersSmsKey, type AccessReason, type AccessSummary } from "@/lib/api-v2/key-issue"
 import type { V2KeySummary } from "@/lib/api-v2/key-slots"
-import { V2KeyBlock, type KeyTypeMeta } from "./V2KeyBlock"
+import { V2KeyBlock, type KeyTypeMeta, type SlotRejection } from "./V2KeyBlock"
+import type { ApprovalInfo } from "./approval/MessageAdminButton"
+import { AccessRequestPanel, type AccessRequestView } from "./approval/AccessRequestPanel"
 
 const KEY_TYPES: KeyTypeMeta[] = [
   {
@@ -82,8 +84,8 @@ export function KeysExplainer() {
     <Callout tone="info" title="How v2 keys work">
       <ul className="mt-1 list-disc space-y-1 pl-4">
         <li><strong className="text-foreground">Test keys</strong> work in the sandbox and are active the moment you generate them. They never touch real money or real orders.</li>
-        <li><strong className="text-foreground">Live keys</strong> wait for an admin to approve them. Until then they show <em>Waiting for approval</em> and cannot make requests.</li>
-        <li><strong className="text-foreground">Regenerating a live key</strong> revokes the old key straight away, and the replacement starts as <em>Waiting for approval</em> again until it is re-approved.</li>
+        <li><strong className="text-foreground">Live keys</strong> wait for an admin to approve them. Until then they show <em>Waiting for approval</em> and cannot make requests. Use <em>Message admin</em> to send your request code on WhatsApp.</li>
+        <li><strong className="text-foreground">Replacing a live key</strong> keeps your current key working until an admin approves the new one, so your integration never goes down. Revoke a leaked key straight away instead.</li>
         <li>The full key is shown <strong className="text-foreground">only once</strong>, right after you generate it. We only store a fingerprint, so a lost key cannot be recovered, only replaced.</li>
       </ul>
     </Callout>
@@ -99,10 +101,19 @@ export interface V2KeysCardProps {
   busySlot: string | null
   onGenerate: (type: KeyType, env: Environment) => void
   onRevoke: (key: V2KeySummary) => void
+  approval?: ApprovalInfo | null
+  rejections?: SlotRejection[]
+  accessRequest?: AccessRequestView | null
+  accessBusy?: boolean
+  onRequestAccess?: () => void
+  onCancelAccess?: () => void
 }
 
 /** Presentational: everything comes in through props so it can be previewed without the network. */
-export function V2KeysCard({ keys, access, loading, smsAvailable, busySlot, onGenerate, onRevoke }: V2KeysCardProps) {
+export function V2KeysCard({
+  keys, access, loading, smsAvailable, busySlot, onGenerate, onRevoke,
+  approval = null, rejections = [], accessRequest = null, accessBusy = false, onRequestAccess, onCancelAccess,
+}: V2KeysCardProps) {
   if (loading || !access) {
     return (
       <div className="flex items-center justify-center gap-2 rounded-2xl border border-white/60 bg-card p-10 text-sm text-muted-foreground clay dark:border-white/5">
@@ -111,7 +122,7 @@ export function V2KeysCard({ keys, access, loading, smsAvailable, busySlot, onGe
     )
   }
 
-  const handlers = { canGenerate: access.canGenerate, busySlot, onGenerate, onRevoke }
+  const handlers = { canGenerate: access.canGenerate, busySlot, onGenerate, onRevoke, approval, rejections }
   const usable = keys.filter((k) => k.status === "pending" || k.status === "active")
   // A type is shown when it can be generated, or when the user still holds a key of it (so it can be revoked).
   const canOffer = (t: KeyType) => (t === "sms" ? offersSmsKey(access.canGenerate, smsAvailable) : access.canGenerate)
@@ -119,7 +130,11 @@ export function V2KeysCard({ keys, access, loading, smsAvailable, busySlot, onGe
 
   return (
     <div className="space-y-4">
-      {access.reason !== "ok" && <AccessDeniedCallout reason={access.reason} />}
+      {access.reason === "role_not_allowed" && onRequestAccess && onCancelAccess ? (
+        <AccessRequestPanel request={accessRequest} approval={approval} busy={accessBusy} onRequest={onRequestAccess} onCancel={onCancelAccess} />
+      ) : (
+        access.reason !== "ok" && <AccessDeniedCallout reason={access.reason} />
+      )}
       {types.length > 0 && (
         <div className="grid gap-4 lg:grid-cols-2">
           {types.map((m) => (

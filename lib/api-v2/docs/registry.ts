@@ -93,7 +93,9 @@ const START_SECTIONS: V2DocSection[] = [
       "Open Dashboard, then Developer API.",
       "Choose the key type and environment you need, then generate the key.",
       "Copy the key and store it somewhere safe, such as a secrets manager or an environment variable on your server.",
-      "For a live key, wait for admin approval. Live keys start as pending and every call returns 403 until Datagod approves them; once approved the key becomes active and works immediately. Test (sandbox) keys are active immediately and need no approval.",
+      "For a live key, ask for admin approval. Live keys start as pending and every call returns 403 until Datagod approves them; once approved the key becomes active and works immediately. Your dashboard shows a request code and a Message admin button that opens WhatsApp with the code already typed, so the admin can find and approve your request. Test (sandbox) keys are active immediately and need no approval.",
+      "Replacing a live key never takes your integration down: your current live key keeps working until the new one is approved, and stops at that moment. If a key has leaked, revoke it straight away instead.",
+      "If your account type does not include the API, use Request API access on the dashboard, then message the admin with the code shown. Approval gives API access only; your prices do not change.",
     ],
     callouts: [
       {

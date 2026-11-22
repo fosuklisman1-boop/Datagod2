@@ -10,6 +10,16 @@ import {
 import { cn } from "@/lib/utils"
 import type { Environment, KeyType } from "@/lib/api-v2/keys"
 import { slotFor, type SlotState, type V2KeySummary } from "@/lib/api-v2/key-slots"
+import type { ApprovalInfo } from "./approval/MessageAdminButton"
+import { WaitingForApproval } from "./approval/WaitingForApproval"
+import { RejectedNotice } from "./approval/RejectedNotice"
+
+/** The latest rejected live request of a key type (GET /api/user/v2-keys). */
+export interface SlotRejection {
+  key_type: KeyType
+  reason: string
+  at: string
+}
 
 export const slotId = (type: KeyType, env: Environment) => `${type}:${env}`
 
@@ -80,10 +90,14 @@ export interface SlotHandlers {
   busySlot: string | null
   onGenerate: (type: KeyType, env: Environment) => void
   onRevoke: (key: V2KeySummary) => void
+  /** Where "Message admin" goes; null while unknown. */
+  approval?: ApprovalInfo | null
+  rejections?: SlotRejection[]
 }
 
 function KeySlot({ type, env, keys, h }: { type: KeyType; env: Environment; keys: V2KeySummary[]; h: SlotHandlers }) {
-  const { state, key } = slotFor(keys, type, env)
+  const { state, key, replacement } = slotFor(keys, type, env)
+  const rejection = env === "live" && state !== "pending" && !replacement ? h.rejections?.find((r) => r.key_type === type) ?? null : null
   const usable = state === "pending" || state === "active"
   const busy = h.busySlot === slotId(type, env)
   const locked = h.busySlot !== null
@@ -123,10 +137,32 @@ function KeySlot({ type, env, keys, h }: { type: KeyType; env: Environment; keys
         </p>
       )}
 
-      {state === "pending" && (
-        <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
-          This key cannot make requests yet. An admin will review and approve it; the status changes to Active once approved.
-        </p>
+      {state === "pending" && key && <WaitingForApproval code={key.request_code ?? null} approval={h.approval ?? null} />}
+
+      {replacement && (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            New key <span className="font-mono text-foreground">{replacement.key_prefix}…</span>
+          </p>
+          <WaitingForApproval code={replacement.request_code ?? null} approval={h.approval ?? null} replacement />
+          <Confirm
+            trigger={<Button size="sm" variant="ghost" disabled={locked} className="h-9 rounded-lg text-muted-foreground">Cancel request</Button>}
+            title="Cancel the new key request?"
+            body={<p>The new key is discarded. Your current live key keeps working.</p>}
+            action="Cancel request"
+            onConfirm={() => h.onRevoke(replacement)}
+          />
+        </div>
+      )}
+
+      {rejection && (
+        <RejectedNotice
+          reason={rejection.reason || null}
+          approval={h.approval ?? null}
+          code={null}
+          onRequestAgain={h.canGenerate ? () => h.onGenerate(type, env) : undefined}
+          disabled={locked}
+        />
       )}
 
       <div className="flex flex-wrap gap-2">
@@ -141,8 +177,8 @@ function KeySlot({ type, env, keys, h }: { type: KeyType; env: Environment; keys
             title={`Regenerate your ${envLabel.toLowerCase()} key?`}
             body={env === "live" ? (
               <>
-                <p>Your current live key stops working <strong className="text-foreground">immediately</strong>.</p>
-                <p>The new live key starts as <strong className="text-foreground">Waiting for approval</strong> and cannot make live requests until an admin approves it again. Your live integration will be down until then.</p>
+                <p>Your current live key <strong className="text-foreground">keeps working</strong> until an admin approves the new one, then it stops.</p>
+                <p>The new key starts as <strong className="text-foreground">Waiting for approval</strong>. If your current key has leaked, revoke it now instead of waiting.</p>
               </>
             ) : (
               <p>Your current test key stops working immediately. The new test key is active straight away; update your app with it.</p>
