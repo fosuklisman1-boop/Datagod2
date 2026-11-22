@@ -4,7 +4,8 @@
 // Supports: from(t).select(cols).in/eq/order/range (awaitable), update(v).eq/in/select (awaitable),
 // insert(row) (awaitable, or .select(cols).single() to get the row back with a generated id when it has none),
 // delete().eq/in (awaitable), rpc(name, args) via `rpcs`. Select also supports gte (ISO strings compare as text),
-// is(col, null), limit(n) and maybeSingle().
+// is(col, null), limit(n), maybeSingle(), order(col, { ascending: false }) and select(cols, { count: "exact", head: true })
+// (resolves { data: null, count }). upsert(row, { onConflict }) replaces the row matching the conflict column or appends.
 // fulfillment_queue enforces the 0191 partial unique index (23505).
 
 type Row = Record<string, any>
@@ -12,7 +13,7 @@ type Filter = { op: "in" | "eq" | "gte" | "is"; col: string; val: any }
 
 export type Call = {
   table: string
-  kind: "select" | "update" | "insert" | "delete" | "rpc"
+  kind: "select" | "update" | "insert" | "upsert" | "delete" | "rpc"
   cols?: string
   filters: Filter[]
   values?: Row
@@ -24,6 +25,8 @@ export type FakeDb = {
   calls: Call[]
   /** Return an error object to make one insert fail (checked before the unique index). */
   failInsert?: (table: string, row: Row) => { code?: string; message: string } | null
+  /** Return an error object to make one upsert fail. */
+  failUpsert?: (table: string, row: Row) => { message: string } | null
   /** Return an error object to make one update fail. */
   failUpdate?: (table: string, values: Row) => { message: string } | null
   /** Return an error object to make a select fail. */
@@ -59,10 +62,11 @@ export function makeFakeDb(tables: Record<string, Row[]> = {}): FakeDb {
     from(table: string) {
       const rows = () => (db.tables[table] ??= [])
       return {
-        select(cols: string) {
+        select(cols: string, opts?: { count?: string; head?: boolean }) {
           const call: Call = { table, kind: "select", cols, filters: [] }
           db.calls.push(call)
           let orderCol: string | null = null
+          let desc = false
           let single = false
           const q: any = {
             in(col: string, val: any[]) {
@@ -81,8 +85,9 @@ export function makeFakeDb(tables: Record<string, Row[]> = {}): FakeDb {
               call.filters.push({ op: "is", col, val })
               return q
             },
-            order(col: string) {
+            order(col: string, o?: { ascending?: boolean }) {
               orderCol = col
+              desc = o?.ascending === false
               return q
             },
             range(a: number, b: number) {
@@ -103,8 +108,9 @@ export function makeFakeDb(tables: Record<string, Row[]> = {}): FakeDb {
               let out = rows().filter((r) => matches(r, call.filters))
               if (orderCol) {
                 const c = orderCol
-                out = [...out].sort((x, y) => String(x[c]).localeCompare(String(y[c])))
+                out = [...out].sort((x, y) => String(x[c]).localeCompare(String(y[c])) * (desc ? -1 : 1))
               }
+              if (opts?.head) return Promise.resolve({ data: null, count: out.length, error: null }).then(ok, bad)
               if (call.range) out = out.slice(call.range[0], call.range[1] + 1)
               const picked = out.map((r) => {
                 const o: Row = {}
@@ -175,6 +181,19 @@ export function makeFakeDb(tables: Record<string, Row[]> = {}): FakeDb {
               }
             },
           }
+        },
+        upsert(row: Row, opts?: { onConflict?: string }) {
+          db.calls.push({ table, kind: "upsert", values: row, filters: [] })
+          const run = () => {
+            const err = db.failUpsert?.(table, row)
+            if (err) return { data: null, error: err }
+            const key = opts?.onConflict ?? "id"
+            const i = rows().findIndex((r) => r[key] === row[key])
+            if (i >= 0) rows()[i] = { ...rows()[i], ...row }
+            else rows().push({ ...row })
+            return { data: null, error: null }
+          }
+          return { then: (ok: any, bad: any) => Promise.resolve(run()).then(ok, bad) }
         },
         delete() {
           const call: Call = { table, kind: "delete", filters: [] }

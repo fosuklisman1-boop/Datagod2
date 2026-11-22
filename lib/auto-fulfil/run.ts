@@ -71,10 +71,13 @@ export async function cancelWaitingAutoRows(db: SupabaseClient): Promise<number>
   return (data ?? []).length
 }
 
-type Switches = { mtn: boolean; nonMtn: Set<string> }
+export type Switches = { mtn: boolean; nonMtn: Set<string> }
 
-/** The existing auto-fulfilment switches. A missing row or read error = that switch off. */
-async function readSwitches(db: SupabaseClient): Promise<Switches> {
+/**
+ * The existing auto-fulfilment switches. A missing row or read error = that switch off. nonMtn holds the normalised
+ * networks the non-MTN switch covers (empty when that switch is off).
+ */
+export async function readSwitches(db: SupabaseClient): Promise<Switches> {
   const read = async (key: string): Promise<any> => {
     try {
       const { data, error } = await db.from("admin_settings").select("value").eq("key", key).maybeSingle()
