@@ -106,6 +106,10 @@ For each candidate supplier, in today's order (admin pin alone; else primary the
    not answer) so the re-check cadence differs; after 72 h it moves to Needs action.
 5. Admin pin not approved: return a refusal naming the supplier; the order stays pending; no other supplier tried.
 6. OUTCOME_UNKNOWN from a send keeps today's rule: stop, never try another supplier.
+7. Retry sequence: an approved supplier whose SEND fails (balance, rate limit, rejection) moves on to the next
+   supplier in the sequence, which must also have approved; unapproved ones are skipped, never tried. If at least
+   one supplier approved but every approved send failed, the order returns to pending as a normal failure (call:
+   not held, the number is fine). Held only when no supplier approved.
 
 Strict mode off: behaviour exactly as today, except the removed old block (already off).
 
