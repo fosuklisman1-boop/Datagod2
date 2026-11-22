@@ -1,6 +1,7 @@
 /**
  * Re-check engine for blocked MTN numbers. Asks the checkout providers (the admin's order, strict batch calls)
- * whether a refused number is now allowed, and moves each row through the state machine.
+ * whether a refused number is now allowed, then every other whitelist provider for the ones still refused,
+ * and moves each row through the state machine.
  * Logs and results carry counts only, never phone numbers.
  */
 
@@ -31,6 +32,8 @@ const DEFAULT_LIMIT = 2000
 const EXPIRE_LIMIT = 2000
 const RESOLVER_TIMEOUT_MS = 60_000
 const RUN_DEADLINE_MS = 200_000
+/** The cron never starts at the same second, so "now + 1 day" lands just after tomorrow's start without this. */
+const DUE_GRACE_MS = 2 * 3_600_000
 
 export type Patch = Record<string, string | number>
 
@@ -54,7 +57,7 @@ export type RecheckResult = {
   stillBlocked: number
   unchecked: number
   expired: number
-  /** Rows not started because the run deadline passed; they stay due. */
+  /** Rows not fully checked (run deadline, or outside-provider budget); they stay due. */
   deferred: number
   newlyAllowedIds: string[]
 }
@@ -135,10 +138,11 @@ export async function recheckBlockedNumbers(opts: RecheckOpts = {}, deps: Rechec
       rows.push(...((data ?? []) as DueRow[]))
     }
   } else {
+    const dueBy = new Date(now.getTime() + DUE_GRACE_MS).toISOString()
     let q = db.from(TABLE).select(cols)
     q = reopen
-      ? q.or(`and(status.eq.blocked,next_recheck_at.lte.${nowIso}),status.eq.expired`)
-      : q.in("status", statuses).lte("next_recheck_at", nowIso)
+      ? q.or(`and(status.eq.blocked,next_recheck_at.lte.${dueBy}),status.eq.expired`)
+      : q.in("status", statuses).lte("next_recheck_at", dueBy)
     const { data, error } = await q.order("next_recheck_at", { ascending: true, nullsFirst: true }).limit(limit)
     if (error) throw new Error(`select failed: ${error.code ?? "db"}`)
     rows = (data ?? []) as DueRow[]
@@ -257,8 +261,10 @@ export async function recheckBlockedNumbers(opts: RecheckOpts = {}, deps: Rechec
   // of outside time has been spent. The row was already scheduled above, so a flip moves it from stillBlocked.
   if (deps.checkAll && deps.markAllowed && refusedRows.length > 0) {
     let outsideSpent = 0
+    let reached = 0
     for (const batch of chunked(refusedRows, OUTSIDE_BATCH)) {
       if (deps.clock() - startedAt >= OUTSIDE_START_DEADLINE_MS || outsideSpent >= OUTSIDE_BUDGET_MS) break
+      reached += batch.length
       const batchStart = deps.clock()
       try {
         const all = await deps.checkAll(batch.map((row) => row.phone))
@@ -279,6 +285,29 @@ export async function recheckBlockedNumbers(opts: RecheckOpts = {}, deps: Rechec
         console.error("[BLOCKED-RECHECK] outside provider check failed")
       }
       outsideSpent += deps.clock() - batchStart
+    }
+
+    // Rows no batch reached were scheduled as if fully checked. Undo that: original count and due now, so they
+    // sort ahead of everything else on the next run instead of the same tail being skipped each day.
+    const byCount = new Map<number, DueRow[]>()
+    for (const row of refusedRows.slice(reached)) byCount.set(row.recheck_count, [...(byCount.get(row.recheck_count) ?? []), row])
+    for (const [count, group] of byCount) {
+      for (const rowChunk of chunked(group, CHUNK)) {
+        const { data, error } = await db
+          .from(TABLE)
+          .update({ recheck_count: count, next_recheck_at: nowIso, updated_at: nowIso })
+          .in("id", rowChunk.map((r) => r.id))
+          .eq("status", "blocked")
+          .select("id")
+        if (error) {
+          console.error("[BLOCKED-RECHECK] keep-due update failed:", error.code ?? "db")
+          continue
+        }
+        const n = data?.length ?? 0
+        result.deferred += n
+        result.stillBlocked = Math.max(0, result.stillBlocked - n)
+        result.checked = Math.max(0, result.checked - n)
+      }
     }
   }
 

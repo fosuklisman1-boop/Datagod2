@@ -4,6 +4,7 @@ import { nextState, recheckBlockedNumbers, type RecheckDeps } from "./recheck"
 
 const NOW = new Date("2026-11-15T10:00:00.000Z")
 const DAY = 86_400_000
+const DUE_BY = new Date(NOW.getTime() + 2 * 3_600_000).toISOString()
 
 describe("nextState", () => {
   it("false at count 0 schedules +1 day", () => {
@@ -118,8 +119,17 @@ describe("recheckBlockedNumbers", () => {
     expect(selects.indexOf(due())).toBeGreaterThan(0)
     expect(due().limit).toBe(2000)
     expect(due().filters).toContainEqual(["in", "status", ["blocked"]])
-    expect(due().filters).toContainEqual(["lte", "next_recheck_at", NOW.toISOString()])
+    expect(due().filters).toContainEqual(["lte", "next_recheck_at", DUE_BY])
     expect(res.expired).toBe(1200)
+  })
+
+  it("a row scheduled seconds after yesterday's run started is still due today (cron start jitter)", async () => {
+    // Seen in prod 2026-11-22: due at 06:30:59.296, the run started at 06:30:57.860, so it waited another day.
+    const { deps, due } = makeDeps([], () => false)
+    await recheckBlockedNumbers({}, { ...deps, now: () => new Date("2026-11-22T06:30:57.860Z") })
+    const cutoff = due().filters.find((f) => f[0] === "lte" && f[1] === "next_recheck_at")![2] as string
+    expect(Date.parse(cutoff)).toBeGreaterThanOrEqual(Date.parse("2026-11-22T06:30:59.296Z"))
+    expect(Date.parse(cutoff)).toBeLessThan(Date.parse("2026-11-23T06:30:00.000Z"))
   })
 
   it("all-null verdicts write nothing and count as unchecked", async () => {
@@ -162,7 +172,7 @@ describe("recheckBlockedNumbers", () => {
   it("all + reopenExpired selects due blocked OR expired rows, limit 2000, ordered by next_recheck_at", async () => {
     const { deps, due } = makeDeps([], () => false)
     await recheckBlockedNumbers({ all: true, reopenExpired: true }, deps)
-    expect(due().filters).toContainEqual(["or", `and(status.eq.blocked,next_recheck_at.lte.${NOW.toISOString()}),status.eq.expired`])
+    expect(due().filters).toContainEqual(["or", `and(status.eq.blocked,next_recheck_at.lte.${DUE_BY}),status.eq.expired`])
     expect(due().filters.some((f) => f[0] === "in" && f[1] === "status")).toBe(false)
     expect(due().filters.some((f) => f[0] === "order" && f[1] === "next_recheck_at")).toBe(true)
     expect(due().limit).toBe(2000)
@@ -294,14 +304,40 @@ describe("recheck with outside providers", () => {
     expect(checkAll).toHaveBeenCalledTimes(2) // 50 s, 100 s >= 90 s budget
   })
 
+  it("refused rows the budget did not reach stay due, with their count restored, and are reported deferred", async () => {
+    const rows = Array.from({ length: 250 }, (_, i) => r(`id${i}`, `024${String(i).padStart(7, "0")}`, i < 225 ? 2 : 6))
+    const { c, clock } = clockAt()
+    const checkAll = vi.fn(async (phones: string[]) => { c.t += 50_000; return outsideResult([])(phones) })
+    const { deps, updates } = makeDeps(rows, () => false, { clock })
+    const res = await recheckBlockedNumbers({}, { ...deps, checkAll, markAllowed: vi.fn() })
+
+    const undone = updates.filter((u) => u.patch?.next_recheck_at === NOW.toISOString())
+    expect(undone.map((u) => u.patch)).toEqual([
+      { recheck_count: 2, next_recheck_at: NOW.toISOString(), updated_at: NOW.toISOString() },
+      { recheck_count: 6, next_recheck_at: NOW.toISOString(), updated_at: NOW.toISOString() },
+    ])
+    for (const u of undone) expect(u.filters).toContainEqual(["eq", "status", "blocked"])
+    expect(undone.flatMap(idsOf)).toEqual(rows.slice(200).map((x) => x.id))
+    expect(res).toMatchObject({ stillBlocked: 200, checked: 200, deferred: 50 })
+  })
+
+  it("refused rows are all kept due when the outside start deadline has already passed", async () => {
+    const { c, clock } = clockAt()
+    const { deps, updates } = makeDeps([r("a", "0241111111", 4)], () => false, { clock })
+    const resolve: typeof deps.resolve = async (...a) => { const out = await deps.resolve(...a); c.t = 151_000; return out }
+    const res = await recheckBlockedNumbers({}, { ...deps, resolve, checkAll: vi.fn(outsideResult([])), markAllowed: vi.fn() })
+    expect(updates.at(-1)?.patch).toEqual({ recheck_count: 4, next_recheck_at: NOW.toISOString(), updated_at: NOW.toISOString() })
+    expect(res).toMatchObject({ stillBlocked: 0, deferred: 1 })
+  })
+
   it("outside work never defers checkout parts: all checkout parts run before any outside batch", async () => {
     const rows = Array.from({ length: 1100 }, (_, i) => r(`id${i}`, `024${String(i).padStart(7, "0")}`))
     const { c, clock } = clockAt()
     const checkAll = vi.fn(async (phones: string[]) => { c.t += 100_000; return outsideResult([])(phones) })
     const { deps, chunks } = makeDeps(rows, () => false, { clock })
     const res = await recheckBlockedNumbers({}, { ...deps, checkAll, markAllowed: vi.fn() })
-    expect(chunks.map((x) => x.length)).toEqual([500, 500, 100])
-    expect(res.deferred).toBe(0)
-    expect(res.stillBlocked).toBe(1100)
+    expect(chunks.map((x) => x.length)).toEqual([500, 500, 100]) // every checkout part ran
+    // One outside batch spent the budget: those 100 are fully checked, the other 1000 stay due.
+    expect(res).toMatchObject({ stillBlocked: 100, deferred: 1000 })
   })
 })
