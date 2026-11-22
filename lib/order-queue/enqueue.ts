@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
-import { checkRiskyAck, judgeOrder, type OrderSnapshot, type Verdict } from "./eligibility"
+import { judgeOrder, type OrderSnapshot, type Verdict } from "./eligibility"
 import { loadSnapshots, ORDER_TABLES } from "./load-snapshots"
 import { allSuppliers, getProviderOptionsForNetwork } from "./supplier-capability"
 import { ORDER_TYPES, type OrderType } from "./types"
@@ -26,7 +26,23 @@ export type EnqueueRequest = {
   orders: { id: string; type: OrderType }[]
   /** null = legacy auto routing (no supplier pinned; the drain's normal routing picks one). */
   provider: string | null
-  riskyAck?: { count: number }
+  /**
+   * The admin's typed confirmation. `ids` = the held/reversed order ids shown in the dialog (lower-cased by the
+   * parser); it is required whenever risky orders are released and must equal the server's own risky set.
+   */
+  riskyAck?: { count: number; ids?: string[] }
+}
+
+/**
+ * Typed-confirmation gate for the whole request: the ack must name exactly the risky set the server found,
+ * and the typed count must equal its size. A count-only ack can never release a risky order.
+ */
+function riskyAckMatches(serverRiskyIds: string[], ack: { count: number; ids?: string[] }): boolean {
+  const server = new Set(serverRiskyIds.map((id) => id.toLowerCase()))
+  if (ack.count !== server.size) return false
+  if (ack.ids === undefined) return server.size === 0
+  const acked = new Set(ack.ids.map((id) => id.toLowerCase()))
+  return acked.size === server.size && [...acked].every((id) => server.has(id))
 }
 
 export type EnqueueResult =
@@ -64,11 +80,17 @@ export function parseEnqueueBody(body: unknown): { ok: true; value: EnqueueReque
     provider = b.provider
   }
 
-  let riskyAck: { count: number } | undefined
+  let riskyAck: EnqueueRequest["riskyAck"]
   if (b.riskyAck !== undefined && b.riskyAck !== null) {
     const count = (b.riskyAck as any)?.count
     if (typeof count !== "number" || !Number.isInteger(count) || count < 0) return { ok: false, error: "invalid riskyAck" }
-    riskyAck = { count }
+    const rawIds = (b.riskyAck as any)?.ids
+    if (rawIds === undefined || rawIds === null) riskyAck = { count }
+    else {
+      if (!Array.isArray(rawIds) || rawIds.length > MAX_BULK_SEND) return { ok: false, error: "invalid riskyAck" }
+      if (!rawIds.every((id) => typeof id === "string" && UUID_RE.test(id))) return { ok: false, error: "invalid riskyAck" }
+      riskyAck = { count, ids: rawIds.map((id: string) => id.toLowerCase()) }
+    }
   }
   return { ok: true, value: { orders: parsed, provider, riskyAck } }
 }
@@ -118,11 +140,9 @@ export async function runEnqueue(db: SupabaseClient, req: EnqueueRequest, adminI
   const riskyIds = judged.filter((j) => j.v.kind === "risky").map((j) => j.o.id)
 
   // 2. Typed confirmation gate for the whole request.
-  if (req.riskyAck !== undefined) {
-    const ack = checkRiskyAck(judged.map((j) => j.v), req.riskyAck)
-    if (!ack.ok) return { status: 400, body: { error: "risky_ack_mismatch", expected: ack.expected } }
-    // checkRiskyAck passes any ack when nothing is risky; an admin who typed a non-zero count saw a different set.
-    if (riskyIds.length === 0 && req.riskyAck.count !== 0) return { status: 400, body: { error: "risky_ack_mismatch", expected: 0 } }
+  // An ack that names a different set (or none, when something is risky) means the admin saw something else.
+  if (req.riskyAck !== undefined && !riskyAckMatches(riskyIds, req.riskyAck)) {
+    return { status: 400, body: { error: "risky_ack_mismatch", expected: new Set(riskyIds).size } }
   }
   // Auto mode (no supplier) never releases a risky order, whatever the ack says.
   const riskyAccepted = req.riskyAck !== undefined && req.provider !== null

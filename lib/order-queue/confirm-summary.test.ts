@@ -6,6 +6,7 @@ import {
   rejectReasonLabel,
   riskyAckReady,
   parseSupplierBalances,
+  buildSendBody,
 } from "./confirm-summary"
 import type { QueueRow } from "./types"
 
@@ -108,6 +109,29 @@ describe("formatGb", () => {
     expect(formatGb(3.5)).toBe("3.5")
     expect(formatGb(4)).toBe("4")
     expect(formatGb(0.1 + 0.2)).toBe("0.3")
+  })
+})
+
+describe("buildSendBody", () => {
+  it("sends sendable + risky orders to the supplier and no riskyAck when nothing is risky", () => {
+    const ok = row()
+    const s = summarizeSelection([ok, row({ status: "completed" })])
+    expect(buildSendBody(s, "sykes", "")).toEqual({ orders: [{ id: ok.id, type: "shop" }], provider: "sykes" })
+  })
+  it("acknowledges risky orders with the typed count AND the ids shown in the dialog", () => {
+    const ok = row()
+    const rev = row({ status: "reversed" })
+    const held = row({ status: "processing", isHeld: true })
+    const s = summarizeSelection([ok, rev, held])
+    expect(buildSendBody(s, "sykes", " 2 ")).toEqual({
+      orders: [
+        { id: ok.id, type: "shop" },
+        { id: rev.id, type: "shop" },
+        { id: held.id, type: "shop" },
+      ],
+      provider: "sykes",
+      riskyAck: { count: 2, ids: [rev.id, held.id] },
+    })
   })
 })
 

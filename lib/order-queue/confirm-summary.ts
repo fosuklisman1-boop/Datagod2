@@ -81,6 +81,24 @@ export function riskyAckReady(riskyCount: number, typed: string, checked: boolea
 }
 
 /**
+ * POST body for /api/admin/fulfillment/enqueue from the confirm dialog's summary. Risky orders are acknowledged
+ * with the typed count AND the exact ids listed in the dialog, so the server can refuse if its set differs.
+ */
+export function buildSendBody(
+  summary: SelectionSummary,
+  provider: string,
+  ackTyped: string,
+): { orders: { id: string; type: OrderType }[]; provider: string; riskyAck?: { count: number; ids: string[] } } {
+  const toSend = [...summary.sendable, ...summary.risky]
+  const body: ReturnType<typeof buildSendBody> = {
+    orders: toSend.map((r) => ({ id: r.id, type: r.type as OrderType })),
+    provider,
+  }
+  if (summary.risky.length > 0) body.riskyAck = { count: Number(ackTyped.trim()), ids: summary.risky.map((r) => r.id) }
+  return body
+}
+
+/**
  * Turns the GET /api/admin/fulfillment/mtn-balance body into { supplier: "GHS 1,234.50" }.
  * Suppliers without a numeric balance are left out (the dropdown then shows no balance for them).
  */

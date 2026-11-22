@@ -22,7 +22,7 @@ import { BulkActionBar } from "@/components/admin/order-queue/bulk-action-bar"
 import { ACK_MISMATCH_COPY, SendConfirmDialog } from "@/components/admin/order-queue/send-confirm-dialog"
 import { SendResults, type SendResultData } from "@/components/admin/order-queue/send-results"
 import { getProviderOptionsForNetwork, suppliersForNetworks, type SupplierOption } from "@/lib/order-queue/supplier-capability"
-import { parseSupplierBalances, summarizeSelection, type SelectionSummary } from "@/lib/order-queue/confirm-summary"
+import { buildSendBody, parseSupplierBalances, summarizeSelection, type SelectionSummary } from "@/lib/order-queue/confirm-summary"
 import { emptySelection, selectionReducer, SELECTION_CAP } from "@/lib/order-queue/selection"
 import { EXPORT_COLUMNS, queueRowsToSheetRows } from "@/lib/order-queue/export"
 import { parseQueueParams, queueParamsToSearch } from "@/lib/order-queue/params"
@@ -758,11 +758,8 @@ function OrderPaymentStatusPageInner() {
         setSendError("Session expired. Please refresh.")
         return
       }
-      const body: Record<string, unknown> = {
-        orders: toSend.map((r) => ({ id: r.id, type: r.type })),
-        provider: supplier.value,
-      }
-      if (summary.risky.length > 0) body.riskyAck = { count: Number(ackTyped.trim()) }
+      // Risky orders are acknowledged with the typed count AND the ids shown in the dialog.
+      const body = buildSendBody(summary, supplier.value, ackTyped)
       const res = await fetch("/api/admin/fulfillment/enqueue", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...headers },

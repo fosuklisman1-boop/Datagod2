@@ -228,22 +228,64 @@ describe("POST /api/admin/fulfillment/enqueue — server-checked send", () => {
   })
 
   it("risky with the wrong count: 400 and NOTHING written", async () => {
-    const res = await POST(post({ provider: "sykes", riskyAck: { count: 1 }, orders: [o("ok-1"), o("held-1"), o("rev-1")] }))
+    const res = await POST(
+      post({ provider: "sykes", riskyAck: { count: 1, ids: ids("held-1", "rev-1") }, orders: [o("ok-1"), o("held-1"), o("rev-1")] }),
+    )
     expect(res.status).toBe(400)
     expect(await res.json()).toEqual({ error: "risky_ack_mismatch", expected: 2 })
     expect(db.calls.filter((c) => c.kind !== "select")).toHaveLength(0)
   })
 
-  it("an ack when the server finds no risky order is also a mismatch (state changed under the admin)", async () => {
-    const res = await POST(post({ provider: "sykes", riskyAck: { count: 1 }, orders: [o("ok-1")] }))
+  it("a count-only ack (no ids) cannot release risky orders: 400 and NOTHING written", async () => {
+    const res = await POST(post({ provider: "sykes", riskyAck: { count: 2 }, orders: [o("ok-1"), o("held-1"), o("rev-1")] }))
     expect(res.status).toBe(400)
-    expect(await res.json()).toEqual({ error: "risky_ack_mismatch", expected: 0 })
+    expect(await res.json()).toEqual({ error: "risky_ack_mismatch", expected: 2 })
+    expect(db.calls.filter((c) => c.kind !== "select")).toHaveLength(0)
+  })
+
+  it("ack ids must be exactly the server's risky set (same count, different id => 400, nothing written)", async () => {
+    const orders = [o("ok-1"), o("held-1"), o("rev-1")]
+    for (const ackIds of [ids("held-1", "ok-1"), ids("held-1"), ids("held-1", "rev-1", "ok-1"), []]) {
+      const res = await POST(post({ provider: "sykes", riskyAck: { count: 2, ids: ackIds }, orders }))
+      expect(res.status, JSON.stringify(ackIds)).toBe(400)
+      expect(await res.json()).toEqual({ error: "risky_ack_mismatch", expected: 2 })
+    }
+    expect(db.calls.filter((c) => c.kind !== "select")).toHaveLength(0)
+  })
+
+  it("ack ids are compared as a lower-cased set (order and case do not matter)", async () => {
+    const res = await POST(
+      post({ provider: "sykes", riskyAck: { count: 2, ids: [U("rev-1").toUpperCase(), U("held-1")] }, orders: [o("held-1"), o("rev-1")] }),
+    )
+    expect(res.status).toBe(200)
+    expect(sorted((await res.json()).queued)).toEqual(sorted(ids("held-1", "rev-1")))
+  })
+
+  it("400 invalid riskyAck for non-uuid ack ids or more than 200 of them (nothing read)", async () => {
+    for (const bad of [["nope"], [5], "x", [`${U("rev-1")}"`], Array.from({ length: 201 }, (_, i) => U(`r${i}`))]) {
+      const res = await POST(post({ provider: "sykes", riskyAck: { count: 1, ids: bad }, orders: [o("rev-1")] }))
+      expect(res.status).toBe(400)
+      expect(await res.json()).toEqual({ error: "invalid riskyAck" })
+    }
+    expect(db.calls).toHaveLength(0)
+  })
+
+  it("an ack when the server finds no risky order is also a mismatch (state changed under the admin)", async () => {
+    for (const riskyAck of [{ count: 1 }, { count: 1, ids: ids("rev-1") }, { count: 0, ids: ids("rev-1") }]) {
+      const res = await POST(post({ provider: "sykes", riskyAck, orders: [o("ok-1")] }))
+      expect(res.status).toBe(400)
+      expect(await res.json()).toEqual({ error: "risky_ack_mismatch", expected: 0 })
+    }
     expect(db.calls.filter((c) => c.kind !== "select")).toHaveLength(0)
   })
 
   it("risky with the correct ack: each is set to pending guarded on its current status, before its insert", async () => {
     const res = await POST(
-      post({ provider: "sykes", riskyAck: { count: 3 }, orders: [o("held-1"), o("rev-1"), o("shop-held", "shop"), o("ok-1")] }),
+      post({
+        provider: "sykes",
+        riskyAck: { count: 3, ids: ids("held-1", "rev-1", "shop-held") },
+        orders: [o("held-1"), o("rev-1"), o("shop-held", "shop"), o("ok-1")],
+      }),
     )
     const body = await res.json()
     expect(res.status).toBe(200)
@@ -280,7 +322,7 @@ describe("POST /api/admin/fulfillment/enqueue — server-checked send", () => {
     db.beforeUpdate = (_t, _v, filters) => {
       if (filters.some((f) => f.val === U("rev-1"))) db.tables.orders.find((r) => r.id === U("rev-1"))!.status = "completed"
     }
-    const body = await (await POST(post({ provider: "sykes", riskyAck: { count: 2 }, orders: [o("held-1"), o("rev-1")] }))).json()
+    const body = await (await POST(post({ provider: "sykes", riskyAck: { count: 2, ids: ids("held-1", "rev-1") }, orders: [o("held-1"), o("rev-1")] }))).json()
     expect(body.queued).toEqual(ids("held-1"))
     expect(reasonOf(body, "rev-1")).toBe("changed")
     expect(queueInserts().map((c) => c.values!.order_id)).toEqual(ids("held-1"))
@@ -308,7 +350,7 @@ describe("POST /api/admin/fulfillment/enqueue — server-checked send", () => {
 
   it("a released risky order that hits already_queued is left pending (another request's live row owns it)", async () => {
     db.failInsert = (t, row) => (t === "fulfillment_queue" && row.order_id === U("rev-1") ? { code: "23505", message: "dup" } : null)
-    const body = await (await POST(post({ provider: "sykes", riskyAck: { count: 1 }, orders: [o("rev-1")] }))).json()
+    const body = await (await POST(post({ provider: "sykes", riskyAck: { count: 1, ids: ids("rev-1") }, orders: [o("rev-1")] }))).json()
     expect(reasonOf(body, "rev-1")).toBe("already_queued")
     expect(orderUpdates()).toHaveLength(1) // the release only, no revert
     expect(statusOf("rev-1")).toBe("pending")
@@ -316,7 +358,7 @@ describe("POST /api/admin/fulfillment/enqueue — server-checked send", () => {
 
   it("a released risky order whose insert fails for another reason goes back to its old status (guarded)", async () => {
     db.failInsert = (t, row) => (t === "fulfillment_queue" && row.order_id === U("rev-1") ? { code: "57014", message: "timeout" } : null)
-    const body = await (await POST(post({ provider: "sykes", riskyAck: { count: 1 }, orders: [o("rev-1")] }))).json()
+    const body = await (await POST(post({ provider: "sykes", riskyAck: { count: 1, ids: ids("rev-1") }, orders: [o("rev-1")] }))).json()
     expect(reasonOf(body, "rev-1")).toBe("insert_failed")
     expect(statusOf("rev-1")).toBe("reversed")
     const revert = orderUpdates()[1]
@@ -328,7 +370,7 @@ describe("POST /api/admin/fulfillment/enqueue — server-checked send", () => {
   })
 
   it("writes exactly one admin_bulk_send_log row per request, ids and reasons only", async () => {
-    const res = await POST(post({ provider: "sykes", riskyAck: { count: 1 }, orders: [o("ok-1"), o("rev-1"), o("done-1")] }))
+    const res = await POST(post({ provider: "sykes", riskyAck: { count: 1, ids: ids("rev-1") }, orders: [o("ok-1"), o("rev-1"), o("done-1")] }))
     const body = await res.json()
     expect(sendLogs()).toHaveLength(1)
     const row = sendLogs()[0].values!

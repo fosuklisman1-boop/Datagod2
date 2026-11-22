@@ -10,7 +10,8 @@ const supabase = createClient(
 
 /**
  * POST /api/admin/fulfillment/enqueue
- * Body: { orders: {id, type}[] (1..200), provider?: string, riskyAck?: { count } }
+ * Body: { orders: {id, type}[] (1..200), provider?: string, riskyAck?: { count, ids: uuid[] (<=200) } }
+ * riskyAck.ids must be exactly the held/reversed set the server finds (and count its size), else risky_ack_mismatch.
  * Every order is re-read and judged on the server (lib/order-queue/enqueue.ts); only eligible orders
  * (and held/reversed ones behind a matching riskyAck, explicit supplier only) are queued. No provider =
  * legacy auto routing, which never releases held/reversed orders.
