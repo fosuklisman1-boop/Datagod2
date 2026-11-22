@@ -15,6 +15,12 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+/** For logs only: "0551234567" -> "***567". Never log the full recipient number. */
+function maskForLog(phone: string | null | undefined): string {
+  const d = String(phone ?? "").replace(/\D/g, "")
+  return d.length > 3 ? `***${d.slice(-3)}` : "***"
+}
+
 function extractGb(packageSize: string): number {
   const digits = packageSize.replace(/[^0-9]/g, '')
   return parseInt(digits) || 0
@@ -40,12 +46,14 @@ export async function fulfillUssdOrder(
   orderTable: "ussd_orders" | "ussd_shop_orders" = "ussd_orders",
   provider?: string
 ): Promise<{ success: boolean; message: string; held?: boolean }> {
-  console.log("[USSD-FULFILL] Starting fulfillment:", { orderId, network, recipientPhone, packageSize, forceManual, provider })
+  console.log("[USSD-FULFILL] Starting fulfillment:", {
+    orderId, network, recipientPhone: maskForLog(recipientPhone), packageSize, forceManual, provider,
+  })
 
   // Blacklist check
   try {
     if (await isPhoneBlacklisted(recipientPhone)) {
-      console.warn("[USSD-FULFILL] Phone blacklisted:", recipientPhone)
+      console.warn("[USSD-FULFILL] Phone blacklisted:", maskForLog(recipientPhone))
       await markUssdOrderStatus(orderId, 'failed', orderTable)
       return { success: false, message: "Recipient phone is blacklisted" }
     }
