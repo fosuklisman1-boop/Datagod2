@@ -1,6 +1,8 @@
 import { SupabaseClient } from "@supabase/supabase-js"
 import { processManualFulfillment } from "@/lib/fulfillment-service"
 import { fulfillUssdOrder } from "@/lib/ussd/fulfill"
+import { ORDER_TABLES } from "@/lib/order-queue/load-snapshots"
+import type { OrderType } from "@/lib/order-queue/types"
 
 // Orders processed per cron tick. Each order = one provider API call; keep
 // this low enough that 20 × slowest-provider-latency stays under maxDuration.
@@ -21,6 +23,12 @@ type DrainResult = {
   completed: number
   failed: number
   reset_stale: number
+}
+
+/** Fails a queue row WITHOUT calling any supplier (the order was not in a sendable state). Logs ids only. */
+async function skipRow(supabase: SupabaseClient, row: { id: string; order_id: string }, reason: string) {
+  console.warn(`[FULFILLMENT-QUEUE] order ${row.order_id} skipped: ${reason}`)
+  await supabase.from("fulfillment_queue").update({ status: "failed", error_message: reason }).eq("id", row.id)
 }
 
 export async function drainFulfillmentQueue(supabase: SupabaseClient): Promise<DrainResult> {
@@ -49,17 +57,37 @@ export async function drainFulfillmentQueue(supabase: SupabaseClient): Promise<D
     try {
       let success: boolean
 
-      if (row.order_type === "ussd" || row.order_type === "ussd_shop") {
-        const table = row.order_type === "ussd_shop" ? "ussd_shop_orders" : "ussd_orders"
-        const { data: ussdOrder, error: fetchErr } = await supabase
-          .from(table)
-          .select("id, network, recipient_phone, package_size")
-          .eq("id", row.order_id)
-          .single()
-
-        if (fetchErr || !ussdOrder) {
-          throw new Error("USSD order not found")
+      // Re-check the order itself before ANY supplier call. A row can wait minutes in the queue, and meanwhile
+      // another path (per-row fulfil, a webhook, an admin status change) may have moved the order on. Every
+      // legitimately queued order is still `pending` here; anything else is skipped, never sent twice.
+      const source = ORDER_TABLES[row.order_type as OrderType]
+      const isUssd = row.order_type === "ussd" || row.order_type === "ussd_shop"
+      let order: any = null
+      if (source) {
+        const cols = isUssd ? `id, network, recipient_phone, package_size, ${source.statusCol}` : source.statusCol
+        const { data, error } = await supabase.from(source.table).select(cols).eq("id", row.order_id).maybeSingle()
+        if (error) {
+          await skipRow(supabase, row, "order status unreadable")
+          failed++
+          continue
         }
+        order = data
+      }
+      if (!source || !order) {
+        await skipRow(supabase, row, "order status unreadable")
+        failed++
+        continue
+      }
+      const orderStatus = String(order[source.statusCol] ?? "").trim().toLowerCase()
+      if (orderStatus !== "pending") {
+        await skipRow(supabase, row, `order no longer pending (${orderStatus || "unknown"})`)
+        failed++
+        continue
+      }
+
+      if (isUssd) {
+        const table = row.order_type === "ussd_shop" ? "ussd_shop_orders" : "ussd_orders"
+        const ussdOrder = order
         const result = await fulfillUssdOrder(
           ussdOrder.id,
           ussdOrder.network,

@@ -103,6 +103,87 @@ describe("drainFulfillmentQueue — the chosen supplier reaches every path", () 
   })
 })
 
+describe("drainFulfillmentQueue — re-checks the order is still pending before any supplier call", () => {
+  const failedUpdate = (sb: any, queueId: string) =>
+    sb.updates.find((u: Call) => u.table === "fulfillment_queue" && u.filters.some((f) => f.col === "id" && f.val === queueId))
+
+  it("a ussd order already processing is not dispatched and its queue row is failed", async () => {
+    const sb = fakeSupabase([{ id: "q1", order_id: "u1", order_type: "ussd", provider: "hubnet" }], { u1: { order_status: "processing" } })
+    const r = await drainFulfillmentQueue(sb)
+    expect(fulfillUssdOrder).not.toHaveBeenCalled()
+    expect(r).toMatchObject({ completed: 0, failed: 1 })
+    expect(failedUpdate(sb, "q1").values).toEqual({ status: "failed", error_message: "order no longer pending (processing)" })
+    expect(sb.reads[0]).toMatchObject({ table: "ussd_orders", id: "u1" })
+    expect(sb.reads[0].cols).toContain("order_status")
+  })
+
+  it("a shop order already processing is not dispatched and its queue row is failed", async () => {
+    const sb = fakeSupabase([{ id: "q1", order_id: "s1", order_type: "shop", provider: "hubnet" }], { s1: { order_status: "processing" } })
+    const r = await drainFulfillmentQueue(sb)
+    expect(processManualFulfillment).not.toHaveBeenCalled()
+    expect(r).toMatchObject({ completed: 0, failed: 1 })
+    expect(failedUpdate(sb, "q1").values).toEqual({ status: "failed", error_message: "order no longer pending (processing)" })
+    expect(sb.reads).toEqual([{ table: "shop_orders", cols: "order_status", id: "s1" }])
+  })
+
+  it("pending ussd_shop and shop orders are dispatched", async () => {
+    const sb = fakeSupabase([
+      { id: "q1", order_id: "u1", order_type: "ussd_shop", provider: "hubnet" },
+      { id: "q2", order_id: "s1", order_type: "shop", provider: "hubnet" },
+    ])
+    const r = await drainFulfillmentQueue(sb)
+    expect(r).toMatchObject({ completed: 2, failed: 0 })
+    expect(fulfillUssdOrder).toHaveBeenCalledTimes(1)
+    expect(processManualFulfillment.mock.calls).toEqual([["s1", "shop", "hubnet", true]])
+  })
+
+  it("reads each type's own status column from its own table", async () => {
+    const sb = fakeSupabase([
+      { id: "q1", order_id: "b1", order_type: "bulk", provider: null },
+      { id: "q2", order_id: "a1", order_type: "api", provider: null },
+      { id: "q3", order_id: "s1", order_type: "shop", provider: null },
+    ])
+    await drainFulfillmentQueue(sb)
+    expect(sb.reads).toEqual([
+      { table: "orders", cols: "status", id: "b1" },
+      { table: "api_orders", cols: "status", id: "a1" },
+      { table: "shop_orders", cols: "order_status", id: "s1" },
+    ])
+  })
+
+  it("bulk / api orders that are completed or reversed are skipped too", async () => {
+    const sb = fakeSupabase(
+      [
+        { id: "q1", order_id: "b1", order_type: "bulk", provider: null },
+        { id: "q2", order_id: "a1", order_type: "api", provider: null },
+      ],
+      { b1: { status: "completed" }, a1: { status: "reversed" } },
+    )
+    await drainFulfillmentQueue(sb)
+    expect(processManualFulfillment).not.toHaveBeenCalled()
+    expect(failedUpdate(sb, "q1").values.error_message).toBe("order no longer pending (completed)")
+    expect(failedUpdate(sb, "q2").values.error_message).toBe("order no longer pending (reversed)")
+  })
+
+  it("an unreadable order status fails the row without a supplier call; the next row still runs", async () => {
+    const sb = fakeSupabase(
+      [
+        { id: "q1", order_id: "s1", order_type: "shop", provider: "hubnet" },
+        { id: "q2", order_id: "u1", order_type: "ussd", provider: "hubnet" },
+        { id: "q3", order_id: "b1", order_type: "bulk", provider: null },
+      ],
+      {},
+      (id) => id === "s1" || id === "u1",
+    )
+    const r = await drainFulfillmentQueue(sb)
+    expect(processManualFulfillment.mock.calls).toEqual([["b1", "bulk", undefined, true]])
+    expect(fulfillUssdOrder).not.toHaveBeenCalled()
+    expect(failedUpdate(sb, "q1").values).toEqual({ status: "failed", error_message: "order status unreadable" })
+    expect(failedUpdate(sb, "q2").values).toEqual({ status: "failed", error_message: "order status unreadable" })
+    expect(r).toMatchObject({ completed: 1, failed: 2 })
+  })
+})
+
 describe("drainFulfillmentQueue — stale reset never overlaps a live tick", () => {
   const NOW = new Date("2026-11-22T12:00:00.000Z")
   beforeEach(() => {
