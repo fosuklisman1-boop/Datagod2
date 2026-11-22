@@ -12,6 +12,8 @@ const recheck = vi.fn(async (_o: unknown) => ({
   checked: 1, allowed: 1, stillBlocked: 0, unchecked: 0, expired: 0, deferred: 0, newlyAllowedIds: [ID1],
 }))
 const checkAll = vi.fn()
+const scheduleNotify = vi.fn(async (_o?: { startedAt: number }) => true)
+vi.mock("@/lib/blocked-numbers/notify-now", () => ({ scheduleNotifyNow: (o: { startedAt: number }) => scheduleNotify(o) }))
 const markAllowed = vi.fn(async (_r: unknown) => ({ updatedIds: [] as string[], failed: false }))
 vi.mock("@/lib/blocked-numbers/admin-allow", () => ({ markAllowedByAdminCheck: (r: unknown) => markAllowed(r) }))
 
@@ -47,6 +49,8 @@ beforeEach(() => {
   handler = () => ({ data: [{ id: ID1, phone: "0241234567" }, { id: ID2, phone: "0551234567" }] })
   recheck.mockClear()
   checkAll.mockReset()
+  scheduleNotify.mockReset()
+  scheduleNotify.mockResolvedValue(true)
   markAllowed.mockReset()
   markAllowed.mockResolvedValue({ updatedIds: [], failed: false })
 })
@@ -184,5 +188,31 @@ describe("check-all route hardening", () => {
   it("runs up to 300 s", async () => {
     const mod = await import("./route")
     expect(mod.maxDuration).toBe(300)
+  })
+})
+
+describe("check-all route notify", () => {
+  it("flipped > 0 schedules notify and reports notifyQueued", async () => {
+    handler = () => ({ data: [{ id: ID1, phone: "0241234567" }] })
+    checkAll.mockResolvedValue(result([{ phone: "0241234567", byCheckout: true, outside: [] }]))
+    const j = await (await POST(req({ ids: [ID1] }))).json()
+    expect(scheduleNotify).toHaveBeenCalledTimes(1)
+    expect(typeof scheduleNotify.mock.calls[0][0]?.startedAt).toBe("number")
+    expect(j.notifyQueued).toBe(true)
+  })
+  it("flipped = 0 does not schedule notify", async () => {
+    handler = () => ({ data: [{ id: ID1, phone: "0241234567" }] })
+    checkAll.mockResolvedValue(result([{ phone: "0241234567", byCheckout: false, outside: [] }]))
+    const j = await (await POST(req({ ids: [ID1] }))).json()
+    expect(scheduleNotify).not.toHaveBeenCalled()
+    expect(j.notifyQueued).toBeUndefined()
+  })
+  it("a notify scheduling failure never fails the response", async () => {
+    handler = () => ({ data: [{ id: ID1, phone: "0241234567" }] })
+    checkAll.mockResolvedValue(result([{ phone: "0241234567", byCheckout: true, outside: [] }]))
+    scheduleNotify.mockRejectedValueOnce(new Error("x"))
+    const res = await POST(req({ ids: [ID1] }))
+    expect(res.status).toBe(200)
+    expect((await res.json()).notifyQueued).toBeUndefined()
   })
 })

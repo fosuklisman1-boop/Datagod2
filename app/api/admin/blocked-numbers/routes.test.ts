@@ -24,7 +24,9 @@ vi.mock("@/lib/supabase", () => ({ supabaseAdmin: { from: (t: string) => fake.db
 vi.mock("@/lib/mtn-providers/customer-verification", () => ({
   getCustomerVerificationSettings: async () => ({ enabled: true, providers: ["agentportalgh", "kuntanii"], block_unverified: false }),
 }))
-vi.mock("@/lib/blocked-numbers/recheck", () => ({ recheckBlockedNumbers: (o: unknown) => recheck(o) }))
+const scheduleNotify = vi.fn(async (_o?: { startedAt: number }) => true)
+vi.mock("@/lib/blocked-numbers/notify-now", () => ({ scheduleNotifyNow: (o: { startedAt: number }) => scheduleNotify(o) }))
+vi.mock("@/lib/blocked-numbers/recheck",() => ({ recheckBlockedNumbers: (o: unknown) => recheck(o) }))
 vi.mock("@/lib/blocked-numbers/settings", async (orig) => ({
   ...(await orig<typeof import("@/lib/blocked-numbers/settings")>()),
   getBlockedNumbersSettings: async () => ({ enabled: true, customer_sms_enabled: false, retention_days: 30, spike_threshold_per_hour: 25, daily_sms_ceiling: 300 }),
@@ -74,6 +76,24 @@ describe("recheck route", () => {
     const j = await res.json()
     expect(j).toMatchObject({ checked: 2, allowed: 1, stillBlocked: 1 })
     expect(JSON.stringify(j)).not.toContain(UUID) // counts only
+  })
+
+  it("a flip schedules notify now; no flip does not; a notify failure never fails the route", async () => {
+    scheduleNotify.mockClear()
+    const j = await (await recheckPOST(req("http://x/r", { ids: [UUID] }))).json()
+    expect(scheduleNotify).toHaveBeenCalledTimes(1)
+    expect(typeof scheduleNotify.mock.calls[0][0]?.startedAt).toBe("number")
+    expect(j.notifyQueued).toBe(true)
+
+    scheduleNotify.mockClear()
+    recheck.mockResolvedValueOnce({ checked: 1, allowed: 0, stillBlocked: 1, unchecked: 0, expired: 0, deferred: 0, newlyAllowedIds: [] })
+    const none = await (await recheckPOST(req("http://x/r", { ids: [UUID] }))).json()
+    expect(scheduleNotify).not.toHaveBeenCalled()
+    expect(none.notifyQueued).toBeUndefined()
+
+    scheduleNotify.mockRejectedValueOnce(new Error("x"))
+    const res = await recheckPOST(req("http://x/r", { ids: [UUID] }))
+    expect(res.status).toBe(200)
   })
 
   it("all:true is passed through with reopenExpired", async () => {
