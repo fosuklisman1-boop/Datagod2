@@ -101,6 +101,12 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
+    // Returns customer phones, names and emails: check before any read.
+    const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+    if (!isAdmin) {
+      return errorResponse
+    }
+
     const statuses = ["pending", "reversed"]
     const allowedNetworks = [
       "MTN",
