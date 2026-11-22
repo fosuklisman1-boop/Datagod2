@@ -15,7 +15,17 @@
 -- and EVERY test row are rolled back. PASSES when the error text starts with 'SELFTEST_OK'; any 'FAIL ...' or other error means it failed.
 -- If the client keeps the session open, send `ROLLBACK;`.
 --
--- Seed rows: one users row + orders rows (prod: orders.user_id NOT NULL, FK users) with phone_number '0000000000' (a dummy, not a real
+-- User: NO users row is created (prod public.users.id references auth.users(id)). Like the 0132/0141/0159/0160 selftests, it borrows an
+-- existing user: the first public.users row joined to auth.users (ORDER BY id), and raises 'FAIL setup: ...' if there is none. Nothing
+-- on that user is changed; it only owns the two seeded orders, which roll back.
+--
+-- PRE-CHECK before the dry run (read-only): orders columns that are NOT NULL without a default. The seed INSERT supplies
+-- id, user_id, network, size, price, status, phone_number, created_at; any other column listed here must be added to it first.
+--   SELECT column_name, data_type FROM information_schema.columns
+--    WHERE table_schema = 'public' AND table_name = 'orders' AND is_nullable = 'NO' AND column_default IS NULL
+--    ORDER BY ordinal_position;
+--
+-- Seed rows: orders rows (prod: orders.user_id NOT NULL, FK users) with phone_number '0000000000' (a dummy, not a real
 -- customer), fulfillment_queue rows (batch_id NOT NULL uuid, order_type in shop/bulk/api/ussd/ussd_shop) with order ids
 -- 'selftest-0193-*'. Scenarios (labels): source, candidates, quiet, claim, grants.
 -- NOTE: the claim scenario first parks every pending queue row as 'failed' INSIDE the transaction (rolled back with everything else),
@@ -23,14 +33,22 @@
 
 DO $selftest$
 DECLARE
-  v_user uuid := gen_random_uuid();
+  v_user uuid;
   v_old  uuid := gen_random_uuid();
   v_new  uuid := gen_random_uuid();
   v_n    int;
   v_a    int;
   v_m    int;
 BEGIN
-  INSERT INTO users (id, email) VALUES (v_user, 'selftest-0193@example.invalid');
+  SELECT u.id INTO v_user
+  FROM public.users u
+  JOIN auth.users au ON au.id = u.id
+  ORDER BY u.id
+  LIMIT 1;
+  IF v_user IS NULL THEN
+    RAISE EXCEPTION 'FAIL setup: no users row joined to auth.users to own the seeded orders';
+  END IF;
+
   INSERT INTO orders (id, user_id, network, size, price, status, phone_number, created_at) VALUES
     (v_old, v_user, 'MTN', '1', 5, 'pending', '0000000000', now() - interval '11 minutes'),
     (v_new, v_user, 'MTN', '1', 5, 'pending', '0000000000', now() - interval '9 minutes');
@@ -84,7 +102,9 @@ BEGIN
      OR has_table_privilege('authenticated', 'public.auto_fulfil_attempts', 'SELECT')
      OR has_table_privilege('authenticated', 'public.auto_fulfil_settings_log', 'INSERT')
      OR has_function_privilege('anon', 'public.auto_fulfil_candidates(int,int,text[],int)', 'EXECUTE')
-     OR has_function_privilege('authenticated', 'public.auto_fulfil_candidates(int,int,text[],int)', 'EXECUTE') THEN
+     OR has_function_privilege('authenticated', 'public.auto_fulfil_candidates(int,int,text[],int)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.claim_fulfillment_queue_split(int,int)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.claim_fulfillment_queue_split(int,int)', 'EXECUTE') THEN
     RAISE EXCEPTION 'FAIL grants: anon/authenticated can reach the auto-fulfil objects';
   END IF;
   IF NOT has_table_privilege('service_role', 'public.auto_fulfil_runs', 'INSERT')

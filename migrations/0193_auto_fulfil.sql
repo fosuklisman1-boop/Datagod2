@@ -18,6 +18,10 @@
 -- PRE-CHECK (read-only; both must return no rows, or 0193 was already partly applied by hand with a different shape):
 --   SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'fulfillment_queue' AND column_name = 'source';
 --   SELECT proname FROM pg_proc WHERE proname IN ('auto_fulfil_candidates', 'claim_fulfillment_queue_split');
+-- PRE-CHECK for the selftest seed (read-only): orders NOT NULL columns without a default must all be in the selftest's orders INSERT
+-- (id, user_id, network, size, price, status, phone_number, created_at); see 0193_auto_fulfil.selftest.sql header.
+--   SELECT column_name, data_type FROM information_schema.columns
+--    WHERE table_schema = 'public' AND table_name = 'orders' AND is_nullable = 'NO' AND column_default IS NULL ORDER BY ordinal_position;
 
 BEGIN;
 SET LOCAL lock_timeout = '5s';
@@ -138,3 +142,6 @@ COMMIT;
 --   SELECT has_table_privilege('anon', 'public.auto_fulfil_runs', 'SELECT'), has_table_privilege('authenticated', 'public.auto_fulfil_attempts', 'SELECT'),
 --          has_function_privilege('authenticated', 'public.auto_fulfil_candidates(int,int,text[],int)', 'EXECUTE'),
 --          has_function_privilege('service_role', 'public.auto_fulfil_candidates(int,int,text[],int)', 'EXECUTE');                         -- false, false, false, true
+--   SELECT has_function_privilege('anon', 'public.claim_fulfillment_queue_split(int,int)', 'EXECUTE'),
+--          has_function_privilege('authenticated', 'public.claim_fulfillment_queue_split(int,int)', 'EXECUTE'),
+--          has_function_privilege('service_role', 'public.claim_fulfillment_queue_split(int,int)', 'EXECUTE');                             -- false, false, true

@@ -27,6 +27,14 @@ describe("0193 migration text", () => {
     expect(c).toMatch(/REVOKE ALL ON auto_fulfil_runs, auto_fulfil_attempts, auto_fulfil_settings_log FROM PUBLIC, anon, authenticated/)
   })
 
+  it("the selftest never creates users (prod users.id references auth.users) and checks claim split grants", () => {
+    const c = code(read(SELFTEST_FILE))
+    expect(c).not.toMatch(/INSERT\s+INTO\s+(public\.)?users\b/i)
+    expect(c).toMatch(/JOIN auth\.users/)
+    expect(c).toMatch(/has_function_privilege\('anon', 'public\.claim_fulfillment_queue_split\(int,int\)', 'EXECUTE'\)/)
+    expect(c).toMatch(/has_function_privilege\('authenticated', 'public\.claim_fulfillment_queue_split\(int,int\)', 'EXECUTE'\)/)
+  })
+
   it("the run string has no COMMIT and no bare END; and ends by raising", () => {
     const s = code(buildRunString(migration(), read(SELFTEST_FILE)))
     expect(s).not.toMatch(/\bCOMMIT\b/i)
@@ -59,7 +67,10 @@ const TABLES = `
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','processing','completed','failed')),
     attempt_count INT NOT NULL DEFAULT 0, error_message TEXT, enqueued_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_attempted_at TIMESTAMPTZ, completed_at TIMESTAMPTZ);
-  CREATE TABLE users (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), email varchar, created_at timestamp DEFAULT now());
+  -- Prod shape (migrations/tests/0171_admin_wallet_adjust_local_test.sql): public.users.id references auth.users(id).
+  CREATE SCHEMA auth;
+  CREATE TABLE auth.users (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), email text);
+  CREATE TABLE users (id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE, email varchar, created_at timestamp DEFAULT now());
   CREATE TABLE user_shops (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid, shop_name varchar);
   CREATE TABLE orders (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE, network varchar, size varchar, price numeric,
     status varchar, phone_number varchar, order_code varchar, transaction_code varchar, created_at timestamp DEFAULT now());
@@ -80,6 +91,10 @@ const TABLES = `
     status varchar DEFAULT 'pending', created_at timestamp NOT NULL DEFAULT NOW(), updated_at timestamp NOT NULL DEFAULT NOW());
 `
 const USER = "00000000-0000-4000-8000-000000009000"
+const SEED_USER = `
+  INSERT INTO auth.users (id, email) VALUES ('${USER}', 'u@example.invalid');
+  INSERT INTO users (id, email) VALUES ('${USER}', 'u@example.invalid');
+`
 
 async function makeDb(): Promise<any> {
   const db = new PGliteCtor()
@@ -89,7 +104,7 @@ async function makeDb(): Promise<any> {
   // A pre-existing queue row, to prove the new column backfills to 'admin'.
   await db.exec(`INSERT INTO fulfillment_queue (batch_id, order_id, order_type, status) VALUES (gen_random_uuid(), 'pre-existing', 'bulk', 'completed')`)
   await db.exec(migration())
-  await db.exec(`INSERT INTO users (id, email) VALUES ('${USER}', 'u@example.invalid')`)
+  await db.exec(SEED_USER)
   return db
 }
 
@@ -104,17 +119,40 @@ async function bulkOrder(db: any, minutesOld: number, o: { network?: string; sta
 const candidates = async (db: any, minAge = 10, maxDays = 7, networks = ["MTN"], scan = 100): Promise<string[]> =>
   (await db.query(`SELECT id FROM auto_fulfil_candidates($1, $2, $3::text[], $4)`, [minAge, maxDays, networks, scan])).rows.map((r: any) => r.id)
 
+// REQUIRE_PGLITE=1 turns a missing PGlite into a loud failure instead of a silent skip.
+if (!PGliteCtor && process.env.REQUIRE_PGLITE === "1") {
+  describe("0193 in PGlite", () => {
+    it("requires PGlite", () => {
+      throw new Error("REQUIRE_PGLITE=1 but @electric-sql/pglite could not be loaded: the 0193 database tests cannot run")
+    })
+  })
+}
+
 describe.skipIf(!PGliteCtor)("0193 in PGlite", () => {
-  it("the self-rolling-back run string reports SELFTEST_OK and leaves nothing behind", async () => {
+  const bareDb = async (): Promise<any> => {
     const db = new PGliteCtor()
     await db.exec(ROLES)
     await db.exec(TABLES)
     await db.exec(`CREATE VIEW combined_orders_view AS ${COMBINED_ORDERS_VIEW_SQL}`)
+    return db
+  }
+
+  it("the self-rolling-back run string reports SELFTEST_OK and leaves nothing behind", async () => {
+    const db = await bareDb()
+    await db.exec(SEED_USER)   // the selftest borrows an existing auth-linked user, as on prod
     await expect(db.exec(buildRunString(migration(), read(SELFTEST_FILE)))).rejects.toThrow(/^SELFTEST_OK 0193/)
     await db.exec("ROLLBACK")
     expect((await db.query("SELECT to_regclass('public.auto_fulfil_runs') AS t")).rows[0].t).toBeNull()
     expect((await db.query("SELECT to_regproc('auto_fulfil_candidates') AS t")).rows[0].t).toBeNull()
     expect((await db.query("SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name='fulfillment_queue' AND column_name='source'")).rows[0].n).toBe(0)
+    expect((await db.query("SELECT count(*)::int AS n FROM users")).rows[0].n).toBe(1)
+    expect((await db.query("SELECT count(*)::int AS n FROM orders")).rows[0].n).toBe(0)
+  }, 60_000)
+
+  it("the selftest fails clearly when no auth-linked user exists", async () => {
+    const db = await bareDb()
+    await expect(db.exec(buildRunString(migration(), read(SELFTEST_FILE)))).rejects.toThrow(/^FAIL setup: no users row joined to auth\.users/)
+    await db.exec("ROLLBACK")
   }, 60_000)
 
   it("applies twice without error", async () => {
