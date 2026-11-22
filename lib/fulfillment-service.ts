@@ -25,8 +25,11 @@ export async function processManualFulfillment(
   orderId: string,
   orderType: "shop" | "bulk" | "api" = "shop",
   provider?: string,
-  skipSms = false
+  skipSms = false,
+  // suppressFailureAlerts: the auto-fulfil drain reports failures in one summary, so the per-failure admin SMS + push are skipped.
+  opts: { suppressFailureAlerts?: boolean } = {}
 ): Promise<FulfillmentResult> {
+  const sendFailureAlerts = !opts.suppressFailureAlerts
   const logPrefix = `[FULFILLMENT-SERVICE][${orderId}]`
   console.log(`${logPrefix} Starting manual fulfillment for ${orderType}`)
 
@@ -238,13 +241,13 @@ export async function processManualFulfillment(
         if (!result.success) {
           console.error(`${logPrefix} ${result.provider} API failed: ${result.message}`)
           await supabase.from(tableName).update({ [statusField]: "pending", updated_at: new Date().toISOString() }).eq("id", orderId)
-          if (!skipSms) import("@/lib/sms-service").then(({ notifyAdmins, SMSTemplates }) => {
+          if (!skipSms && sendFailureAlerts) import("@/lib/sms-service").then(({ notifyAdmins, SMSTemplates }) => {
             notifyAdmins(
               SMSTemplates.fulfillmentFailed(orderId.substring(0, 8), phone, orderData.network || result.provider, volumeGb.toString(), result.message || "Failed"),
               "fulfillment_failure", orderId, true
             ).catch(e => console.error(`${logPrefix} Admin SMS Error:`, e))
           })
-          import("@/lib/push-service").then(({ notifyAdminsPush }) => {
+          if (sendFailureAlerts) import("@/lib/push-service").then(({ notifyAdminsPush }) => {
             notifyAdminsPush({
               title: '⚠️ Fulfillment Failed',
               body: `${orderData.network || result.provider} ${volumeGb}GB to ${phone} — ${result.message || "Failed"} (Order: ${orderId.substring(0, 8)})`,
@@ -357,7 +360,7 @@ export async function processManualFulfillment(
 
       // Notifications on failure (simplified for background)
       // Notify admins of failure (not customer)
-      if (!skipSms) import("@/lib/sms-service").then(({ notifyAdmins, SMSTemplates }) => {
+      if (!skipSms && sendFailureAlerts) import("@/lib/sms-service").then(({ notifyAdmins, SMSTemplates }) => {
         notifyAdmins(
           SMSTemplates.fulfillmentFailed(orderId.substring(0, 8), phone, "MTN", volumeGb.toString(), mtnResponse.message || "Failed"),
           "fulfillment_failure",

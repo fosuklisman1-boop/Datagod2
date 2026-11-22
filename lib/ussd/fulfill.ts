@@ -44,10 +44,14 @@ export async function fulfillUssdOrder(
   packageSize: string,
   forceManual = false,
   orderTable: "ussd_orders" | "ussd_shop_orders" = "ussd_orders",
-  provider?: string
+  provider?: string,
+  // Accepted for parity with processManualFulfillment; this path sends no per-failure admin alert today,
+  // so there is nothing to suppress. Forward it to any failure alert added here later.
+  opts: { suppressFailureAlerts?: boolean } = {}
 ): Promise<{ success: boolean; message: string; held?: boolean }> {
   console.log("[USSD-FULFILL] Starting fulfillment:", {
     orderId, network, recipientPhone: maskForLog(recipientPhone), packageSize, forceManual, provider,
+    suppressFailureAlerts: opts.suppressFailureAlerts === true,
   })
 
   // Blacklist check

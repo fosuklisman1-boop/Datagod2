@@ -21,6 +21,7 @@ import { ActionsMenu, BulkToolDialog } from "@/components/admin/order-queue/acti
 import { BulkActionBar } from "@/components/admin/order-queue/bulk-action-bar"
 import { ACK_MISMATCH_COPY, SendConfirmDialog } from "@/components/admin/order-queue/send-confirm-dialog"
 import { SendResults, type SendResultData } from "@/components/admin/order-queue/send-results"
+import { AutoFulfilPanel } from "@/components/admin/order-queue/auto-fulfil-panel"
 import { getProviderOptionsForNetwork, suppliersForNetworks, type SupplierOption } from "@/lib/order-queue/supplier-capability"
 import { buildSendBody, parseSupplierBalances, summarizeSelection, type SelectionSummary } from "@/lib/order-queue/confirm-summary"
 import { emptySelection, selectionReducer, SELECTION_CAP } from "@/lib/order-queue/selection"
@@ -924,6 +925,8 @@ function OrderPaymentStatusPageInner() {
             </Button>
           )}
         </div>
+
+        <AutoFulfilPanel />
 
         {sendResult && <SendResults result={sendResult} onDismiss={() => setSendResult(null)} />}
 
