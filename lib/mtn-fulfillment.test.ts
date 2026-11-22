@@ -247,10 +247,6 @@ describe("MTN Fulfillment Service", () => {
       vi.clearAllMocks()
     })
 
-    beforeEach(() => {
-      delete settingsRows.rows.mtn_strict_supplier_verification
-    })
-
     it("switch off: a pinned send goes straight to that provider, nobody is asked", async () => {
       const codecraft = fakeMtnProvider("codecraft", { success: true, order_id: "2", message: "ok" })
       vi.mocked(getProviderByName).mockReturnValue(codecraft)

@@ -157,14 +157,53 @@ describe("strictSend", () => {
     expect(r).toMatchObject({ held: true, strictHoldReason: "unanswered" })
   })
 
-  it("a throwing ask or send never escapes", async () => {
+  it("a throwing ask never escapes", async () => {
     const t = mk({})
     t.ask.mockRejectedValue(new Error("x"))
     const r = await strictSend(order, t.deps)
     expect(r.strictHoldReason).toBe("unanswered")
+  })
+
+  it("a throwing send is OUTCOME_UNKNOWN and stops: nobody else is sent", async () => {
     const u = mk({ answers: { codecraft: "yes", xpress: "yes" } })
     u.send.mockRejectedValueOnce(new Error("net"))
-    const r2 = await strictSend(order, u.deps)
-    expect(r2.provider).toBe("xpress")
+    const r = await strictSend(order, u.deps)
+    expect(r).toMatchObject({ success: false, error_type: "OUTCOME_UNKNOWN", provider: "codecraft" })
+    expect(r.held).toBeUndefined()
+    expect(u.send).toHaveBeenCalledTimes(1)
+  })
+
+  it("a throwing pinned send is OUTCOME_UNKNOWN", async () => {
+    const u = mk({ candidates: ["xpress"], pinned: true, answers: { xpress: "yes" } })
+    u.send.mockRejectedValueOnce(new Error("timeout"))
+    const r = await strictSend(order, u.deps)
+    expect(r).toMatchObject({ success: false, error_type: "OUTCOME_UNKNOWN", provider: "xpress" })
+    expect(u.send).toHaveBeenCalledTimes(1)
+  })
+
+  it("unpinned: uncheckable suppliers are skipped and do not make the hold 'unanswered'", async () => {
+    for (const t of [
+      mk({ candidates: ["codecraft", "sykes"], answers: { codecraft: "no" } }),
+      mk({ candidates: ["codecraft", "xpress"], disabled: new Set(["xpress"]), answers: { codecraft: "no" } }),
+    ]) {
+      const r = await strictSend(order, t.deps)
+      expect(r).toMatchObject({ held: true, error_type: "STRICT_HOLD", strictHoldReason: "rejected" })
+      expect(t.send).not.toHaveBeenCalled()
+      expect(t.ask.mock.calls.map((c) => c[0])).toEqual(["codecraft"])
+    }
+  })
+
+  it("unpinned: no checkable candidate at all holds as 'rejected'", async () => {
+    const t = mk({ candidates: ["sykes", "xpress"], disabled: new Set(["xpress"]) })
+    const r = await strictSend(order, t.deps)
+    expect(r).toMatchObject({ held: true, error_type: "STRICT_HOLD", strictHoldReason: "rejected" })
+    expect(t.ask).not.toHaveBeenCalled()
+    expect(t.send).not.toHaveBeenCalled()
+  })
+
+  it("unpinned: a checkable no_answer still makes the hold 'unanswered' beside an uncheckable one", async () => {
+    const t = mk({ candidates: ["sykes", "codecraft"], answers: { codecraft: "no_answer" } })
+    const r = await strictSend(order, t.deps)
+    expect(r).toMatchObject({ held: true, strictHoldReason: "unanswered" })
   })
 })

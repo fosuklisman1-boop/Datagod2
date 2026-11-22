@@ -68,14 +68,17 @@ export async function strictSend(order: MTNOrderRequest, deps: StrictSendDeps): 
     }
   }
 
+  // Only a CHECKABLE supplier that gave no answer makes the hold "unanswered";
+  // otherwise (all said no, or nobody could check) the hold is "rejected".
   let unanswered = false
-  let rejected = 0
   let approvedFailure: MTNOrderResponse | null = null
 
   for (const supplier of deps.candidates) {
     let answer: Answer
     if (!canCheck(supplier, deps.disabled)) {
-      answer = "no_answer"
+      // Strict mode: a supplier without a working check never receives the order.
+      if (deps.pinned) return refuse(supplier, "SUPPLIER_CHECK_UNAVAILABLE")
+      continue
     } else if (saved.has(supplier)) {
       answer = saved.get(supplier)!
     } else if (Date.now() - started >= deps.budgetMs) {
@@ -97,7 +100,6 @@ export async function strictSend(order: MTNOrderRequest, deps: StrictSendDeps): 
 
     if (answer === "no") {
       if (deps.pinned) return refuse(supplier, "SUPPLIER_NOT_APPROVED")
-      rejected++
       continue
     }
     if (answer === "no_answer") {
@@ -109,12 +111,15 @@ export async function strictSend(order: MTNOrderRequest, deps: StrictSendDeps): 
     let result: MTNOrderResponse
     try {
       result = { ...(await deps.send(supplier, order)), provider: supplier }
-    } catch (err) {
-      result = {
+    } catch {
+      // A throw (timeout, abort, network) can come after the supplier already
+      // created the order. Never try anyone else: that is the double-delivery path.
+      return {
         success: false,
-        message: err instanceof Error ? err.message : `${supplier} error`,
+        message: `${label(supplier)} did not confirm the order — outcome unknown`,
         traceId,
         provider: supplier,
+        error_type: "OUTCOME_UNKNOWN",
       }
     }
     if (result.success || result.error_type === "OUTCOME_UNKNOWN") return result
@@ -128,6 +133,6 @@ export async function strictSend(order: MTNOrderRequest, deps: StrictSendDeps): 
     message: "No supplier has approved this number yet — order held",
     traceId,
     error_type: "STRICT_HOLD",
-    strictHoldReason: !unanswered && rejected > 0 ? "rejected" : "unanswered",
+    strictHoldReason: unanswered ? "unanswered" : "rejected",
   }
 }
