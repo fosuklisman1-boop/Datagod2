@@ -47,10 +47,29 @@ describe("parseApprovalContact", () => {
     if (!r.ok) expect(r.error.length).toBeGreaterThan(10)
   })
 
-  it("keeps a foreign number with + as international, not Ghana", () => {
-    expect(parseApprovalContact("+20 123 4567")).toEqual({ ok: true, digits: "201234567" })
-    expect(parseApprovalContact("https://wa.me/201234567")).toEqual({ ok: true, digits: "201234567" })
+  it("keeps a full foreign number with + as international, not Ghana", () => {
+    expect(parseApprovalContact("+20 100 123 4567")).toEqual({ ok: true, digits: "201001234567" })
+    expect(parseApprovalContact("https://wa.me/201001234567")).toEqual({ ok: true, digits: "201001234567" })
     expect(parseApprovalContact("+44 7700 900123")).toEqual({ ok: true, digits: "447700900123" })
+  })
+
+  it("rejects a 9-digit number without country code on the + and link paths", () => {
+    const msg =
+      "That number is missing its country code. Use 233 followed by the 9 digits (for example https://wa.me/233559919037), or type the number starting with 0."
+    for (const v of [
+      "https://wa.me/559919037",
+      "https://api.whatsapp.com/send?phone=559919037",
+      "https://api.whatsapp.com/send?phone=+559919037",
+      "+559919037",
+      "+20 123 4567",
+      "https://wa.me/201234567",
+    ]) {
+      expect(parseApprovalContact(v)).toEqual({ ok: false, error: msg })
+    }
+  })
+
+  it("still accepts a plain 9-digit Ghana number", () => {
+    expect(parseApprovalContact("559919037")).toEqual({ ok: true, digits: "233559919037" })
   })
 
   it("rejects bad international forms", () => {

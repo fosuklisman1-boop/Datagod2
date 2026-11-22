@@ -8,6 +8,10 @@ const PLAIN = /^\+?[\d\s\-().]+$/
 const HELP =
   "Paste a WhatsApp number (for example 0559919037 or +233 55 991 9037), a link like https://wa.me/233559919037, or leave it empty to use the support number."
 
+const MISSING_CC = "missing-country-code"
+const MISSING_CC_MSG =
+  "That number is missing its country code. Use 233 followed by the 9 digits (for example https://wa.me/233559919037), or type the number starting with 0."
+
 const bad = (error: string): ParseResult => ({ ok: false, error })
 
 /**
@@ -26,7 +30,11 @@ function normalise(digits: string, hasPlus: boolean, international: boolean): st
     const sig = ghanaSignificant(digits)
     return sig ? "233" + sig : null
   }
-  if (international) return /^\d{8,15}$/.test(digits) ? digits : null
+  if (international) {
+    // Never guess: a Ghana-shaped 9-digit number with no country code is undialable as-is.
+    if (/^[2-9]\d{8}$/.test(digits)) return MISSING_CC
+    return /^\d{8,15}$/.test(digits) ? digits : null
+  }
   const sig = ghanaSignificant(digits)
   return sig ? "233" + sig : null
 }
@@ -65,6 +73,7 @@ export function parseApprovalContact(input: unknown): ParseResult {
   const t = input.trim()
   if (!t) return { ok: true, digits: null }
   const digits = PLAIN.test(t) ? fromPhoneText(t, false) : fromLink(t)
+  if (digits === MISSING_CC) return bad(MISSING_CC_MSG)
   if (!digits) {
     return bad(
       /wa\.me\/message|chat\.whatsapp\.com/i.test(t)
