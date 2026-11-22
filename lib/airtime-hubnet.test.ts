@@ -7,6 +7,7 @@ import { applyHubnetAirtimeStatus, fulfillAirtimeViaHubnet, syncHubnetAirtime } 
 import { hubnetRef } from "@/lib/hubnet/core"
 import { OUTCOME_UNKNOWN } from "@/lib/mtn-providers/outcome"
 import { sendPushToUser } from "@/lib/push-service"
+import { memoryReservations, type HubnetReservations, type ReserveResult } from "@/lib/hubnet/reservations"
 
 const UUID = "11111111-2222-3333-4444-555555555555"
 const REF1 = hubnetRef("airtime", UUID, 1)
@@ -173,6 +174,102 @@ describe("fulfillAirtimeViaHubnet", () => {
     r.deps.markOrder = vi.fn(async () => 0)
     expect(await fulfillAirtimeViaHubnet(order, r.deps)).toBe(true)
     expect(r.alerts[0].kind).toBe("review")
+  })
+})
+
+describe("fulfillAirtimeViaHubnet reference reservations (no double send)", () => {
+  function spyRes(forced?: ReserveResult) {
+    const mem = memoryReservations()
+    const reserve = vi.fn(async (r: { ref: string; kind: "data" | "airtime"; orderId: string }) => forced ?? mem.reserve(r))
+    const release = vi.fn(async (ref: string, orderId: string) => mem.release(ref, orderId))
+    return { res: { reserve, release } as HubnetReservations, reserve, release }
+  }
+
+  it("missing => reserves (airtime, order.id) before placing once; success keeps it", async () => {
+    const r = mk()
+    const s = spyRes()
+    expect(await fulfillAirtimeViaHubnet(order, { ...r.deps, reservations: s.res })).toBe(true)
+    expect(s.reserve).toHaveBeenCalledWith({ ref: REF1, kind: "airtime", orderId: UUID })
+    expect(r.client.placeAirtime).toHaveBeenCalledTimes(1)
+    expect(s.reserve.mock.invocationCallOrder[0]).toBeLessThan(r.client.placeAirtime.mock.invocationCallOrder[0])
+    expect(s.release).not.toHaveBeenCalled()
+  })
+
+  it("held => placeAirtime not called; held for review 'do not resend'", async () => {
+    const r = mk()
+    const s = spyRes("held")
+    expect(await fulfillAirtimeViaHubnet(order, { ...r.deps, reservations: s.res })).toBe(true)
+    expect(r.client.placeAirtime).not.toHaveBeenCalled()
+    expect(r.marks[0].patch).toEqual({
+      status: "processing",
+      notes: `Hubnet: another send in progress [hubnetRef:${REF1}]. Do not resend.`,
+    })
+    expect(r.marks[0].from).toEqual(["pending"])
+    expect(r.alerts.some(a => a.kind === "review" && a.message.toLowerCase().includes("do not resend"))).toBe(true)
+    expect(JSON.stringify([r.marks, r.alerts])).not.toContain(PHONE)
+    expect(s.release).not.toHaveBeenCalled()
+  })
+
+  it("reserve error => notSent 'could not reserve reference', placeAirtime not called", async () => {
+    const r = mk()
+    const s = spyRes("error")
+    expect(await fulfillAirtimeViaHubnet(order, { ...r.deps, reservations: s.res })).toBe(false)
+    expect(r.client.placeAirtime).not.toHaveBeenCalled()
+    expect(r.marks[0].patch.status).toBeUndefined()
+    expect(r.marks[0].patch.notes).toContain("could not reserve reference")
+    expect(r.alerts[0].kind).toBe("manual")
+  })
+
+  it("a throwing reserve is treated as error (never places)", async () => {
+    const r = mk()
+    const res: HubnetReservations = { reserve: async () => { throw new Error("db down") }, release: vi.fn(async () => {}) }
+    expect(await fulfillAirtimeViaHubnet(order, { ...r.deps, reservations: res })).toBe(false)
+    expect(r.client.placeAirtime).not.toHaveBeenCalled()
+  })
+
+  const refusals: Array<[string, any]> = [
+    ["rejected 400", { ok: true, res: { status: 400 }, json: { message: "bad", status_code: 400 }, text: "" }],
+    ["insufficient_balance", { ok: true, res: { status: 400 }, json: { message: "Insufficient balance" }, text: "" }],
+    ["auth 401", { ok: true, res: { status: 401 }, json: {}, text: "" }],
+    ["rate_limited 429", { ok: true, res: { status: 429 }, json: {}, text: "" }],
+    ["client RATE_LIMIT", { ok: false, response: { success: false, error_type: "RATE_LIMIT", message: "x" } }],
+    ["NETWORK_ERROR", { ok: false, response: { success: false, error_type: "NETWORK_ERROR", message: "x" } }],
+  ]
+  for (const [name, place] of refusals) {
+    it(`definite not-sent (${name}) => releases the ref`, async () => {
+      const r = mk({ place })
+      const s = spyRes()
+      expect(await fulfillAirtimeViaHubnet(order, { ...r.deps, reservations: s.res })).toBe(false)
+      expect(s.release).toHaveBeenCalledWith(REF1, UUID)
+    })
+  }
+
+  it("success / duplicate / unknown keep the reservation", async () => {
+    const cases: any[] = [
+      undefined,
+      { ok: true, res: { status: 409 }, json: {}, text: "" },
+      { ok: true, res: { status: 503 }, json: {}, text: "" },
+      { ok: false, response: { success: false, error_type: OUTCOME_UNKNOWN, message: "x" } },
+      () => { throw new Error("boom") },
+    ]
+    for (const place of cases) {
+      const r = mk(place === undefined ? {} : { place })
+      const s = spyRes()
+      expect(await fulfillAirtimeViaHubnet(order, { ...r.deps, reservations: s.res })).toBe(true)
+      expect(s.release).not.toHaveBeenCalled()
+    }
+  })
+
+  it("two concurrent sends sharing one store place exactly once", async () => {
+    const r = mk()
+    const shared = memoryReservations()
+    const [a, b] = await Promise.all([
+      fulfillAirtimeViaHubnet(order, { ...r.deps, reservations: shared }),
+      fulfillAirtimeViaHubnet(order, { ...r.deps, reservations: shared }),
+    ])
+    expect(r.client.placeAirtime).toHaveBeenCalledTimes(1)
+    expect([a, b]).toEqual([true, true])
+    expect(r.marks.some(m => String(m.patch.notes).includes("another send in progress"))).toBe(true)
   })
 })
 

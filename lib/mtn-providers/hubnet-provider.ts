@@ -21,6 +21,12 @@ import {
   type StatusLookup,
 } from "@/lib/hubnet/core"
 import { OUTCOME_UNKNOWN, isUnknownTrackingId, outcomeUnknownResponse, unknownStatusResult } from "./outcome"
+import {
+  defaultHubnetReservations,
+  memoryReservations,
+  type HubnetReservations,
+  type ReserveResult,
+} from "@/lib/hubnet/reservations"
 
 /** Default admin alert: throttled once per `type` per hour, in the DB. */
 export function defaultHubnetAlert(type: string, title: string, message: string): Promise<void> {
@@ -31,6 +37,8 @@ export type HubnetDeps = {
   client?: HubnetClient
   alert?: (type: string, title: string, message: string) => Promise<void>
   configured?: () => boolean
+  /** Reference reservations (only the owner may POST a ref). Default: memory when a client is injected (tests), else the DB. */
+  reservations?: HubnetReservations
 }
 
 function fail(error_type: string, message: string, traceId?: string): MTNOrderResponse {
@@ -58,12 +66,15 @@ export class HubnetProvider implements MTNProvider {
   private client: HubnetClient | null
   private alert: (type: string, title: string, message: string) => Promise<void>
   private configured: () => boolean
+  private reservations: HubnetReservations
 
   constructor(deps: HubnetDeps = {}) {
     // Lazy default client: constructing a provider (e.g. via the factory) must not need env.
     this.client = deps.client ?? null
     this.alert = deps.alert ?? defaultHubnetAlert
     this.configured = deps.configured ?? (() => isHubnetConfigured())
+    // defaultHubnetReservations() is lazy too (no DB client until the first reserve).
+    this.reservations = deps.reservations ?? (deps.client ? memoryReservations() : defaultHubnetReservations())
   }
 
   private get c(): HubnetClient {
@@ -122,7 +133,7 @@ export class HubnetProvider implements MTNProvider {
         continue // failed or refunded: next attempt
       }
       if (lk.kind !== "missing") return outcomeUnknownResponse("Hubnet", null, traceId) // only a proven "not found" may place
-      return this.place(net, phone, volumeMb, ref, traceId)
+      return this.place(net, phone, volumeMb, ref, uuid as string, traceId)
     }
     return fail("API_ERROR", `Hubnet: all ${HUBNET_MAX_ATTEMPTS} attempts used`, traceId)
   }
@@ -132,13 +143,44 @@ export class HubnetProvider implements MTNProvider {
     phone: string,
     volumeMb: number,
     ref: string,
+    orderId: string,
     traceId?: string,
   ): Promise<MTNOrderResponse> {
+    // Hubnet does NOT reject a reused reference: only the reservation owner may POST this ref.
+    let reserved: ReserveResult
+    try {
+      reserved = await this.reservations.reserve({ ref, kind: "data", orderId })
+    } catch {
+      reserved = "error"
+    }
+    if (reserved === "held") {
+      console.warn(`[Hubnet] ${ref} is reserved by another send - not sent again`)
+      // OUTCOME_UNKNOWN: the other send may place it, so no other supplier may be tried.
+      return {
+        ...outcomeUnknownResponse("Hubnet", null, traceId),
+        message: "Hubnet: another send of this order is in progress — not sent again",
+      }
+    }
+    if (reserved !== "reserved") {
+      console.error(`[Hubnet] could not reserve ${ref} - not sent`)
+      return fail("RESERVE_FAILED", "Hubnet: could not reserve the order reference — not sent", traceId)
+    }
+    /** Definitely not sent: free the ref so a later re-send may place it. Keep it on anything else. */
+    const notSent = async (res: MTNOrderResponse): Promise<MTNOrderResponse> => {
+      try {
+        await this.reservations.release(ref, orderId)
+      } catch {
+        // best effort
+      }
+      return res
+    }
+
     let cls: PlaceClass
     try {
       const r = await this.c.placeData(net, { phone, volumeMb, reference: ref })
       if (!r.ok) {
-        if (r.response.error_type !== OUTCOME_UNKNOWN) return r.response
+        // A client-level refusal (cooldown RATE_LIMIT, never-reached NETWORK_ERROR, ...) never reached Hubnet.
+        if (r.response.error_type !== OUTCOME_UNKNOWN) return notSent(r.response)
         cls = "unknown"
       } else {
         cls = classifyPlaceReply(r.res.status, r.json)
@@ -173,19 +215,19 @@ export class HubnetProvider implements MTNProvider {
           "Hubnet: wallet balance too low",
           "Hubnet refused an order because the wallet balance is insufficient. Top up the Hubnet wallet.",
         )
-        return fail("INSUFFICIENT_BALANCE", "Hubnet: insufficient balance", traceId)
+        return notSent(fail("INSUFFICIENT_BALANCE", "Hubnet: insufficient balance", traceId))
       case "auth":
         await this.safeAlert(
           "hubnet_auth",
           "Hubnet: authentication failed",
           "Hubnet rejected our API credentials. Check HUBNET_API_KEY and the Hubnet account.",
         )
-        return fail("API_ERROR", "Hubnet: authentication failed", traceId)
+        return notSent(fail("API_ERROR", "Hubnet: authentication failed", traceId))
       case "rate_limited":
-        return fail("RATE_LIMIT", "Hubnet is rate-limiting requests - not sent, try again shortly", traceId)
+        return notSent(fail("RATE_LIMIT", "Hubnet is rate-limiting requests - not sent, try again shortly", traceId))
       case "rejected":
       default:
-        return fail("API_ERROR", "Hubnet: order rejected", traceId)
+        return notSent(fail("API_ERROR", "Hubnet: order rejected", traceId))
     }
   }
 

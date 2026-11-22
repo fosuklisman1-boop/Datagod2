@@ -9,6 +9,7 @@ import { hubnetRef } from "@/lib/hubnet/core"
 import type { HubnetClient } from "@/lib/hubnet/client"
 import type { StatusLookup } from "@/lib/hubnet/core"
 import type { MTNOrderRequest } from "./types"
+import { memoryReservations, type HubnetReservations, type ReserveResult } from "@/lib/hubnet/reservations"
 
 const UUID = "123e4567-e89b-42d3-a456-426614174000"
 const ref = (n: number) => hubnetRef("data", UUID, n)
@@ -47,10 +48,20 @@ function fakeClient(opts: {
   return { client, getStatus, placeData }
 }
 
-function make(client: HubnetClient, configured = true) {
+function make(client: HubnetClient, configured = true, reservations?: HubnetReservations) {
   const alert = vi.fn(async (_t: string, _ti: string, _m: string) => {})
-  const provider = new HubnetProvider({ client, alert, configured: () => configured })
+  const provider = new HubnetProvider({ client, alert, configured: () => configured, reservations })
   return { provider, alert }
+}
+
+/** Memory reservations with spies; `forced` makes every reserve return that result. */
+function spyRes(forced?: ReserveResult) {
+  const mem = memoryReservations()
+  const reserve = vi.fn(async (r: { ref: string; kind: "data" | "airtime"; orderId: string }) =>
+    forced ?? mem.reserve(r),
+  )
+  const release = vi.fn(async (ref: string, orderId: string) => mem.release(ref, orderId))
+  return { res: { reserve, release } as HubnetReservations, reserve, release }
 }
 
 const mtnReq: MTNOrderRequest = { recipient_phone: "0241234567", network: "MTN", size_gb: 2, client_ref: UUID }
@@ -303,6 +314,142 @@ describe("HubnetProvider.createOrder", () => {
     })
     const r = await provider.createOrder(mtnReq)
     expect(r.success).toBe(false)
+  })
+})
+
+describe("HubnetProvider reference reservations (no double send)", () => {
+  it("missing => reserves the ref for this order, then places exactly once; success keeps the reservation", async () => {
+    const f = fakeClient()
+    const s = spyRes()
+    const r = await make(f.client, true, s.res).provider.createOrder(mtnReq)
+    expect(r).toMatchObject({ success: true, order_id: ref(1) })
+    expect(s.reserve).toHaveBeenCalledWith({ ref: ref(1), kind: "data", orderId: UUID })
+    expect(f.placeData).toHaveBeenCalledTimes(1)
+    expect(s.reserve.mock.invocationCallOrder[0]).toBeLessThan(f.placeData.mock.invocationCallOrder[0])
+    expect(s.release).not.toHaveBeenCalled()
+  })
+
+  it("held => never calls placeData; OUTCOME_UNKNOWN 'another send of this order is in progress'", async () => {
+    const f = fakeClient()
+    const s = spyRes("held")
+    const r = await make(f.client, true, s.res).provider.createOrder(mtnReq)
+    expect(f.placeData).not.toHaveBeenCalled()
+    expect(r.success).toBe(false)
+    expect(r.error_type).toBe("OUTCOME_UNKNOWN")
+    expect(r.message).toContain("another send of this order is in progress")
+    expect(s.release).not.toHaveBeenCalled()
+  })
+
+  it("reserve error => never calls placeData; RESERVE_FAILED", async () => {
+    const f = fakeClient()
+    const s = spyRes("error")
+    const r = await make(f.client, true, s.res).provider.createOrder(mtnReq)
+    expect(f.placeData).not.toHaveBeenCalled()
+    expect(r).toMatchObject({
+      success: false,
+      error_type: "RESERVE_FAILED",
+      message: "Hubnet: could not reserve the order reference — not sent",
+    })
+    expect(s.release).not.toHaveBeenCalled()
+  })
+
+  it("a throwing reserve is treated as error (never places)", async () => {
+    const f = fakeClient()
+    const res: HubnetReservations = {
+      reserve: async () => {
+        throw new Error("db down")
+      },
+      release: vi.fn(async () => {}),
+    }
+    const r = await make(f.client, true, res).provider.createOrder(mtnReq)
+    expect(f.placeData).not.toHaveBeenCalled()
+    expect(r.error_type).toBe("RESERVE_FAILED")
+  })
+
+  const refusals: Array<[string, () => any]> = [
+    ["rejected 403", () => reply(403, { message: "no" })],
+    ["insufficient_balance", () => reply(400, { status_code: 402, message: "Insufficient balance" })],
+    ["auth 401", () => reply(401, { message: "Unauthorized" })],
+    ["rate_limited 429 JSON", () => reply(429, { message: "Too many requests" })],
+    [
+      "client RATE_LIMIT cooldown result",
+      () => ({ ok: false, response: { success: false, message: "rate limited", error_type: "RATE_LIMIT" } }),
+    ],
+    [
+      "never-reached NETWORK_ERROR",
+      () => ({ ok: false, response: { success: false, message: "never connected", error_type: "NETWORK_ERROR" } }),
+    ],
+  ]
+  for (const [name, place] of refusals) {
+    it(`definite not-sent (${name}) => releases the ref for this order`, async () => {
+      const f = fakeClient({ place })
+      const s = spyRes()
+      const r = await make(f.client, true, s.res).provider.createOrder(mtnReq)
+      expect(r.success).toBe(false)
+      expect(r.error_type).not.toBe("OUTCOME_UNKNOWN")
+      expect(f.placeData).toHaveBeenCalledTimes(1)
+      expect(s.release).toHaveBeenCalledWith(ref(1), UUID)
+    })
+  }
+
+  it("a released ref can be placed again by a later send (refusal then retry)", async () => {
+    let n = 0
+    const f = fakeClient({ place: () => (n++ === 0 ? reply(429, {}) : placed()) })
+    const s = spyRes()
+    const { provider } = make(f.client, true, s.res)
+    expect((await provider.createOrder(mtnReq)).error_type).toBe("RATE_LIMIT")
+    expect(await provider.createOrder(mtnReq)).toMatchObject({ success: true, order_id: ref(1) })
+    expect(f.placeData).toHaveBeenCalledTimes(2)
+  })
+
+  it("duplicate (409) keeps the reservation", async () => {
+    let calls = 0
+    const f = fakeClient({
+      status: () => (calls++ === 0 ? missing : found("processing")),
+      place: () => reply(409, { message: "duplicate" }),
+    })
+    const s = spyRes()
+    const r = await make(f.client, true, s.res).provider.createOrder(mtnReq)
+    expect(r.success).toBe(true)
+    expect(s.release).not.toHaveBeenCalled()
+  })
+
+  it("unknown (503) keeps the reservation", async () => {
+    const f = fakeClient({ place: () => reply(503, {}) })
+    const s = spyRes()
+    const r = await make(f.client, true, s.res).provider.createOrder(mtnReq)
+    expect(r.error_type).toBe("OUTCOME_UNKNOWN")
+    expect(s.release).not.toHaveBeenCalled()
+  })
+
+  it("client OUTCOME_UNKNOWN result keeps the reservation", async () => {
+    const f = fakeClient({
+      place: () => ({ ok: false, response: { success: false, message: "x", error_type: "OUTCOME_UNKNOWN" } }),
+    })
+    const s = spyRes()
+    const r = await make(f.client, true, s.res).provider.createOrder(mtnReq)
+    expect(r.error_type).toBe("OUTCOME_UNKNOWN")
+    expect(s.release).not.toHaveBeenCalled()
+  })
+
+  it("two concurrent createOrder calls sharing one reservations store place exactly once", async () => {
+    const f = fakeClient()
+    const shared = memoryReservations()
+    const a = make(f.client, true, shared).provider
+    const b = make(f.client, true, shared).provider
+    const [ra, rb] = await Promise.all([a.createOrder(mtnReq), b.createOrder(mtnReq)])
+    expect(f.placeData).toHaveBeenCalledTimes(1)
+    const results = [ra, rb]
+    expect(results.filter((r) => r.success)).toHaveLength(1)
+    const loser = results.find((r) => !r.success)!
+    expect(loser.error_type).toBe("OUTCOME_UNKNOWN")
+    expect(loser.message).toContain("another send of this order is in progress")
+  })
+
+  it("held message never contains the phone number", async () => {
+    const f = fakeClient()
+    const r = await make(f.client, true, spyRes("held").res).provider.createOrder(mtnReq)
+    expect(JSON.stringify(r)).not.toContain("0241234567")
   })
 })
 

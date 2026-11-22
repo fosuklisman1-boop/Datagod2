@@ -59,6 +59,14 @@ describe("hubnet routing", () => {
     expect(fulfillAirtimeViaHubtel).not.toHaveBeenCalled()
     expect(sendAirtimeViaDigiwapy).not.toHaveBeenCalled()
   })
+  it("passes the process-wide DB reservations to the Hubnet fulfiller", async () => {
+    h.provider = "hubnet"
+    const { defaultHubnetReservations } = await import("@/lib/hubnet/reservations")
+    await triggerAirtimeFulfillment(order)
+    const deps = vi.mocked(fulfillAirtimeViaHubnet).mock.calls[0][1] as any
+    expect(deps.reservations).toBeDefined()
+    expect(deps.reservations).toBe(defaultHubnetReservations())
+  })
   it("Hubnet not configured -> manual alert, nothing sent, no fallback", async () => {
     h.provider = "hubnet"; h.hubnetConfigured = false
     expect(await triggerAirtimeFulfillment(order)).toBe(false)

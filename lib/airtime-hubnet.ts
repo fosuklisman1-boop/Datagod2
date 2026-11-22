@@ -12,6 +12,7 @@ import {
   HUBNET_MAX_ATTEMPTS, classifyPlaceReply, hubnetRef, toHubnetPhone, type PlaceClass, type StatusLookup,
 } from "@/lib/hubnet/core"
 import { OUTCOME_UNKNOWN } from "@/lib/mtn-providers/outcome"
+import { memoryReservations, type HubnetReservations, type ReserveResult } from "@/lib/hubnet/reservations"
 import { sendPushToUser } from "@/lib/push-service"
 import { notifyAdmins } from "@/lib/sms-service"
 
@@ -21,6 +22,11 @@ export interface AirtimeHubnetDeps {
   markOrder(orderId: string, patch: { status?: string; notes: string }, onlyFromStatuses?: string[]): Promise<number | void>
   /** "review" = outcome unknown / needs a look, do not resend; "manual" (default) = not sent, fulfil manually. */
   alert(message: string, kind?: "manual" | "review"): Promise<void>
+  /**
+   * Reference reservations: only the owner may POST a ref (Hubnet does not reject a reused one).
+   * Production (airtime-service) passes defaultHubnetReservations(); omitted (tests) => a per-call memory store.
+   */
+  reservations?: HubnetReservations
 }
 
 const quiet = async (p: Promise<unknown>, what: string) => {
@@ -53,6 +59,7 @@ export async function fulfillAirtimeViaHubnet(order: AirtimeOrderMinimal, deps: 
     }
   }
   const review = (message: string) => quiet(deps.alert(message, "review"), "alert")
+  const reservations = deps.reservations ?? memoryReservations()
   const lookup = async (ref: string): Promise<StatusLookup> => {
     try { return await deps.client.getStatus(ref) } catch { return { kind: "unknown" } }
   }
@@ -93,11 +100,30 @@ export async function fulfillAirtimeViaHubnet(order: AirtimeOrderMinimal, deps: 
     return await notSent(`all ${HUBNET_MAX_ATTEMPTS} attempts used`)
 
     async function place(ref: string): Promise<boolean> {
+      let reserved: ReserveResult
+      try {
+        reserved = await reservations.reserve({ ref, kind: "airtime", orderId: order.id })
+      } catch {
+        reserved = "error"
+      }
+      if (reserved === "held") {
+        // Another send owns this ref and may be placing it right now: never POST it again.
+        await hold(`Hubnet: another send in progress [hubnetRef:${ref}]. Do not resend.`, ref)
+        await review(`Airtime ${tag}: another send of this order is in progress at Hubnet (ref ${ref}) - not sent again, do not resend`)
+        return true
+      }
+      if (reserved !== "reserved") return await notSent("could not reserve reference")
+      /** Definitely not sent: free the ref so a later re-send may place it. Kept on anything else. */
+      const released = async (why: string) => {
+        await quiet(reservations.release(ref, order.id), "release")
+        return notSent(why)
+      }
+
       let cls: PlaceClass
       try {
         const r = await deps.client.placeAirtime({ phone: phone as string, amountGhs: order.airtime_amount, reference: ref })
         if (!r.ok) {
-          if (r.response.error_type !== OUTCOME_UNKNOWN) return await notSent("Hubnet request failed before it was sent")
+          if (r.response.error_type !== OUTCOME_UNKNOWN) return await released("Hubnet request failed before it was sent")
           cls = "unknown"
         } else {
           cls = classifyPlaceReply(r.res.status, r.json)
@@ -120,10 +146,10 @@ export async function fulfillAirtimeViaHubnet(order: AirtimeOrderMinimal, deps: 
         await review(`Airtime ${tag}: Hubnet outcome unknown (ref ${ref}) - check Hubnet, do not resend`)
         return true
       }
-      if (cls === "insufficient_balance") return notSent("Hubnet balance too low")
-      if (cls === "auth") return notSent("Hubnet authentication failed")
-      if (cls === "rate_limited") return notSent("Hubnet rate limited")
-      return notSent("Hubnet rejected the order")
+      if (cls === "insufficient_balance") return released("Hubnet balance too low")
+      if (cls === "auth") return released("Hubnet authentication failed")
+      if (cls === "rate_limited") return released("Hubnet rate limited")
+      return released("Hubnet rejected the order")
     }
   } catch (e: any) {
     // Never throws. Whatever got us here may have happened after a placement: hold for a human, do not resend.

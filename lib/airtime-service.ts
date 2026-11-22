@@ -137,8 +137,11 @@ export async function triggerAirtimeFulfillment(
       const { isHubnetConfigured, createHubnetClient } = await import("@/lib/hubnet/client")
       // Nothing was sent: hand to a human, never to another provider.
       if (!isHubnetConfigured()) return await alertManualAirtime(order)
+      const { defaultHubnetReservations } = await import("@/lib/hubnet/reservations")
       return await fulfillAirtimeViaHubnet(order, {
         client: createHubnetClient(),
+        // Process-wide DB reservations: only one send may ever POST a given Hubnet ref.
+        reservations: defaultHubnetReservations(),
         markOrder: async (orderId, patch, onlyFromStatuses) => {
           let q = supabase.from("airtime_orders")
             .update({ ...patch, updated_at: new Date().toISOString() }).eq("id", orderId)
