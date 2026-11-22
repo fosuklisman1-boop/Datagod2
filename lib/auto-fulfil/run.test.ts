@@ -1062,3 +1062,44 @@ describe("runAutoFulfil: backpressure and run time (S3)", () => {
     expect(autoQueued(db)).toEqual(["late"])
   })
 })
+
+describe("runAutoFulfil: strict holds (strict supplier verification)", () => {
+  const sh = (order_table: string, order_id: string, state: string) => ({ order_table, order_id, phone: PHONE_A, reason: "unanswered", state })
+
+  it("skips a candidate whose strict hold expired (strict_hold_expired); a released hold is queued normally", async () => {
+    const db = world({
+      settings: on(),
+      ...ALL_ON,
+      candidates: [cand("o1", 60, PHONE_A), cand("o2", 50, PHONE_B), cand("s1", 40, PHONE_C, "MTN", "shop")],
+      tables: {
+        orders: [bulk("o1"), bulk("o2")],
+        shop_orders: [{ id: "s1", order_status: "pending", network: "MTN" }],
+        // o2's expired row is filed for shop_orders, not orders: it must not block the bulk order o2.
+        mtn_strict_holds: [sh("orders", "o1", "expired"), sh("shop_orders", "o2", "expired"), sh("shop_orders", "s1", "released")],
+      },
+    })
+    const s = await runAutoFulfil(db as any, NOW)
+    expect(autoQueued(db)).not.toContain("o1")
+    expect(autoQueued(db)).toContain("o2")
+    expect(s.skipped.strict_hold_expired).toBe(1)
+  })
+
+  it("a strict hold read error fails closed (nothing queued, throws)", async () => {
+    const db = world({ settings: on(), ...ALL_ON, candidates: [cand("o1", 60)], tables: { orders: [bulk("o1")] } })
+    db.failSelect = (t) => (t === "mtn_strict_holds" ? { message: "read failed" } : null)
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      await expect(runAutoFulfil(db as any, NOW)).rejects.toThrow()
+    } finally {
+      err.mockRestore()
+    }
+    expect(queueRows(db)).toHaveLength(0)
+  })
+
+  it("the strict holds table not existing yet (0194 not applied) blocks nothing", async () => {
+    const db = world({ settings: on(), ...ALL_ON, candidates: [cand("o1", 60)], tables: { orders: [bulk("o1")] } })
+    db.failSelect = (t) => (t === "mtn_strict_holds" ? ({ code: "PGRST205", message: "not in schema cache" } as any) : null)
+    await runAutoFulfil(db as any, NOW)
+    expect(autoQueued(db)).toEqual(["o1"])
+  })
+})

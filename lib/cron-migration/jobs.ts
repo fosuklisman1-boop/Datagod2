@@ -75,6 +75,7 @@ const C_EXACT = new Set(
     "reconcile-paystack-refunds",
     "expire-stale-bot-orders",
     "hubtel-payments-sweep", // confirms + fulfils Hubtel collections; overlap-safe via the atomic claim (0152)
+    "mtn-strict-recheck", // releases/expires strict MTN holds; overlap-safe: only the guarded held_registration claim winner dispatches
   ].map((n) => P + n),
 )
 
