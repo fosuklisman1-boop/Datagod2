@@ -43,8 +43,12 @@ A supplier receives an MTN order only if that same supplier has approved that nu
    Needs action for a person (no automatic refund). Admins are told once when it moves.
 7. First-time numbers (Hubnet answers "queued" first, decides ~2 minutes later): send to another supplier that has
    already approved the number; otherwise hold and re-check in a few minutes. Never block the sender waiting.
-8. Live checkout stays exactly as it is (blocks only when every checkout supplier rejects; any one yes or no answer
-   lets the customer pay). It additionally saves each definite per-supplier answer for the send step.
+8. Live checkout asks EVERY selected checkout supplier. The first yes lets the customer proceed immediately (no wait
+   for the others), but the remaining suppliers are still asked in the background (after the response) and every
+   definite answer is saved per supplier for the send step. Blocking is unchanged: blocked only when every supplier
+   that answered says no; no answer never blocks. Background checks respect the Hubnet cooldown and skip a supplier
+   whose saved answer is still fresh (yes < 30 days, no < 24 h). If a send happens before a background answer is
+   saved, the send step asks that supplier itself.
 
 ## Calls made while writing (owner may override)
 
