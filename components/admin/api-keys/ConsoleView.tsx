@@ -1,7 +1,9 @@
 "use client"
 
-import { useState } from "react"
-import { KeyRound, RefreshCw, ScrollText } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { Inbox, KeyRound, RefreshCw, ScrollText } from "lucide-react"
+import { initialConsoleTab, type ConsoleTab } from "@/lib/api-v2/console-tabs"
+import { ApprovalsPanel, useApprovalCount } from "./approvals/ApprovalsPanel"
 import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { cn } from "@/lib/utils"
 import { statusCounts, type ConsoleKey } from "@/lib/api-v2/admin-view"
@@ -40,8 +42,21 @@ export interface ConsoleViewProps {
 }
 
 export function ConsoleView(p: ConsoleViewProps) {
-  const [tab, setTab] = useState<"keys" | "logs">(p.preview?.tab ?? "keys")
+  const [tab, setTab] = useState<ConsoleTab>(p.preview?.tab ?? "keys")
   const pending = statusCounts(p.keys).pending
+  const approvals = useApprovalCount()
+  // The first tab: ?tab= (e.g. from an alert link), else Approvals while anything waits. Chosen once.
+  const chosen = useRef(Boolean(p.preview?.tab))
+  useEffect(() => {
+    if (chosen.current || approvals.count === null) return
+    chosen.current = true
+    const requested = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("tab")
+    setTab(initialConsoleTab({ requested, waiting: approvals.count }))
+  }, [approvals.count])
+  const pickTab = (t: ConsoleTab) => {
+    chosen.current = true
+    setTab(t)
+  }
   const sourceErrors = [
     p.errors.v2 && `v2 keys could not be loaded: ${p.errors.v2}`,
     p.errors.v1 && `Legacy v1 keys could not be loaded: ${p.errors.v1}`,
@@ -76,12 +91,24 @@ export function ConsoleView(p: ConsoleViewProps) {
 
       <StuckV2Panel />
 
-      <Segmented<"keys" | "logs">
+      <Segmented<ConsoleTab>
         label="Console section"
         value={tab}
-        onChange={setTab}
+        onChange={pickTab}
         className="w-full sm:w-auto"
         options={[
+          {
+            value: "approvals",
+            label: (
+              <>
+                <Inbox className="size-4" aria-hidden />
+                Approvals
+                {(approvals.count ?? 0) > 0 && (
+                  <span className="rounded-full bg-amber-500 px-1.5 text-[11px] font-bold leading-5 text-white">{approvals.count}</span>
+                )}
+              </>
+            ),
+          },
           {
             value: "keys",
             label: (
@@ -106,7 +133,9 @@ export function ConsoleView(p: ConsoleViewProps) {
         ]}
       />
 
-      {tab === "keys" ? (
+      {tab === "approvals" ? (
+        <ApprovalsPanel onChanged={() => { void approvals.refresh(); void p.refresh() }} />
+      ) : tab === "keys" ? (
         <KeyList
           keys={p.keys}
           busy={p.busy}
