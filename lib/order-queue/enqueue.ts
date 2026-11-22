@@ -33,6 +33,8 @@ export type EnqueueResult =
   | { status: 200; body: { batchId: string; queued: string[]; rejected: { id: string; reason: SendRejectReason }[]; risky: string[] } }
   | { status: 400; body: { error: "risky_ack_mismatch"; expected: number } }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 export function isKnownSupplier(name: string): boolean {
   return allSuppliers().some((s) => s.value === name)
 }
@@ -48,9 +50,11 @@ export function parseEnqueueBody(body: unknown): { ok: true; value: EnqueueReque
   for (const o of orders) {
     const id = (o as any)?.id
     const type = (o as any)?.type
-    if (typeof id !== "string" || id.trim() === "" || id.length > 100) return { ok: false, error: "each order needs an id" }
+    // Every order table's id is a uuid. Anything else would 500 the batch (22P02) or, with `"`/`,`,
+    // could alter the PostgREST in.(...) list, so it is refused before any read.
+    if (typeof id !== "string" || !UUID_RE.test(id)) return { ok: false, error: "invalid_order_id" }
     if (!ORDER_TYPES.includes(type)) return { ok: false, error: "each order needs a valid type" }
-    parsed.push({ id: id.trim(), type })
+    parsed.push({ id: id.toLowerCase(), type })
   }
 
   let provider: string | null = null
@@ -133,6 +137,10 @@ export async function runEnqueue(db: SupabaseClient, req: EnqueueRequest, adminI
     const { table, statusCol } = ORDER_TABLES[o.type]
     let released = false
     if (v.kind === "risky") {
+      // Known window: the order was judged from the snapshot above, and there is no cross-table transaction
+      // between that read and this release, so a held order's supplier state could change in between. The guard
+      // below only re-checks the order status. This is covered operationally by the typed confirmation ("I checked
+      // these at the supplier") and the hard pin to the admin's chosen supplier.
       const { data, error } = await db
         .from(table)
         .update({ [statusCol]: "pending" })
@@ -158,8 +166,10 @@ export async function runEnqueue(db: SupabaseClient, req: EnqueueRequest, adminI
       const reason = insErr.code === "23505" ? "already_queued" : "insert_failed"
       if (reason === "insert_failed") console.error(`[ENQUEUE] queue insert failed for order ${o.id}: ${insErr.message}`)
       rejected.push({ id: o.id, reason })
-      if (released) {
-        // Put the risky marker back so the order is not later mistaken for a plain pending one.
+      // On already_queued another request owns a live queue row for this order: leave it pending (reverting
+      // would leave a queued order non-pending). For any other failure, put the risky marker back so the
+      // order is not later mistaken for a plain pending one.
+      if (released && reason !== "already_queued") {
         const { error: revErr } = await db
           .from(table)
           .update({ [statusCol]: snap!.status })
