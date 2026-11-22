@@ -40,6 +40,8 @@ export interface MTNOrderResponse {
   provider_cost_ghs?: number
   /** The provider's own reference for the order. Only some providers report it. */
   provider_reference?: string
+  /** Strict supplier verification: why no supplier approved (error_type STRICT_HOLD). */
+  strictHoldReason?: "rejected" | "unanswered"
 }
 
 export interface DataKazinaWebhookPayload {
@@ -421,122 +423,44 @@ async function createMTNOrderUnguarded(order: MTNOrderRequest): Promise<MTNOrder
     if (order.provider && !hasValidOverride) {
       console.warn(`[MTN] Invalid explicit provider override "${order.provider}" — not MTN-capable, falling back to admin-configured default`)
     }
-    let provider = hasValidOverride
+    // Strict per-supplier verification (switch off by default): a supplier may
+    // only receive an order it has itself approved. Placed after the
+    // registration gate. An admin pin (a valid MTN override) is never re-routed;
+    // an invalid override was already treated as unpinned above. Read errors in
+    // the switch resolve to ON, so a failed read never sends an unchecked number.
+    {
+      const { isStrictVerifyOn } = await import("@/lib/strict-verify/settings")
+      if (await isStrictVerifyOn(supabase as any)) {
+        const { strictSend, buildCandidates, GATE_BUDGET_MS } = await import("@/lib/strict-verify/send")
+        const { getFreshVerdicts, saveVerdicts } = await import("@/lib/strict-verify/verdicts")
+        const { askSupplier } = await import("@/lib/strict-verify/ask")
+        const { candidates, disabled } = await buildCandidates(supabase as any, hasValidOverride ? order.provider : undefined)
+        return await strictSend(order, {
+          candidates,
+          pinned: hasValidOverride,
+          disabled,
+          fresh: (phone, suppliers) => getFreshVerdicts(supabase as any, phone, suppliers, new Date()),
+          ask: (supplier, phone) => askSupplier(supplier, phone),
+          save: (rows) => saveVerdicts(supabase as any, rows, new Date()),
+          send: async (supplier, o) => {
+            console.log(`[MTN] Creating order with provider: ${supplier}`)
+            return getProviderByName(supplier as MTNProviderName).createOrder(o)
+          },
+          budgetMs: GATE_BUDGET_MS,
+        })
+      }
+    }
+
+    const provider = hasValidOverride
       ? getProviderByName(order.provider as MTNProviderName)
       : await getMTNProvider()
 
-    // Whitelist pre-check: try all configured whitelist providers in order
-    // (active provider first, then the rest). Gated by admin toggle
-    // (mtn_whitelist_enabled) so the feature can be turned off without
-    // removing API keys. Fails open so API outages never block orders.
-    //
-    // Only runs when the active provider itself participates in whitelisting
-    // (has an entry in WHITELIST_REGISTRY). Providers like sykes/datakazina
-    // have no whitelist of their own and never consult one to fulfill — gating
-    // them on whether some OTHER, unrelated provider's database happens to
-    // recognize the number would wrongly block orders for numbers that are
-    // already registered (mtn_number_registry.status), just never submitted
-    // to Xpress/CodeCraft/AgentPortalGH/ApexPrime specifically.
-    let whitelistBlocked = false
-    try {
-      const { hasWhitelistProviders, checkWhitelistForOrder, isWhitelistProvider } = await import("@/lib/mtn-providers/provider-whitelist")
-      const { data: wlSetting } = await supabase
-        .from("admin_settings")
-        .select("value")
-        .eq("key", "mtn_whitelist_enabled")
-        .maybeSingle()
-      const whitelistEnabled = wlSetting?.value?.enabled !== false // default ON
-      if (whitelistEnabled && hasWhitelistProviders() && isWhitelistProvider(provider.name)) {
-        const { normalizeGhanaPhone } = await import("@/lib/phone-format")
-        const norm = normalizeGhanaPhone(order.recipient_phone) ?? order.recipient_phone
-        const { allowed, provider: allowedBy } = await checkWhitelistForOrder(norm, provider.name)
-
-        if (!allowed) {
-          await supabase.from("mtn_number_registry").upsert(
-            {
-              phone: norm,
-              source: "whitelist_check",
-              whitelist_status: "blocked",
-              whitelist_last_checked: new Date().toISOString(),
-              whitelist_retry_count: 0,
-              whitelist_allowed_by: null,
-            },
-            { onConflict: "phone" }
-          )
-          console.log(`[MTN-WHITELIST] HOLD — ${norm} blocked by all whitelist providers`)
-          whitelistBlocked = true
-        } else {
-          // Allowed — record which provider approved and switch to it if needed
-          await supabase.from("mtn_number_registry").upsert(
-            {
-              phone: norm,
-              source: "whitelist_check",
-              whitelist_status: "allowed",
-              whitelist_last_checked: new Date().toISOString(),
-              whitelist_allowed_by: allowedBy,
-            },
-            { onConflict: "phone" }
-          )
-          if (allowedBy && allowedBy !== provider.name) {
-            // A provider can confirm a number is real without being trusted to
-            // grab the order for itself — mtn_disabled_providers is an all-or-
-            // nothing kill switch (also removes it from checking), so this is a
-            // second, independent gate on just the auto-switch. Missing setting
-            // defaults to allowing every provider to switch, preserving the
-            // pre-existing behavior until an admin narrows it down.
-            const { data: switchSetting } = await supabase
-              .from("admin_settings")
-              .select("value")
-              .eq("key", "mtn_whitelist_switch_providers")
-              .maybeSingle()
-            const switchAllowed = Array.isArray(switchSetting?.value?.providers)
-              ? switchSetting.value.providers.includes(allowedBy)
-              : true
-            if (switchAllowed) {
-              provider = getProviderByName(allowedBy as any)
-              console.log(`[MTN-WHITELIST] Switched fulfillment to ${allowedBy} (approved by that provider)`)
-            } else {
-              console.log(`[MTN-WHITELIST] ${allowedBy} approved the number but is not switch-eligible — keeping ${provider.name} as fulfiller`)
-            }
-          }
-        }
-      }
-    } catch (wlErr) {
-      console.error("[MTN-WHITELIST] Check failed — failing open:", wlErr)
-    }
-
-    // Primary attempt. A whitelist block on the AUTO-selected path skips the
-    // attempt entirely and falls straight into the retry sequence below — a
-    // provider outside the whitelist registry may still be able to serve the
-    // number. An explicit admin pick (order.provider) is different: the admin
-    // already chose this specific provider, so a whitelist "not recognized"
-    // pre-check no longer pre-emptively holds it — the order is actually
-    // attempted, and the provider's own API decides success/failure. Holding a
-    // manual pick on a whitelist guess (rather than a real attempt) was the
-    // exact bug behind orders cycling in held_registration indefinitely.
-    let response: MTNOrderResponse
-    if (whitelistBlocked && !order.provider) {
-      response = {
-        success: false,
-        held: true,
-        message: "Number not yet enabled for data delivery — order held, retrying every 24h",
-        traceId: order.traceId,
-        error_type: "WHITELIST_BLOCKED",
-      }
-    } else {
-      if (whitelistBlocked) {
-        console.log(`[MTN] Whitelist check didn't recognize this number, but "${provider.name}" was explicitly picked — attempting anyway`)
-      }
-      console.log(`[MTN] Creating order with provider: ${provider.name}`)
-      const primaryResult = await provider.createOrder(order)
-      response = { ...primaryResult, provider: provider.name }
-    }
+    console.log(`[MTN] Creating order with provider: ${provider.name}`)
+    const primaryResult = await provider.createOrder(order)
+    let response: MTNOrderResponse = { ...primaryResult, provider: provider.name }
 
     // Retry sequence: admin-configured ordered list of providers to try after the
-    // primary fails or is skipped (whitelist block). Bypasses the gate/whitelist
-    // checks above for each subsequent provider — those checks are per-provider
-    // (e.g. CodeCraft's whitelist), and a provider outside that registry can still
-    // fulfil the order directly. Registration holds (NUMBER_NOT_REGISTERED) never
+    // primary fails. Registration holds (NUMBER_NOT_REGISTERED) never
     // reach here — that's a global MTN-network constraint no provider can bypass.
     //
     // Skipped entirely when order.provider was explicitly set (an admin's manual
@@ -573,18 +497,6 @@ async function createMTNOrderUnguarded(order: MTNOrderRequest): Promise<MTNOrder
           break
         }
         console.log(`[MTN] Retry-sequence provider "${nextName}" also failed: ${response.message}`)
-      }
-      // All retry-sequence providers failed (or none configured) after a whitelist
-      // block — restore the held/WHITELIST_BLOCKED response so the order re-enters
-      // the 24h whitelist-retry cron instead of being treated as an ordinary failure.
-      if (whitelistBlocked && !response.success && response.error_type !== "OUTCOME_UNKNOWN") {
-        response = {
-          success: false,
-          held: true,
-          message: "Number not yet enabled for data delivery — order held, retrying every 24h",
-          traceId: order.traceId,
-          error_type: "WHITELIST_BLOCKED",
-        }
       }
     } else if (!response.success && order.provider) {
       console.log(`[MTN] "${provider.name}" attempt failed (${response.message}) — explicit provider pin, not falling through to retry sequence`)
