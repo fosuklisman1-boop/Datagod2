@@ -26,17 +26,22 @@ const KEYWORD_RULES: Array<{ reason: FailureReason; keywords: string[] }> = [
   { reason: "wrong_number", keywords: ["phone does not match", "phone number does not match"] },
 ];
 
+/** Keyword rules only: the matching reason, or null when no keyword matches. */
+export function classifyMessage(message: string | null): FailureReason | null {
+  const msg = (message ?? "").toLowerCase();
+  for (const rule of KEYWORD_RULES) {
+    if (rule.keywords.some((k) => msg.includes(k))) return rule.reason;
+  }
+  return null;
+}
+
 export function classifyFailureReason(a: FailureAttempt | null): FailureReason {
   if (!a) return "none";
   if (a.status === "abandoned" || (a.mtnOrderId ?? "").startsWith("UNKNOWN_")) {
     return "outcome_unknown";
   }
   if (a.status !== "failed") return "none";
-  const msg = (a.message ?? "").toLowerCase();
-  for (const rule of KEYWORD_RULES) {
-    if (rule.keywords.some((k) => msg.includes(k))) return rule.reason;
-  }
-  return "rejected";
+  return classifyMessage(a.message) ?? "rejected";
 }
 
 export const FAILURE_REASON_LABELS: Record<FailureReason, string> = {
