@@ -50,6 +50,13 @@ A supplier receives an MTN order only if that same supplier has approved that nu
    whose saved answer is still fresh (yes < 30 days, no < 24 h). If a send happens before a background answer is
    saved, the send step asks that supplier itself. (Call: the background "ask the rest" runs only while the strict
    switch is on; with it off, checkout is exactly today's.)
+9. Admin "Send to supplier" (Order Payment Status): each order is sent only if the picked supplier approved that
+   number; otherwise it stays pending with "<Supplier> hasn't approved this number" or "<Supplier> couldn't check
+   this number right now", shown per order in the send results; never moved to another supplier. Before confirming,
+   the Send dialog shows the picked supplier's SAVED answers for the selected numbers (approved / not approved / not
+   checked yet; no new checks while previewing), and the admin can deselect orders or pick another supplier. The
+   send itself still runs the full check. The preview appears only while the strict switch is on; the API returns
+   counts and per-order status only (the admin can already see the phones on that page).
 
 ## Calls made while writing (owner may override)
 
