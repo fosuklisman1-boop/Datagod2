@@ -103,6 +103,12 @@ BEGIN
    WHERE order_id LIKE 'selftest-0193-%' AND status = 'processing' AND attempt_count = 1 AND last_attempted_at IS NOT NULL;
   IF v_n <> 15 THEN RAISE EXCEPTION 'FAIL claim: % rows processing with attempt_count 1, want 15', v_n; END IF;
 
+  -- hardening: queue_id index exists, both new functions pin search_path ----------------------------------------------
+  IF to_regclass('public.auto_fulfil_attempts_queue_id') IS NULL THEN RAISE EXCEPTION 'FAIL index: auto_fulfil_attempts_queue_id missing'; END IF;
+  SELECT count(*) INTO v_n FROM pg_proc
+   WHERE proname IN ('auto_fulfil_candidates', 'claim_fulfillment_queue_split') AND proconfig::text LIKE '%search_path=public%';
+  IF v_n <> 2 THEN RAISE EXCEPTION 'FAIL search_path: % of 2 functions pin it', v_n; END IF;
+
   -- grants: closed to anon/authenticated, open to service_role --------------------------------------------------------
   IF has_table_privilege('anon', 'public.auto_fulfil_runs', 'SELECT')
      OR has_table_privilege('authenticated', 'public.auto_fulfil_attempts', 'SELECT')

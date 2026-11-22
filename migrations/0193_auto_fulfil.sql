@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS auto_fulfil_attempts (
   finished_at timestamptz
 );
 CREATE INDEX IF NOT EXISTS auto_fulfil_attempts_order_created ON auto_fulfil_attempts (order_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS auto_fulfil_attempts_queue_id ON auto_fulfil_attempts (queue_id);
 
 CREATE TABLE IF NOT EXISTS auto_fulfil_settings_log (
   id         uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -82,6 +83,7 @@ STABLE
 SECURITY INVOKER
 SET statement_timeout = '20s'
 SET timezone = 'UTC'
+SET search_path = public
 AS $$
   WITH recent_queue AS MATERIALIZED (
     SELECT q.order_id::text AS order_id
@@ -122,6 +124,7 @@ $$;
 CREATE OR REPLACE FUNCTION claim_fulfillment_queue_split(p_limit int, p_auto_limit int)
 RETURNS SETOF fulfillment_queue
 LANGUAGE sql
+SET search_path = public
 AS $$
   WITH admin_rows AS (
     SELECT id FROM fulfillment_queue

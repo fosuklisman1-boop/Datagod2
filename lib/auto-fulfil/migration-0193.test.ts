@@ -137,6 +137,19 @@ describe.skipIf(!PGliteCtor)("0193 in PGlite", () => {
     return db
   }
 
+  it("S4: attempts have a queue_id index and both new functions pin search_path = public", async () => {
+    const db = await makeDb()
+    const idx = (await db.query(`SELECT indexdef FROM pg_indexes WHERE tablename = 'auto_fulfil_attempts' AND indexname = 'auto_fulfil_attempts_queue_id'`)).rows
+    expect(idx).toHaveLength(1)
+    expect(idx[0].indexdef).toContain("(queue_id)")
+    const cfg = (await db.query(
+      `SELECT proname, proconfig FROM pg_proc WHERE proname IN ('auto_fulfil_candidates', 'claim_fulfillment_queue_split') ORDER BY proname`)).rows
+    expect(cfg).toHaveLength(2)
+    for (const r of cfg) expect(r.proconfig).toContain("search_path=public")
+    // applying twice is harmless (idempotent)
+    await db.exec(migration())
+  }, 60_000)
+
   it("the self-rolling-back run string reports SELFTEST_OK and leaves nothing behind", async () => {
     const db = await bareDb()
     await db.exec(SEED_USER)   // the selftest borrows an existing auth-linked user, as on prod
