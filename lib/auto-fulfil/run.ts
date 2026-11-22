@@ -10,7 +10,7 @@ import { loadAutoFulfilSettings, type AutoFulfilSettings } from "./settings"
 
 export type RunSummary = {
   ran: boolean
-  reason?: "off" | "invalid_settings"
+  reason?: "off" | "invalid_settings" | "busy"
   runId?: string
   queued: number
   waiting: number
@@ -23,6 +23,10 @@ const SCAN = 300
 const CHUNK = 100
 const PAGE = 1000
 const SUMMARY_EVERY_MINUTES = 60
+/** An unfinished run younger than this blocks a new one; an older one is treated as crashed. */
+const BUSY_WINDOW_MINUTES = 2
+/** fulfillment_logs statuses meaning the order may be with (or delivered by) the supplier. */
+const LIVE_LOG_STATUSES = ["success", "pending", "processing"]
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const TAG = "[AUTO-FULFIL]"
 
@@ -100,12 +104,22 @@ function judge(o: OrderSnapshot | null): Verdict {
   return judgeOrder(o, capable)
 }
 
-type History = { heldOrReversed: Set<string>; events: Map<string, FailureEvent[]>; autoTries: Map<string, number> }
+type History = {
+  heldOrReversed: Set<string>
+  /** Orders with a fulfillment_logs row in success/pending/processing: treated as a live attempt. */
+  liveLog: Set<string>
+  events: Map<string, FailureEvent[]>
+  autoTries: Map<string, number>
+}
 
-/** Tracking rows, failed queue rows and automatic attempts for the candidates. Ids only; throws on any read error. */
+/**
+ * Tracking rows, fulfillment_logs rows, failed queue rows and automatic attempts for the candidates.
+ * Ids only; throws on any read error.
+ */
 async function readHistory(db: SupabaseClient, ids: string[]): Promise<History> {
   const idSet = new Set(ids)
   const heldOrReversed = new Set<string>()
+  const liveLog = new Set<string>()
   const events = new Map<string, FailureEvent[]>()
   const autoTries = new Map<string, number>()
   const push = (id: string, e: FailureEvent) => events.set(id, [...(events.get(id) ?? []), e])
@@ -148,6 +162,30 @@ async function readHistory(db: SupabaseClient, ids: string[]): Promise<History> 
     }
   }
 
+  // 1b. fulfillment_logs (CodeCraft non-MTN; uuid columns order_id / api_order_id). A live or delivered row blocks the
+  //     order; a failed row is a failure event classified by the queue keyword rules (unknown text => a person).
+  const seenLog = new Set<string>()
+  for (const col of ["order_id", "api_order_id"]) {
+    for (const chunk of chunks(uuidIds)) {
+      const rows = await readAll(
+        () => db.from("fulfillment_logs").select("id, order_id, api_order_id, status, error_message, updated_at").in(col, chunk),
+        "fulfillment_logs",
+      )
+      for (const l of rows) {
+        const orderId = String(l[col] ?? "")
+        if (!idSet.has(orderId)) continue
+        const key = `${l.id}|${orderId}`
+        if (seenLog.has(key)) continue
+        seenLog.add(key)
+        const status = String(l.status ?? "").toLowerCase()
+        if (LIVE_LOG_STATUSES.includes(status)) liveLog.add(orderId)
+        else if (status === "failed") {
+          push(orderId, { at: asUtc(l.updated_at), source: "queue", status: "failed", mtnOrderId: null, message: l.error_message ?? null })
+        }
+      }
+    }
+  }
+
   // 2. Failed queue rows, any source (latestFailure ignores the drain's own non-send messages).
   for (const chunk of chunks(ids)) {
     const rows = await readAll(
@@ -183,7 +221,23 @@ async function readHistory(db: SupabaseClient, ids: string[]): Promise<History> 
     }
   }
 
-  return { heldOrReversed, events, autoTries }
+  return { heldOrReversed, liveLog, events, autoTries }
+}
+
+/** Bulk/shop candidates whose order row has queue = 'blacklisted' (only orders and shop_orders have the column). */
+async function readBlacklistedQueue(db: SupabaseClient, candidates: Candidate[]): Promise<Set<string>> {
+  const out = new Set<string>()
+  for (const { type, table } of [
+    { type: "bulk", table: "orders" },
+    { type: "shop", table: "shop_orders" },
+  ] as const) {
+    const ids = candidates.filter((c) => c.type === type).map((c) => c.id)
+    for (const chunk of chunks(ids)) {
+      const rows = await readAll(() => db.from(table).select("id, queue").in("id", chunk), `${table} queue flag`)
+      for (const r of rows) if (r.queue === "blacklisted") out.add(String(r.id))
+    }
+  }
+  return out
 }
 
 function parseCandidates(data: unknown): Candidate[] {
@@ -212,6 +266,20 @@ export async function runAutoFulfil(db: SupabaseClient, now: Date = new Date()):
     return { ran: false, reason: valid ? "off" : "invalid_settings", queued: 0, waiting: 0, needsYou: 0, skipped: {}, cancelled }
   }
 
+  // Single flight: another run that started recently and has not finished owns this tick. Older unfinished rows
+  // are crashed runs and do not block. Read error => throw (no run without knowing).
+  const busySince = new Date(now.getTime() - BUSY_WINDOW_MINUTES * 60_000).toISOString()
+  const { data: liveRuns, error: busyErr } = await db
+    .from("auto_fulfil_runs")
+    .select("id")
+    .is("finished_at", null)
+    .gte("started_at", busySince)
+    .limit(1)
+  if (busyErr) throw new Error(`auto-fulfil: run check failed: ${busyErr.message}`)
+  if ((liveRuns ?? []).length > 0) {
+    return { ran: false, reason: "busy", queued: 0, waiting: 0, needsYou: 0, skipped: {}, cancelled: 0 }
+  }
+
   const switches = await readSwitches(db)
   const startedAt = now.toISOString()
   const { data: runRow, error: runErr } = await db.from("auto_fulfil_runs").insert({ started_at: startedAt }).select("id").single()
@@ -236,10 +304,17 @@ export async function runAutoFulfil(db: SupabaseClient, now: Date = new Date()):
     const snaps = await loadSnapshots(db, candidates.map((c) => ({ id: c.id, type: c.type })))
     const history = await readHistory(db, candidates.map((c) => c.id))
     const blacklisted = await findBlacklistedPhones(candidates.map((c) => c.phone), db)
+    const blacklistedQueue = await readBlacklistedQueue(db, candidates)
 
     // 2. Decide (pure).
     for (const c of candidates) {
-      const snap = snaps.get(c.id) ?? null
+      if (blacklistedQueue.has(c.id)) {
+        skip("blacklisted_queue")
+        continue
+      }
+      const raw = snaps.get(c.id) ?? null
+      // A live/delivered fulfillment_logs row is a live attempt: judgeOrder then blocks it as live_at_supplier.
+      const snap = raw && history.liveLog.has(c.id) ? { ...raw, hasLiveAttempt: true } : raw
       const decision: Decision = decideCandidate(
         {
           verdict: judge(snap),
@@ -259,7 +334,7 @@ export async function runAutoFulfil(db: SupabaseClient, now: Date = new Date()):
     }
   } catch (e) {
     const message = scrubDigits(e instanceof Error ? e.message : String(e)).slice(0, 500)
-    const { error: upErr } = await db.from("auto_fulfil_runs").update({ error: message, finished_at: now.toISOString() }).eq("id", runId)
+    const { error: upErr } = await db.from("auto_fulfil_runs").update({ error: message, finished_at: new Date().toISOString() }).eq("id", runId)
     if (upErr) console.error(`${TAG} run ${runId}: could not record the error`)
     throw e
   }
@@ -307,7 +382,7 @@ export async function runAutoFulfil(db: SupabaseClient, now: Date = new Date()):
       waiting: summary.waiting,
       needs_you: summary.needsYou,
       skipped: summary.skipped,
-      finished_at: now.toISOString(),
+      finished_at: new Date().toISOString(),
     })
     .eq("id", runId)
   if (finErr) console.error(`${TAG} run ${runId}: could not record the counts`)

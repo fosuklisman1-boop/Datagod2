@@ -4,11 +4,11 @@
 // Supports: from(t).select(cols).in/eq/order/range (awaitable), update(v).eq/in/select (awaitable),
 // insert(row) (awaitable, or .select(cols).single() to get the row back with a generated id when it has none),
 // delete().eq/in (awaitable), rpc(name, args) via `rpcs`. Select also supports gte (ISO strings compare as text),
-// limit(n) and maybeSingle().
+// is(col, null), limit(n) and maybeSingle().
 // fulfillment_queue enforces the 0191 partial unique index (23505).
 
 type Row = Record<string, any>
-type Filter = { op: "in" | "eq" | "gte"; col: string; val: any }
+type Filter = { op: "in" | "eq" | "gte" | "is"; col: string; val: any }
 
 export type Call = {
   table: string
@@ -42,6 +42,7 @@ function matches(row: Row, filters: Filter[]) {
   return filters.every((f) => {
     if (f.op === "eq") return row[f.col] === f.val
     if (f.op === "gte") return row[f.col] != null && String(row[f.col]) >= String(f.val)
+    if (f.op === "is") return (row[f.col] ?? null) === f.val
     return (f.val as any[]).includes(row[f.col])
   })
 }
@@ -74,6 +75,10 @@ export function makeFakeDb(tables: Record<string, Row[]> = {}): FakeDb {
             },
             gte(col: string, val: any) {
               call.filters.push({ op: "gte", col, val })
+              return q
+            },
+            is(col: string, val: any) {
+              call.filters.push({ op: "is", col, val })
               return q
             },
             order(col: string) {

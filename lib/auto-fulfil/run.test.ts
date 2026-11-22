@@ -158,8 +158,164 @@ describe("runAutoFulfil", () => {
     expect(rpc.values).toEqual({ p_min_age_minutes: 10, p_max_age_days: 7, p_networks: DEFAULT_AUTO_FULFIL_SETTINGS.networks, p_scan: 300 })
 
     const run = db.tables.auto_fulfil_runs[0]
-    expect(run).toMatchObject({ id: runId, queued: 2, waiting: 0, needs_you: 0, skipped: { per_run_limit: 1 }, finished_at: NOW.toISOString() })
+    expect(run).toMatchObject({ id: runId, started_at: NOW.toISOString(), queued: 2, waiting: 0, needs_you: 0, skipped: { per_run_limit: 1 } })
     expect(run.error ?? null).toBeNull()
+  })
+
+  it("finished_at is the real clock at the end of the run, not the injected now", async () => {
+    const db = world({ settings: on(), ...ALL_ON, candidates: [cand("o1", 60)], tables: { orders: [bulk("o1")] } })
+    const before = Date.now()
+    await runAutoFulfil(db as any, NOW)
+    const run = db.tables.auto_fulfil_runs[0]
+    expect(run.started_at).toBe(NOW.toISOString())
+    expect(Date.parse(run.finished_at)).toBeGreaterThanOrEqual(before)
+    expect(Date.parse(run.finished_at)).toBeLessThanOrEqual(Date.now())
+  })
+
+  it("single flight: an unfinished run started within 2 minutes => busy, nothing written", async () => {
+    const db = world({
+      settings: on(),
+      ...ALL_ON,
+      candidates: [cand("o1", 60)],
+      tables: { orders: [bulk("o1")], auto_fulfil_runs: [{ id: "live", started_at: ago(1), finished_at: null, summary_sent: false }] },
+    })
+    const s = await runAutoFulfil(db as any, NOW)
+    expect(s).toEqual({ ran: false, reason: "busy", queued: 0, waiting: 0, needsYou: 0, skipped: {}, cancelled: 0 })
+    expect(db.tables.auto_fulfil_runs).toHaveLength(1)
+    expect(db.calls.some((c) => c.kind === "rpc")).toBe(false)
+    expect(db.calls.some((c) => c.kind === "insert" || c.kind === "update" || c.kind === "delete")).toBe(false)
+    expect(queueRows(db)).toHaveLength(0)
+  })
+
+  it("single flight: a crashed run older than 2 minutes does not block", async () => {
+    const db = world({
+      settings: on(),
+      ...ALL_ON,
+      candidates: [cand("o1", 60)],
+      tables: { orders: [bulk("o1")], auto_fulfil_runs: [{ id: "dead", started_at: ago(5), finished_at: null, summary_sent: false }] },
+    })
+    const s = await runAutoFulfil(db as any, NOW)
+    expect(s.ran).toBe(true)
+    expect(autoQueued(db)).toEqual(["o1"])
+  })
+
+  it("bulk and shop orders with queue = 'blacklisted' are skipped as blacklisted_queue", async () => {
+    const SHOP_BL = "33333333-3333-4333-8333-333333333333"
+    const SHOP_OK = "44444444-4444-4444-8444-444444444444"
+    const db = world({
+      settings: on(),
+      ...ALL_ON,
+      candidates: [cand("bl", 60), cand("ok", 60), cand(SHOP_BL, 60, PHONE_B, "MTN", "shop"), cand(SHOP_OK, 60, PHONE_C, "MTN", "shop")],
+      tables: {
+        orders: [{ ...bulk("bl"), queue: "blacklisted" }, { ...bulk("ok"), queue: "default" }],
+        shop_orders: [
+          { id: SHOP_BL, order_status: "pending", network: "MTN", payment_status: "completed", queue: "blacklisted" },
+          { id: SHOP_OK, order_status: "pending", network: "MTN", payment_status: "completed", queue: null },
+        ],
+      },
+    })
+    const s = await runAutoFulfil(db as any, NOW)
+    expect(s.skipped).toEqual({ blacklisted_queue: 2 })
+    expect(autoQueued(db).sort()).toEqual(["ok", SHOP_OK].sort())
+  })
+
+  it("a queue-flag read error => fails closed (nothing queued)", async () => {
+    const db = world({ settings: on(), ...ALL_ON, candidates: [cand("o1", 60)], tables: { orders: [bulk("o1")] } })
+    let ordersReads = 0
+    // loadSnapshots reads orders first; fail the second read (the queue flag).
+    db.failSelect = (t) => (t === "orders" && ++ordersReads === 2 ? { message: "queue read failed" } : null)
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      await expect(runAutoFulfil(db as any, NOW)).rejects.toThrow()
+    } finally {
+      err.mockRestore()
+    }
+    expect(queueRows(db)).toHaveLength(0)
+  })
+
+  describe("fulfillment_logs history (CodeCraft non-MTN)", () => {
+    const U = (n: number) => `5555555${n}-5555-4555-8555-555555555555`
+    const naiveAgo = (mins: number) => ago(mins).replace("Z", "")
+    const log = (orderId: string, extra: Record<string, any>) => ({
+      id: `l-${orderId}-${Math.random()}`,
+      order_id: orderId,
+      api_order_id: null,
+      status: "failed",
+      error_message: null,
+      updated_at: naiveAgo(100),
+      created_at: naiveAgo(100),
+      ...extra,
+    })
+
+    it("success, pending or processing rows block (live at supplier); never queued", async () => {
+      const API = U(4)
+      const db = world({
+        settings: on(),
+        ...ALL_ON,
+        candidates: [
+          cand(U(1), 300, PHONE_A, "Telecel"),
+          cand(U(2), 300, PHONE_B, "Telecel"),
+          cand(U(3), 300, PHONE_C, "Telecel"),
+          cand(API, 300, PHONE_A, "Telecel", "api"),
+        ],
+        tables: {
+          orders: [bulk(U(1), "Telecel"), bulk(U(2), "Telecel"), bulk(U(3), "Telecel")],
+          api_orders: [{ id: API, status: "pending", network: "Telecel" }],
+          fulfillment_logs: [
+            log(U(1), { status: "success" }),
+            log(U(2), { status: "pending" }),
+            log(U(3), { status: "processing" }),
+            log("x", { order_id: null, api_order_id: API, status: "success" }),
+          ],
+        },
+      })
+      const s = await runAutoFulfil(db as any, NOW)
+      expect(s.skipped).toEqual({ live_at_supplier: 4 })
+      expect(queueRows(db)).toHaveLength(0)
+    })
+
+    it("a failed row with 'Insufficient balance' waits per out_of_balance (updated_at read as UTC)", async () => {
+      const db = world({
+        settings: on(),
+        ...ALL_ON,
+        candidates: [cand(U(1), 300, PHONE_A, "Telecel"), cand(U(2), 300, PHONE_B, "Telecel")],
+        tables: {
+          orders: [bulk(U(1), "Telecel"), bulk(U(2), "Telecel")],
+          fulfillment_logs: [
+            log(U(1), { error_message: "Insufficient balance", updated_at: naiveAgo(10) }), // 30 min wait not over
+            log(U(2), { error_message: "Insufficient balance", updated_at: naiveAgo(40) }), // wait over => retry
+          ],
+        },
+      })
+      const s = await runAutoFulfil(db as any, NOW)
+      expect(s.waiting).toBe(1)
+      expect(autoQueued(db)).toEqual([U(2)])
+    })
+
+    it("a failed row with unknown text => needs you", async () => {
+      const db = world({
+        settings: on(),
+        ...ALL_ON,
+        candidates: [cand(U(1), 300, PHONE_A, "Telecel")],
+        tables: { orders: [bulk(U(1), "Telecel")], fulfillment_logs: [log(U(1), { error_message: "weird gateway thing" })] },
+      })
+      const s = await runAutoFulfil(db as any, NOW)
+      expect(s.needsYou).toBe(1)
+      expect(queueRows(db)).toHaveLength(0)
+    })
+
+    it("a fulfillment_logs read error => fails closed", async () => {
+      const db = world({ settings: on(), ...ALL_ON, candidates: [cand(U(1), 300, PHONE_A, "Telecel")], tables: { orders: [bulk(U(1), "Telecel")] } })
+      db.failSelect = (t) => (t === "fulfillment_logs" ? { message: "logs read failed" } : null)
+      const err = vi.spyOn(console, "error").mockImplementation(() => {})
+      try {
+        await expect(runAutoFulfil(db as any, NOW)).rejects.toThrow()
+      } finally {
+        err.mockRestore()
+      }
+      expect(db.tables.auto_fulfil_runs[0].error).toMatch(/logs read failed/)
+      expect(queueRows(db)).toHaveLength(0)
+    })
   })
 
   it("23505 on insert => skipped.already_queued, no attempt row, run continues", async () => {
@@ -502,7 +658,7 @@ describe("runAutoFulfil", () => {
     }
     const run = db.tables.auto_fulfil_runs[0]
     expect(run.error).toMatch(/statement timeout/)
-    expect(run.finished_at).toBe(NOW.toISOString())
+    expect(Number.isNaN(Date.parse(run.finished_at))).toBe(false)
     expect(queueRows(db)).toHaveLength(0)
   })
 
