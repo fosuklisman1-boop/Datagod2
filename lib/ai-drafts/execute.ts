@@ -124,6 +124,11 @@ const fail = (code: string, extra: Record<string, unknown> = {}): RevalidateResu
 export async function revalidateDraft(db: SupabaseClient, draft: AiDraft): Promise<RevalidateResult> {
   const p = draft.params as Record<string, any>
 
+  // Execution of generic admin route drafts is not built yet: fail closed, send nothing.
+  if (draft.action === "admin_route_call") {
+    return fail("not_available", { message: "This action cannot be run from chat yet." })
+  }
+
   if (draft.action === "wallet_order") {
     // packageId ONLY: the stored network/size are display values and never used for lookup.
     const { data: pkg, error: pkgErr } = await db
@@ -224,6 +229,8 @@ export async function executeDraft(draft: AiDraft, call: ExecCall): Promise<Exec
     }
     case "bulk_status_update":
       return executeBulk(draft, p, call)
+    case "admin_route_call":
+      return { status: "failed", outcome: { code: "not_available" } }
     default:
       return { status: "failed", outcome: { code: "unsupported_action" } }
   }

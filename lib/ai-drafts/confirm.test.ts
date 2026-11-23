@@ -871,3 +871,19 @@ describe("final-review fixes", () => {
     expect((await revalidateDraft(fakeDb(baseTables()), d)).ok).toBe(true)
   })
 })
+
+describe("admin_route_call (execution not built yet)", () => {
+  it("fails closed with not_available and sends nothing", async () => {
+    const d = draftRow({
+      context: "admin",
+      action: "admin_route_call",
+      amount_ghs: null,
+      params: { entryId: "x", req: { method: "POST", path: "/api/admin/x", query: "", body: null } },
+    })
+    const db = fakeDb(baseTables({ ai_drafts: [d], users: [{ id: USER, role: "admin" }] }))
+    const fetchFn = vi.fn()
+    const out = await confirmDraft(db, DRAFT, caller(fetchFn, { isAdmin: true }))
+    expect(fetchFn).not.toHaveBeenCalled()
+    expect(out).toMatchObject({ status: "failed", outcome: { code: "not_available" } })
+  })
+})

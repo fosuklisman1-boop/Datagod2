@@ -37,7 +37,7 @@ export interface ConfirmCaller {
   timeoutMs?: number
 }
 
-const ADMIN_ACTIONS = new Set<string>(["wallet_adjustment", "withdrawal_action", "user_suspension", "role_change", "bulk_status_update"])
+const ADMIN_ACTIONS = new Set<string>(["wallet_adjustment", "withdrawal_action", "user_suspension", "role_change", "bulk_status_update", "admin_route_call"])
 
 /** The state to show for a stored draft row. A used succeeded/partial draft reads as already_done. */
 function toCardState(d: AiDraft): CardState {
