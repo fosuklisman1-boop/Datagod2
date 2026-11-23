@@ -46,7 +46,7 @@ interface Advice {
 const PREFIX = /^orders\[i\]:\s*/
 
 const DO_NOT_REORDER =
-  "Do not place the order again under a new reference. Poll the order by the same reference (its claim.state reports the outcome), or contact support quoting the reference."
+  "Do not place the order again under a new reference. Poll the order by the same reference (its claim.state reports the outcome), or contact support quoting the reference. For an SMS send, which has no lookup by reference: check GET /sms/campaigns and GET /sms/balance, never send again under a new reference, and contact support quoting the reference if it stays unclear."
 
 // 1. Advice by error code. A "CODE:status" key overrides the plain "CODE" key.
 const ERROR_ADVICE: Record<string, Advice> = {

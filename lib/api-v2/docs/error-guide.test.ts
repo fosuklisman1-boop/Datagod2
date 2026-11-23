@@ -140,3 +140,28 @@ describe("filterErrorGuide", () => {
     expect(filterErrorGuide(guide, "zzzz-no-such-thing")).toEqual([])
   })
 })
+
+describe("SMS unknown-outcome advice", () => {
+  const guide = buildErrorGuide(v2DocsRegistry)
+  const smsEntries = guide.filter(
+    (e) =>
+      (e.code === "OUTCOME_UNKNOWN" || e.code === "REQUEST_IN_PROGRESS") &&
+      e.endpoints.some((ep) => ep.path.startsWith("/sms/")),
+  )
+  it("covers 409 REQUEST_IN_PROGRESS, 409 OUTCOME_UNKNOWN and 500 OUTCOME_UNKNOWN", () => {
+    expect(smsEntries.map((e) => `${e.status}-${e.code}`).sort()).toEqual([
+      "409-OUTCOME_UNKNOWN",
+      "409-REQUEST_IN_PROGRESS",
+      "500-OUTCOME_UNKNOWN",
+    ])
+  })
+  it("tells SMS senders to check campaigns and balance, not to poll an order, and never to resend with a new reference", () => {
+    for (const e of smsEntries) {
+      expect(e.fix, e.anchor).toContain("GET /sms/campaigns")
+      expect(e.fix, e.anchor).toContain("GET /sms/balance")
+      expect(e.fix, e.anchor).toMatch(/no lookup by reference/i)
+      expect(e.fix, e.anchor).toMatch(/new reference/i)
+      expect(e.fix, e.anchor).toMatch(/contact support/i)
+    }
+  })
+})
