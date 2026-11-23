@@ -5,7 +5,7 @@
 -- and public status views). ADDITIVE; NOT applied by the implementing agent. One transaction. Idempotent (IF NOT EXISTS /
 -- OR REPLACE / ON CONFLICT DO NOTHING for the seeds). Nothing reads any of it yet, and no existing table or function is altered.
 --
---   api_v2_developer_pauses   user_id pk -> auth.users (cascade), paused_at, paused_by, reason (3-200). A row means "paused";
+--   api_v2_developer_pauses   user_id pk (no foreign key), paused_at, paused_by, reason (3-200). A row means "paused";
 --                             unpausing deletes the row and the audit row keeps the history (same shape as api_v2_access_grants).
 --   api_v2_service_controls   service pk (data, airtime, bills, bundles, results, afa, sms), paused, message (<= 200), updated_at,
 --                             updated_by. Seeded with the seven rows, paused = false, so applying this changes nothing.
@@ -39,7 +39,7 @@
 --                             an order with no cost row or no package counts as not costed. Raises 'from and to are required' and 'range too large'
 --                             (over 800 days); an empty or inverted range returns [].
 --   api_v2_public_health(p_since)                                     [{endpoint, total, failed}] for environment 'live' only (failed = status >= 500),
---                             no user, key or address field. p_since defaults to 24 hours.
+--                             no user, key or address field. p_since defaults to 24 hours and is capped at 7 days.
 -- Money rule everywhere (identical to 0131): an order counts when status NOT IN ('failed','refunded'), attributed by
 -- api_orders.api_v2_key_id IS NOT NULL. api_v2_admin_stats and api_v2_key_activity (0131) are reused unchanged.
 --
@@ -49,8 +49,9 @@
 -- LOCKS taken by this file (lock_timeout 2s bounds only the WAIT to acquire a lock, not how long it is held; every lock below is held
 -- until the transaction ends, which for the dry run includes the whole self-test). Statements are ordered so the one lock on a table
 -- other people use comes last:
---   auth.users          SHARE ROW EXCLUSIVE (creating api_v2_developer_pauses, whose user_id references it): blocks every auth.users write
---                       (sign-in, token and session refresh, signup) until the transaction ends. It is the LAST table created.
+--   auth.users          NO lock: api_v2_developer_pauses has no foreign key to auth.users (a foreign key would take SHARE ROW EXCLUSIVE and block
+--                       sign-in and token refresh until the transaction ends). api_v2_set_developer_pause checks public.users instead, and
+--                       a pause row for a user deleted later is harmless (it matches no request).
 --   Everything else (the new functions, api_v2_service_controls, api_v2_announcements, their seeds and grants) takes no lock that touches
 --   live traffic. NO ALTER of api_v2_keys, api_v2_logs, api_v2_config or api_orders, and no index on them.
 -- Apply in a quiet window, with the dry run measured first.
@@ -114,17 +115,13 @@ BEGIN
   IF p_paused THEN
     v_reason := regexp_replace(coalesce(p_reason, ''), '^\s+|\s+$', '', 'g');
     IF char_length(v_reason) < 3 OR char_length(v_reason) > 200
-       OR v_reason ~ '[\x01-\x1F\x7F-\x9F​-‏ -‮⁠-⁩﻿]' THEN
+       OR v_reason ~ '[\x01-\x1F\x7F-\x9F\xA0\xAD\u061C\u115F\u1160\u180E\u2000-\u200F\u2028-\u202E\u2060-\u2069\u3164\uFE00-\uFE0F\uFEFF\uFFA0]' THEN
       RETURN jsonb_build_object('ok', false, 'code', 'bad_reason');
     END IF;
-    BEGIN
-      INSERT INTO public.api_v2_developer_pauses (user_id, paused_by, reason)
-      VALUES (p_user, p_actor, v_reason)
-      ON CONFLICT (user_id) DO NOTHING;
-      GET DIAGNOSTICS v_n = ROW_COUNT;
-    EXCEPTION WHEN foreign_key_violation THEN
-      RETURN jsonb_build_object('ok', false, 'code', 'not_found');
-    END;
+    INSERT INTO public.api_v2_developer_pauses (user_id, paused_by, reason)
+    VALUES (p_user, p_actor, v_reason)
+    ON CONFLICT (user_id) DO NOTHING;
+    GET DIAGNOSTICS v_n = ROW_COUNT;
     IF v_n = 0 THEN
       RETURN jsonb_build_object('ok', true, 'changed', false, 'user_id', p_user, 'paused', true);
     END IF;
@@ -171,7 +168,7 @@ BEGIN
     IF v_msg = '' THEN
       v_msg := NULL;
     ELSIF char_length(v_msg) > 200
-       OR v_msg ~ '[\x01-\x1F\x7F-\x9F​-‏ -‮⁠-⁩﻿]' THEN
+       OR v_msg ~ '[\x01-\x1F\x7F-\x9F\xA0\xAD\u061C\u115F\u1160\u180E\u2000-\u200F\u2028-\u202E\u2060-\u2069\u3164\uFE00-\uFE0F\uFEFF\uFFA0]' THEN
       RETURN jsonb_build_object('ok', false, 'code', 'bad_message');
     END IF;
   ELSE
@@ -228,9 +225,9 @@ BEGIN
   v_body := regexp_replace(coalesce(p_body, ''), '^\s+|\s+$', '', 'g');
   -- title: one line, no control or bidi-override characters; body: the same but line breaks and tabs are allowed
   IF char_length(v_title) < 1 OR char_length(v_title) > 80
-     OR v_title ~ '[\x01-\x1F\x7F-\x9F​-‏ -‮⁠-⁩﻿]'
+     OR v_title ~ '[\x01-\x1F\x7F-\x9F\xA0\xAD\u061C\u115F\u1160\u180E\u2000-\u200F\u2028-\u202E\u2060-\u2069\u3164\uFE00-\uFE0F\uFEFF\uFFA0]'
      OR char_length(v_body) < 1 OR char_length(v_body) > 1000
-     OR v_body ~ '[\x01-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F​-‏ -‮⁠-⁩﻿]'
+     OR v_body ~ '[\x01-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F\xA0\xAD\u061C\u115F\u1160\u180E\u2000-\u200F\u2028-\u202E\u2060-\u2069\u3164\uFE00-\uFE0F\uFEFF\uFFA0]'
      OR p_severity IS NULL OR p_severity NOT IN ('info', 'warning', 'critical')
      OR p_starts IS NULL OR p_ends IS NULL OR p_ends <= p_starts THEN
     RETURN jsonb_build_object('ok', false, 'code', 'bad_input');
@@ -482,7 +479,8 @@ BEGIN
            'reference', t.api_reference, 'network', t.network, 'volume_gb', t.volume_gb, 'price', t.price,
            'status', t.status, 'created_at', t.created_at,
            'recipient_phone', CASE WHEN t.recipient_phone IS NULL THEN NULL
-                                   ELSE repeat('*', greatest(char_length(t.recipient_phone) - 4, 0)) || right(t.recipient_phone, 4) END
+                                   WHEN char_length(t.recipient_phone) <= 4 THEN repeat('*', char_length(t.recipient_phone))
+                                   ELSE repeat('*', char_length(t.recipient_phone) - 4) || right(t.recipient_phone, 4) END
          ) ORDER BY t.created_at DESC, t.id DESC), '[]'::jsonb)
     INTO v_orders
     FROM (SELECT o.* FROM public.api_orders o WHERE o.api_v2_key_id = ANY (v_keyids)
@@ -615,7 +613,7 @@ SET search_path = public, pg_temp
 SET statement_timeout = '20s'
 AS $fn$
 DECLARE
-  v_since timestamptz := greatest(coalesce(p_since, now() - interval '24 hours'), now() - interval '400 days');
+  v_since timestamptz := greatest(coalesce(p_since, now() - interval '24 hours'), now() - interval '7 days');
   v_r jsonb;
 BEGIN
   SELECT coalesce(jsonb_agg(jsonb_build_object('endpoint', s.endpoint, 'total', s.total, 'failed', s.failed)
@@ -637,7 +635,7 @@ $fn$;
 REVOKE ALL ON FUNCTION public.api_v2_public_health(timestamptz) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.api_v2_public_health(timestamptz) TO service_role;
 
--- ============ 2. new tables (the only foreign key, to auth.users, is created last: SHARE ROW EXCLUSIVE on auth.users until the end) ============
+-- ============ 2. new tables (no foreign keys at all, so no lock on any existing table) ============
 CREATE TABLE IF NOT EXISTS public.api_v2_service_controls (
   service text PRIMARY KEY CHECK (service IN ('data', 'airtime', 'bills', 'bundles', 'results', 'afa', 'sms')),
   paused boolean NOT NULL DEFAULT false,
@@ -666,7 +664,7 @@ VALUES ('data'), ('airtime'), ('bills'), ('bundles'), ('results'), ('afa'), ('sm
 ON CONFLICT (service) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS public.api_v2_developer_pauses (
-  user_id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  user_id uuid PRIMARY KEY, -- no foreign key (it would lock auth.users); api_v2_set_developer_pause checks public.users
   paused_at timestamptz NOT NULL DEFAULT now(),
   paused_by uuid NOT NULL,
   reason text NOT NULL CHECK (char_length(reason) BETWEEN 3 AND 200)

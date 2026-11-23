@@ -53,13 +53,15 @@ describe("0196 migration text", () => {
     expect(header).toMatch(/to_regclass\('public\.api_v2_developer_pauses'\)/)
     expect(header).toMatch(/to_regclass\('public\.api_v2_access_grants'\)[^\n]*NOT NULL/)
     expect(header).toMatch(/has_function_privilege\('authenticated'[^\n]*false[^\n]*true|false, true/)
-    expect(header).toMatch(/LOCKS[\s\S]*auth\.users[^\n]*SHARE ROW EXCLUSIVE/)
+    expect(header).toMatch(/LOCKS[\s\S]*auth\.users[^\n]*NO lock/i)
+    expect(header).not.toMatch(/SHARE ROW EXCLUSIVE \(creating/)
     expect(header).toMatch(/until the transaction ends/i)
     expect(header).toMatch(/quiet window/)
     expect(header).toMatch(/lock timeout[^\n]*(harmless|safe)[^\n]*retry/i)
     const c = code(m)
     expect(c).not.toMatch(/ALTER TABLE\s+(IF EXISTS\s+)?(ONLY\s+)?(public\.)?(api_v2_keys|api_v2_logs|api_v2_config|api_orders)\b/i)
-    // the auth.users foreign key is created last among the tables, and no function needs a table at create time
+    // no foreign key to auth.* (it would lock auth.users until the end of the transaction), and no function needs a table at create time
+    expect(c).not.toMatch(/REFERENCES\s+auth\./i)
     expect(c.indexOf("CREATE TABLE IF NOT EXISTS public.api_v2_developer_pauses")).toBeGreaterThan(c.indexOf("CREATE TABLE IF NOT EXISTS public.api_v2_announcements"))
     expect(c.indexOf("CREATE TABLE IF NOT EXISTS public.api_v2_developer_pauses")).toBeGreaterThan(c.lastIndexOf("CREATE OR REPLACE FUNCTION"))
     expect(c).not.toMatch(/%ROWTYPE/)
@@ -315,7 +317,7 @@ describe.skipIf(!PGliteCtor)("0196 in PGlite", () => {
     expect((await one(db, "SELECT message FROM api_v2_service_controls WHERE service = 'data'")).message).toBeNull()
     // refusals change and audit nothing
     const n = await auditCount(db)
-    for (const bad of ["line\nbreak", "tab\there", "nul\u0001", "esc\u001b[31m", "bidi‮evil", "zero​width", "del\u007f", `${"x".repeat(201)}`]) {
+    for (const bad of ["line\nbreak", "tab\there", "nul\u0001", "esc\u001b[31m", "bidi‮evil", "zero​width", "del\u007f", "nbsp only", "ㅤ", "soft­hyphen", "arabic؜mark", `${"x".repeat(201)}`]) {
       expect(await call(db, "api_v2_set_service_pause", "sms", true, bad, ACTOR), JSON.stringify(bad)).toEqual({ ok: false, code: "bad_message" })
     }
     expect(await call(db, "api_v2_set_service_pause", "sms", true, "x".repeat(200), ACTOR)).toMatchObject({ changed: true })
@@ -380,6 +382,11 @@ describe.skipIf(!PGliteCtor)("0196 in PGlite", () => {
     await bad("two\nlines", "b", "info", S, E)
     await bad("t", "bidi‮evil", "info", S, E)
     await bad("t", "nul\u0001", "info", S, E)
+    for (const inv of ["  ", "ㅤ", "­", "؜", "᠎", "️", "ᅟ", "ﾠ", " "]) {
+      await bad(inv, "b", "info", S, E)
+      await bad("t", inv, "info", S, E)
+      await bad(`o${inv}k`, "b", "info", S, E)
+    }
     expect(await call(db, "api_v2_announcement_save", null, "x".repeat(80), "b".repeat(1000), "info", S, E, ACTOR)).toMatchObject({ ok: true })
     // a body may hold line breaks
     expect(await call(db, "api_v2_announcement_save", null, "multi", "line one\nline two", "info", S, E, ACTOR)).toMatchObject({ ok: true })
@@ -651,6 +658,11 @@ describe.skipIf(!PGliteCtor)("0196 in PGlite", () => {
     // an explicit window reaches further back
     const wide = await call(db, "api_v2_public_health", new Date(Date.now() - 10 * 86400_000).toISOString())
     expect(wide.map((r: any) => r.endpoint)).toContain("/api/v2/old")
+    // the window is capped at 7 days inside the function: an older since is clamped
+    await mkLog(db, k, u, 500, { endpoint: "/api/v2/ancient", at: "now() - interval '9 days'" })
+    const clamped = await call(db, "api_v2_public_health", new Date(Date.now() - 60 * 86400_000).toISOString())
+    expect(clamped.map((r: any) => r.endpoint)).toContain("/api/v2/old")
+    expect(clamped.map((r: any) => r.endpoint)).not.toContain("/api/v2/ancient")
   }, 60_000)
 
   it("privileges: has_function_privilege false for anon/authenticated and true for service_role on all 9 functions", async () => {
@@ -673,17 +685,32 @@ describe.skipIf(!PGliteCtor)("0196 in PGlite", () => {
     }
   }, 60_000)
 
-  it("a pause row dies with its auth user (cascade) and a pause for an unknown auth user is refused by the key", async () => {
+  it("no new table has a foreign key to auth.users (no auth.users lock); the users-row check still refuses an unknown developer", async () => {
     const db = await fresh96()
-    const u = await mkUser(db)
-    await call(db, "api_v2_set_developer_pause", u, true, "temporary", ACTOR)
-    await db.exec(`DELETE FROM public.users WHERE id = '${u}'`)
-    await db.exec(`DELETE FROM auth.users WHERE id = '${u}'`)
-    expect((await one(db, "SELECT count(*)::int AS n FROM api_v2_developer_pauses")).n).toBe(0)
-    await fails(db, `INSERT INTO api_v2_developer_pauses(user_id, paused_by, reason) VALUES (gen_random_uuid(), '${ACTOR}', 'abc')`, /foreign key|violates/i)
+    const fk = await rows(
+      db,
+      `SELECT conrelid::regclass::text AS t FROM pg_constraint WHERE contype = 'f' AND confrelid = 'auth.users'::regclass
+         AND conrelid::regclass::text IN ('api_v2_developer_pauses','api_v2_service_controls','api_v2_announcements')`,
+    )
+    expect(fk).toEqual([])
+    expect((await rows(db, "SELECT 1 FROM pg_constraint WHERE contype = 'f' AND conrelid = 'public.api_v2_developer_pauses'::regclass")).length).toBe(0)
+    expect(await call(db, "api_v2_set_developer_pause", "44444444-4444-4444-4444-444444444444", true, "valid reason", ACTOR)).toEqual({ ok: false, code: "not_found" })
     const v = await mkUser(db)
     await fails(db, `INSERT INTO api_v2_developer_pauses(user_id, paused_by, reason) VALUES ('${v}', '${ACTOR}', 'ab')`, /check|violates/i)
     await fails(db, `INSERT INTO api_v2_announcements(title, body, severity, starts_at, ends_at, created_by) VALUES ('t','b','info', now(), now(), '${ACTOR}')`, /check|violates/i)
+  }, 60_000)
+
+  it("phone masking: a recipient_phone of 4 characters or fewer is fully masked", async () => {
+    const db = await fresh96()
+    const u = await mkUser(db)
+    const k = await mkKey(db, u)
+    for (const [ph, i] of [["1234", 1], ["12", 2], ["12345", 3]] as const) {
+      await mkOrder(db, { user: u, key: k, price: 1, phone: ph, at: `now() - interval '${i} minutes'` })
+    }
+    const p = await call(db, "api_v2_developer_profile", u, null)
+    const byLen = p.orders.map((o: any) => o.recipient_phone)
+    expect(byLen).toEqual(["****", "**", "*2345"])
+    expect(JSON.stringify(p)).not.toContain("1234\"")
   }, 60_000)
 
   it("selftest: raises SELFTEST_OK 0196 inside a transaction that leaves nothing behind (count rows before/after in the test)", async () => {
@@ -725,6 +752,10 @@ describe.skipIf(!PGliteCtor)("0196 in PGlite", () => {
     await mkLog(db, k, u, 200)
     await mkOrder(db, { user: u, key: k, price: 5 })
     await call(db, "api_v2_set_service_pause", "bills", true, "real pause", ACTOR)
+    // 50 real announcements (the cap): the announcement section is skipped with a NOTICE instead of failing
+    for (let i = 0; i < 50; i++) {
+      await call(db, "api_v2_announcement_save", null, `real ${i}`, "b", "info", "2030-01-01T00:00:00Z", "2030-01-02T00:00:00Z", ACTOR)
+    }
     const st = read(SELFTEST_FILE)
     const doBlock = st.split("\n").slice(st.split("\n").findIndex((l) => /^DO\b/.test(l))).join("\n")
     await db.exec("BEGIN")
