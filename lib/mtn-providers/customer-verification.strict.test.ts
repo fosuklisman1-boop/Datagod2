@@ -67,10 +67,11 @@ describe("verifyRecipientsForOrder strict recording", () => {
     const r = await p
     expect(r.blocked).toEqual([])
     expect(calls).toEqual(["a"])
-    expect(state.saved).toEqual([{ phone: PHONE, supplier: "a", verdict: "yes" }])
+    expect(state.saved).toEqual([])
     expect(ask).not.toHaveBeenCalled()
     expect(deferred).toHaveLength(1)
     await deferred[0]()
+    expect(state.saved[0]).toEqual({ phone: PHONE, supplier: "a", verdict: "yes" })
     expect(ask).toHaveBeenCalledTimes(1)
     expect(ask.mock.calls[0].slice(0, 2)).toEqual(["b", PHONE])
     expect(state.saved).toContainEqual({ phone: PHONE, supplier: "b", verdict: "yes" })
@@ -85,6 +86,7 @@ describe("verifyRecipientsForOrder strict recording", () => {
     const { p, deferred, ask } = run([entry("a", false), entry("b", false)])
     const r = await p
     expect(r.blocked).toEqual([PHONE])
+    await deferred[0]()
     expect(state.saved).toEqual([
       { phone: PHONE, supplier: "a", verdict: "no" },
       { phone: PHONE, supplier: "b", verdict: "no" },
@@ -105,8 +107,9 @@ describe("verifyRecipientsForOrder strict recording", () => {
   })
 
   it("matches a supplier echoing 233 format", async () => {
-    const { p } = run([entry("a", "echo233")])
+    const { p, deferred } = run([entry("a", "echo233")])
     await p
+    await deferred[0]()
     expect(state.saved).toEqual([{ phone: PHONE, supplier: "a", verdict: "yes" }])
   })
 
