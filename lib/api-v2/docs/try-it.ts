@@ -36,6 +36,7 @@ export function buildTryItRequest(
   for (const name of pathParamNames(ep.path)) {
     const value = (input.pathParams[name] ?? "").trim()
     if (!value) return { ok: false, error: `Enter a value for the path parameter "${name}".` }
+    if (value === "." || value === "..") return { ok: false, error: `The path parameter "${name}" cannot be "." or "..".` }
     path = path.split(`{${name}}`).join(encodeURIComponent(value))
   }
 

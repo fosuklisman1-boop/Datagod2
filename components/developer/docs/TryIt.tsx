@@ -88,7 +88,10 @@ export function TryIt({ endpoint: ep }: { endpoint: V2Endpoint }) {
         <input
           id={`${id}-key`}
           type="password"
-          autoComplete="off"
+          autoComplete="new-password"
+          data-1p-ignore
+          data-lpignore="true"
+          data-form-type="other"
           spellCheck={false}
           value={key}
           onChange={(e) => setKey(e.target.value)}

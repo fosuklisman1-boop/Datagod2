@@ -42,6 +42,87 @@ function Chip({ icon: Icon, children }: { icon: typeof KeyRound; children: React
 
 const json = (v: unknown) => JSON.stringify(v, null, 2)
 
+function ParamsSection({ ep }: { ep: V2Endpoint }) {
+  if (ep.params.length === 0) return null
+  return (
+    <section className="space-y-2.5">
+      <Heading>Parameters</Heading>
+      <ParamTable params={ep.params} />
+    </section>
+  )
+}
+
+function RequestBodySection({ ep, name }: { ep: V2Endpoint; name: string }) {
+  if (ep.requestExample === null) return null
+  return (
+    <section className="space-y-2.5">
+      <Heading>Request body</Heading>
+      <CodeBlock code={json(ep.requestExample)} title="JSON" copyLabel={`${name} request body`} />
+    </section>
+  )
+}
+
+function SuccessSection({ ep, name }: { ep: V2Endpoint; name: string }) {
+  return (
+    <section className="space-y-2.5">
+      <Heading>Success response</Heading>
+      <CodeBlock code={json(ep.successExample)} title="JSON · 200 OK" copyLabel={`${name} success response`} />
+    </section>
+  )
+}
+
+function ErrorsSection({ ep }: { ep: V2Endpoint }) {
+  if (ep.errors.length === 0) return null
+  return (
+    <section className="space-y-2.5">
+      <Heading>Errors</Heading>
+      <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border">
+        {ep.errors.map((e, i) => (
+          <li key={i} className="flex items-start gap-3 px-4 py-3">
+            <span className={cn("mt-0.5 shrink-0 rounded-md border px-1.5 py-0.5 font-mono text-xs font-bold", statusCls(e.status))}>
+              {e.status}
+            </span>
+            <span className="min-w-0 text-sm leading-6 text-foreground/85">{e.message}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="text-xs leading-5 text-muted-foreground">
+        Every error uses the envelope{" "}
+        <InlineCode>{'{ "success": false, "error": { "code": <number>, "message": "<text>" } }'}</InlineCode>, where code
+        repeats the HTTP status.
+      </p>
+    </section>
+  )
+}
+
+function NotesSection({ ep }: { ep: V2Endpoint }) {
+  if (ep.notes.length === 0) return null
+  return (
+    <section className="space-y-2.5">
+      <Heading>Notes</Heading>
+      <ul className="space-y-2.5 rounded-xl bg-muted/70 p-4 dark:bg-white/[0.04]">
+        {ep.notes.map((n, i) => (
+          <li key={i} className="flex gap-2.5 text-sm leading-6 text-foreground/85">
+            <span aria-hidden className="font-bold text-primary">→</span>
+            <span className="min-w-0">
+              <RichText text={n} />
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+function SampleSection({ samples, name }: { samples: ReturnType<typeof buildSamples>; name: string }) {
+  return (
+    <section className="space-y-3">
+      <Heading>Code sample</Heading>
+      <CodeTabs samples={samples} label={`for ${name}`} />
+    </section>
+  )
+}
+
 export function EndpointBlock({
   endpoint: ep,
   tryIt,
@@ -79,133 +160,25 @@ export function EndpointBlock({
       {layout === "split" ? (
         <div className="grid gap-6 xl:grid-cols-2">
           <div className="min-w-0 space-y-6">
-      {ep.params.length > 0 && (
-        <section className="space-y-2.5">
-          <Heading>Parameters</Heading>
-          <ParamTable params={ep.params} />
-        </section>
-      )}
-
-      {ep.errors.length > 0 && (
-        <section className="space-y-2.5">
-          <Heading>Errors</Heading>
-          <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border">
-            {ep.errors.map((e, i) => (
-              <li key={i} className="flex items-start gap-3 px-4 py-3">
-                <span className={cn("mt-0.5 shrink-0 rounded-md border px-1.5 py-0.5 font-mono text-xs font-bold", statusCls(e.status))}>
-                  {e.status}
-                </span>
-                <span className="min-w-0 text-sm leading-6 text-foreground/85">{e.message}</span>
-              </li>
-            ))}
-          </ul>
-          <p className="text-xs leading-5 text-muted-foreground">
-            Every error uses the envelope{" "}
-            <InlineCode>{'{ "success": false, "error": { "code": <number>, "message": "<text>" } }'}</InlineCode>, where code
-            repeats the HTTP status.
-          </p>
-        </section>
-      )}
-
-      {ep.notes.length > 0 && (
-        <section className="space-y-2.5">
-          <Heading>Notes</Heading>
-          <ul className="space-y-2.5 rounded-xl bg-muted/70 p-4 dark:bg-white/[0.04]">
-            {ep.notes.map((n, i) => (
-              <li key={i} className="flex gap-2.5 text-sm leading-6 text-foreground/85">
-                <span aria-hidden className="font-bold text-primary">→</span>
-                <span className="min-w-0">
-                  <RichText text={n} />
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
+            <ParamsSection ep={ep} />
+            <ErrorsSection ep={ep} />
+            <NotesSection ep={ep} />
           </div>
           <div className="min-w-0 space-y-6">
-      {ep.requestExample !== null && (
-        <section className="space-y-2.5">
-          <Heading>Request body</Heading>
-          <CodeBlock code={json(ep.requestExample)} title="JSON" copyLabel={`${name} request body`} />
-        </section>
-      )}
-
-      <section className="space-y-2.5">
-        <Heading>Success response</Heading>
-        <CodeBlock code={json(ep.successExample)} title="JSON · 200 OK" copyLabel={`${name} success response`} />
-      </section>
-
-      <section className="space-y-3">
-        <Heading>Code sample</Heading>
-        <CodeTabs samples={samples} label={`for ${name}`} />
-      </section>
+            <RequestBodySection ep={ep} name={name} />
+            <SuccessSection ep={ep} name={name} />
+            <SampleSection samples={samples} name={name} />
             {tryIt}
           </div>
         </div>
       ) : (
         <>
-      {ep.params.length > 0 && (
-        <section className="space-y-2.5">
-          <Heading>Parameters</Heading>
-          <ParamTable params={ep.params} />
-        </section>
-      )}
-
-      {ep.requestExample !== null && (
-        <section className="space-y-2.5">
-          <Heading>Request body</Heading>
-          <CodeBlock code={json(ep.requestExample)} title="JSON" copyLabel={`${name} request body`} />
-        </section>
-      )}
-
-      <section className="space-y-2.5">
-        <Heading>Success response</Heading>
-        <CodeBlock code={json(ep.successExample)} title="JSON · 200 OK" copyLabel={`${name} success response`} />
-      </section>
-
-      {ep.errors.length > 0 && (
-        <section className="space-y-2.5">
-          <Heading>Errors</Heading>
-          <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border">
-            {ep.errors.map((e, i) => (
-              <li key={i} className="flex items-start gap-3 px-4 py-3">
-                <span className={cn("mt-0.5 shrink-0 rounded-md border px-1.5 py-0.5 font-mono text-xs font-bold", statusCls(e.status))}>
-                  {e.status}
-                </span>
-                <span className="min-w-0 text-sm leading-6 text-foreground/85">{e.message}</span>
-              </li>
-            ))}
-          </ul>
-          <p className="text-xs leading-5 text-muted-foreground">
-            Every error uses the envelope{" "}
-            <InlineCode>{'{ "success": false, "error": { "code": <number>, "message": "<text>" } }'}</InlineCode>, where code
-            repeats the HTTP status.
-          </p>
-        </section>
-      )}
-
-      {ep.notes.length > 0 && (
-        <section className="space-y-2.5">
-          <Heading>Notes</Heading>
-          <ul className="space-y-2.5 rounded-xl bg-muted/70 p-4 dark:bg-white/[0.04]">
-            {ep.notes.map((n, i) => (
-              <li key={i} className="flex gap-2.5 text-sm leading-6 text-foreground/85">
-                <span aria-hidden className="font-bold text-primary">→</span>
-                <span className="min-w-0">
-                  <RichText text={n} />
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      <section className="space-y-3">
-        <Heading>Code sample</Heading>
-        <CodeTabs samples={samples} label={`for ${name}`} />
-      </section>
+          <ParamsSection ep={ep} />
+          <RequestBodySection ep={ep} name={name} />
+          <SuccessSection ep={ep} name={name} />
+          <ErrorsSection ep={ep} />
+          <NotesSection ep={ep} />
+          <SampleSection samples={samples} name={name} />
           {tryIt}
         </>
       )}

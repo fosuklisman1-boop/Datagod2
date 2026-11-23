@@ -75,6 +75,14 @@ describe("buildTryItRequest", () => {
     expect(r.url.startsWith("//")).toBe(false)
     expect(r.url).not.toContain("../")
   })
+  it("refuses dot-segment path params", () => {
+    for (const v of [".", "..", " .. ", "  .\n"]) {
+      const r = buildTryItRequest(lookup, { key: KEY, pathParams: { reference: v }, body: "" })
+      expect(r.ok, JSON.stringify(v)).toBe(false)
+      if (!r.ok) expect(r.error).toContain("reference")
+    }
+    expect(buildTryItRequest(lookup, { key: KEY, pathParams: { reference: "a.b" }, body: "" }).ok).toBe(true)
+  })
   it("refuses a non-test key even if called directly", () => {
     expect(buildTryItRequest(purchase, { key: "dg2_live_ab12", pathParams: {}, body: "{}" }).ok).toBe(false)
   })
