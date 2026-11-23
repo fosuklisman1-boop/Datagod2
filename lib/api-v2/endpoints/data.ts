@@ -24,6 +24,7 @@ import type { PrefixValidationConfig } from "@/lib/network-prefix-config"
 import { NO_CUSTOM_PRICES, type CustomPrices, type PricedPackage } from "@/lib/pricing/package-price"
 import type { V2Context, V2HandlerResult } from "../handler"
 import type { V2ErrorStatus } from "../envelope"
+import { sandboxOutcomeFor } from "../sandbox-outcomes"
 import {
   findPackage,
   mapOrder,
@@ -308,6 +309,8 @@ function placeParams(ctx: V2Context, p: Priced): PlaceParams {
 
 function sandboxParams(ctx: V2Context, p: Priced): SandboxPlaceParams {
   const recipient = storageRecipient(p.input)
+  // Reserved test numbers (sandbox only): our code sets the marker from the validated recipient.
+  const outcome = sandboxOutcomeFor(recipient)
   return {
     userId: ctx.userId,
     apiV2KeyId: ctx.keyId,
@@ -315,7 +318,13 @@ function sandboxParams(ctx: V2Context, p: Priced): SandboxPlaceParams {
     reference: p.input.reference,
     request: { network: p.input.network, volume_gb: p.input.gb, recipient, reference: p.input.reference },
     price: p.price,
-    orderFields: { network: p.input.network, volume_gb: p.input.gb, price: p.price, recipient },
+    orderFields: {
+      network: p.input.network,
+      volume_gb: p.input.gb,
+      price: p.price,
+      recipient,
+      ...(outcome ? { sandbox_outcome: outcome } : {}),
+    },
   }
 }
 

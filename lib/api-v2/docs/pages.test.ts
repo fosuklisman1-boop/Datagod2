@@ -13,14 +13,12 @@ import { errorCode, errorAnchor } from "./error-key"
 
 describe("page map", () => {
   it("every registry section id belongs to exactly one of HUB_SECTION_IDS or one DOC_PAGES.sectionIds; no id appears twice", () => {
-    const all = [...HUB_SECTION_IDS.filter((i) => i !== "sandbox-failures"), ...DOC_PAGES.flatMap((p) => p.sectionIds)]
+    const all = [...HUB_SECTION_IDS, ...DOC_PAGES.flatMap((p) => p.sectionIds)]
     expect(new Set(all).size).toBe(all.length)
     expect([...all].sort()).toEqual(reg.map((s) => s.id).sort())
   })
-  it('HUB_SECTION_IDS minus "sandbox-failures" equals the registry sections whose group is "start"', () => {
-    expect(HUB_SECTION_IDS.filter((i) => i !== "sandbox-failures")).toEqual(
-      reg.filter((s) => s.group === "start").map((s) => s.id),
-    )
+  it('HUB_SECTION_IDS equals the registry sections whose group is "start" (now including "sandbox-failures")', () => {
+    expect(HUB_SECTION_IDS).toEqual(reg.filter((s) => s.group === "start").map((s) => s.id))
     expect(HUB_SECTION_IDS).toContain("sandbox-failures")
   })
   it("every DOC_PAGES id exists in the registry; slugs are unique and match /^[a-z-]+$/", () => {

@@ -1499,3 +1499,96 @@ describe("role base prices", () => {
     expect(r.error?.status).toBe(503)
   })
 })
+
+// ================================================================ sandbox failure numbers (test key only)
+
+describe("sandbox failure numbers", () => {
+  const sbxRow = (o: Record<string, unknown>, status = "failed") => ({
+    reference: "SBX-F",
+    action: "data_order",
+    response: { network: "MTN", volume_gb: 1, price: 8, recipient: "0240000404", reference: "SBX-F", status: "pending", ...o },
+    price: 8,
+    created_at: CREATED,
+    status,
+  })
+
+  it("test key: 0240000404 marks the order fail, 0240000202 marks it stuck, a normal number carries no marker", async () => {
+    const d = makeDeps()
+    await purchaseHandler(d)(body({ recipient: "0240000404", reference: "SBX-F" }), TEST)
+    expect(d.sandbox.place.mock.calls[0][0].orderFields.sandbox_outcome).toBe("fail")
+    const d2 = makeDeps()
+    await purchaseHandler(d2)(body({ recipient: "0240000202", reference: "SBX-S" }), TEST)
+    expect(d2.sandbox.place.mock.calls[0][0].orderFields.sandbox_outcome).toBe("stuck")
+    const d3 = makeDeps()
+    const r3 = await purchaseHandler(d3)(body({ recipient: "0244000001", reference: "SBX-N" }), TEST)
+    expect(r3.status).toBe(201)
+    expect("sandbox_outcome" in d3.sandbox.place.mock.calls[0][0].orderFields).toBe(false)
+    expect(d3.sandbox.place.mock.calls[0][0].orderFields).toEqual({ network: "MTN", volume_gb: 1, price: 8, recipient: "0244000001" })
+  })
+
+  it("the marker comes from the validated recipient: a sandbox_outcome field in the request body is never copied", async () => {
+    const d = makeDeps()
+    const r = await purchaseHandler(d)(body({ recipient: "0244000001", reference: "SBX-X", sandbox_outcome: "fail" }), TEST)
+    expect(r.status).toBe(201)
+    expect("sandbox_outcome" in d.sandbox.place.mock.calls[0][0].orderFields).toBe(false)
+  })
+
+  it("the 201 body never contains sandbox_outcome and a replayed failed order reads failed", async () => {
+    const d = makeDeps()
+    const r = await purchaseHandler(d)(body({ recipient: "0240000404", reference: "SBX-F" }), TEST)
+    expect(r.status).toBe(201)
+    expect(JSON.stringify(r.data)).not.toContain("sandbox_outcome")
+    expect(data(r).order.status).toBe("pending")
+
+    const d2 = makeDeps()
+    d2.sandbox.getOrder.mockResolvedValue(sbxRow({ sandbox_outcome: "fail" }) as any)
+    const r2 = await purchaseHandler(d2)(body({ recipient: "0240000404", reference: "SBX-F" }), TEST)
+    expect(r2.status).toBe(200)
+    expect(data(r2)).toMatchObject({ replayed: true, sandbox: true })
+    expect(data(r2).order.status).toBe("failed")
+    expectOrderShape(data(r2).order)
+    expect(JSON.stringify(r2.data)).not.toContain("sandbox_outcome")
+    expect(d2.sandbox.place).not.toHaveBeenCalled()
+  })
+
+  it("Telecel and AT patterns work too", async () => {
+    const d = makeDeps()
+    await purchaseHandler(d)(body({ network: "Telecel", volume_gb: 2, recipient: "0200000404", reference: "SBX-T" }), TEST)
+    expect(d.sandbox.place.mock.calls[0][0].orderFields.sandbox_outcome).toBe("fail")
+  })
+
+  it("bulk: only the reserved numbers carry the marker", async () => {
+    const d = makeDeps()
+    const r = await bulkHandler(d)(
+      { orders: [item(0, { recipient: "0240000404" }), item(1, { recipient: "0240000202" }), item(2)] },
+      TEST
+    )
+    expect(r.status).toBe(200)
+    const fields = d.sandbox.place.mock.calls.map((c: any) => c[0].orderFields)
+    expect(fields[0].sandbox_outcome).toBe("fail")
+    expect(fields[1].sandbox_outcome).toBe("stuck")
+    expect("sandbox_outcome" in fields[2]).toBe(false)
+    expect(JSON.stringify(r.data)).not.toContain("sandbox_outcome")
+  })
+
+  it("live key with the same reserved numbers is unaffected: no sandbox call, params identical to a normal number", async () => {
+    const reserved = makeDeps()
+    const r = await purchaseHandler(reserved)(body({ recipient: "0240000404", reference: "REF-R" }), LIVE)
+    expect(r.status).toBe(201)
+    const normal = makeDeps()
+    await purchaseHandler(normal)(body({ recipient: "0249990401", reference: "REF-R" }), LIVE)
+    for (const f of Object.values(reserved.sandbox)) expect(f).not.toHaveBeenCalled()
+    const a = reserved.store.placeV2Order.mock.calls[0][0]
+    const b = normal.store.placeV2Order.mock.calls[0][0]
+    expect(a.recipientPhone).toBe("0240000404")
+    expect({ ...a, recipientPhone: "" }).toEqual({ ...b, recipientPhone: "" })
+    expect(JSON.stringify(a)).not.toContain("sandbox_outcome")
+    expect(data(r).order.status).toBe("pending")
+  })
+
+  it("live bulk with reserved numbers never touches the sandbox", async () => {
+    const d = makeDeps()
+    await bulkHandler(d)({ orders: [item(0, { recipient: "0240000404" })] }, LIVE)
+    for (const f of Object.values(d.sandbox)) expect(f).not.toHaveBeenCalled()
+  })
+})

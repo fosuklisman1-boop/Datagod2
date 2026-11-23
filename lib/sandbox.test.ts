@@ -7,6 +7,7 @@ const h = vi.hoisted(() => {
     insertError: null as null | { code: string },
     balance: 100,
     listResult: { data: [] as unknown, error: null as unknown },
+    single: null as unknown,
     queries: [] as Array<{ table: string; calls: Array<[string, ...unknown[]]> }>,
   }
   const client = {
@@ -35,7 +36,7 @@ const h = vi.hoisted(() => {
         return { then: (res: any, rej: any) => Promise.resolve(state.listResult).then(res, rej) }
       }
       q.update = () => q
-      q.maybeSingle = async () => ({ data: table === "sandbox_wallets" ? { balance: state.balance } : null, error: null })
+      q.maybeSingle = async () => ({ data: table === "sandbox_wallets" ? { balance: state.balance } : state.single, error: null })
       q.single = q.maybeSingle
       q.insert = async (row: Record<string, unknown>) => {
         state.inserts.push({ table, row })
@@ -50,7 +51,15 @@ const h = vi.hoisted(() => {
 
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => h.client }))
 
-import { placeSandboxOrder, getSandboxOrdersByReferences, listSandboxOrders, findSandboxBillOrdersByTokenRef } from "./sandbox"
+import {
+  placeSandboxOrder,
+  getSandboxOrdersByReferences,
+  listSandboxOrders,
+  findSandboxBillOrdersByTokenRef,
+  getSandboxOrder,
+  deriveSandboxOrderStatus,
+  deriveSandboxStatus,
+} from "./sandbox"
 
 describe("listSandboxOrders", () => {
   beforeEach(() => {
@@ -205,5 +214,75 @@ describe("placeSandboxOrder key attribution", () => {
     h.state.insertError = { code: "23505" }
     const r = await placeSandboxOrder({ ...base, apiV2KeyId: "v2key" })
     expect(r).toEqual({ success: false, error: "Duplicate reference", status: 409 })
+  })
+})
+
+const PAST = "2000-01-01T00:00:00Z"
+const FUTURE = "2999-01-01T00:00:00Z"
+
+describe("deriveSandboxOrderStatus", () => {
+  it("no marker: pending before resolves_at, completed after (unchanged)", () => {
+    expect(deriveSandboxOrderStatus({ resolves_at: FUTURE })).toBe("pending")
+    expect(deriveSandboxOrderStatus({ resolves_at: PAST })).toBe("completed")
+    expect(deriveSandboxOrderStatus({ resolves_at: PAST, response: {} })).toBe("completed")
+    expect(deriveSandboxStatus(PAST)).toBe("completed")
+  })
+  it("stuck marker stays pending forever", () => {
+    expect(deriveSandboxOrderStatus({ resolves_at: PAST, response: { sandbox_outcome: "stuck" } })).toBe("pending")
+    expect(deriveSandboxOrderStatus({ resolves_at: FUTURE, response: { sandbox_outcome: "stuck" } })).toBe("pending")
+  })
+  it("fail marker is pending until resolves_at, then failed", () => {
+    expect(deriveSandboxOrderStatus({ resolves_at: FUTURE, response: { sandbox_outcome: "fail" } })).toBe("pending")
+    expect(deriveSandboxOrderStatus({ resolves_at: PAST, response: { sandbox_outcome: "fail" } })).toBe("failed")
+  })
+  it("unknown marker value, or a response that is not a plain object, behaves as no marker", () => {
+    expect(deriveSandboxOrderStatus({ resolves_at: PAST, response: { sandbox_outcome: "boom" } })).toBe("completed")
+    for (const response of [null, undefined, ["fail"], "fail", 5]) {
+      expect(deriveSandboxOrderStatus({ resolves_at: PAST, response })).toBe("completed")
+    }
+  })
+  it("uses the supplied clock", () => {
+    const at = Date.parse("2026-01-01T00:00:20Z")
+    const row = { resolves_at: "2026-01-01T00:00:20Z", response: { sandbox_outcome: "fail" } }
+    expect(deriveSandboxOrderStatus(row, at - 1)).toBe("pending")
+    expect(deriveSandboxOrderStatus(row, at)).toBe("failed")
+  })
+})
+
+describe("sandbox read helpers apply the marker", () => {
+  const rows = [
+    { reference: "F", action: "data_order", response: { sandbox_outcome: "fail" }, price: 5, resolves_at: PAST, created_at: "t" },
+    { reference: "S", action: "data_order", response: { sandbox_outcome: "stuck" }, price: 5, resolves_at: PAST, created_at: "t" },
+    { reference: "N", action: "data_order", response: {}, price: 5, resolves_at: PAST, created_at: "t" },
+  ]
+  beforeEach(() => {
+    h.state.queries = []
+    h.state.listResult = { data: rows, error: null }
+  })
+
+  it("getSandboxOrdersByReferences", async () => {
+    const out = await getSandboxOrdersByReferences("u1", ["F", "S", "N"])
+    expect(out!.get("F")!.status).toBe("failed")
+    expect(out!.get("S")!.status).toBe("pending")
+    expect(out!.get("N")!.status).toBe("completed")
+  })
+
+  it("listSandboxOrders", async () => {
+    const out = await listSandboxOrders("u1", "data_order", 30)
+    expect(out!.map((o) => [o.reference, o.status])).toEqual([
+      ["F", "failed"],
+      ["S", "pending"],
+      ["N", "completed"],
+    ])
+  })
+
+  it("getSandboxOrder", async () => {
+    for (const [i, expected] of [["F", "failed"], ["S", "pending"], ["N", "completed"]] as const) {
+      const row = rows.find((r) => r.reference === i)!
+      h.state.single = row
+      const out = await getSandboxOrder("u1", i)
+      expect(out!.status).toBe(expected)
+    }
+    h.state.single = null
   })
 })

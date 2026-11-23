@@ -98,6 +98,8 @@ import {
   msgWrongKeyType,
 } from "../access"
 
+import { SANDBOX_TEST_NUMBERS } from "../sandbox-outcomes"
+
 const VALID_STATUS: V2ErrorStatus[] = [400, 401, 402, 403, 404, 409, 429, 500, 502, 503]
 const endpoints = v2DocsRegistry.flatMap((s) => s.endpoints)
 
@@ -1813,5 +1815,30 @@ describe("sms docs: the reference is only free after genuinely no-charge errors"
     const all = JSON.stringify(v2DocsRegistry)
     expect(all).not.toContain("SEND_FAILED")
     expect(all).not.toContain("no credits were kept")
+  })
+})
+
+describe("sandbox-failures section", () => {
+  const sec = v2DocsRegistry.find((s) => s.id === "sandbox-failures")
+  it("sits in the start group right after the sandbox section", () => {
+    expect(sec?.group).toBe("start")
+    const ids = v2DocsRegistry.map((s) => s.id)
+    expect(ids.indexOf("sandbox-failures")).toBe(ids.indexOf("sandbox") + 1)
+    expect(sec?.label).toBe("Testing failures")
+  })
+  it("lists every reserved number, the no-refund rule, scope and the live-key note", () => {
+    const text = sec!.intro!
+    for (const n of [...SANDBOX_TEST_NUMBERS.fail, ...SANDBOX_TEST_NUMBERS.stuck]) expect(text).toContain(n)
+    expect(text).toContain("20 seconds")
+    expect(text).toContain("no automatic refund")
+    expect(text).toContain("data purchase and data bulk only")
+    expect(text).toContain("behave normally with a live key")
+    for (const other of ["airtime", "bills", "results checker", "AFA", "SMS"]) expect(text).toContain(other)
+  })
+  it("data-purchase and data-bulk notes point to it", () => {
+    for (const id of ["data-purchase", "data-bulk"]) {
+      const e = endpoints.find((x) => x.id === id)!
+      expect(e.notes.some((n) => n.includes("Testing failures") && n.includes("0240000404"))).toBe(true)
+    }
   })
 })

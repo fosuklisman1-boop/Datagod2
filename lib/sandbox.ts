@@ -54,6 +54,28 @@ export function deriveSandboxStatus(resolvesAt: string): "pending" | "completed"
   return new Date(resolvesAt).getTime() <= Date.now() ? "completed" : "pending"
 }
 
+export type SandboxStatus = "pending" | "completed" | "failed"
+
+/**
+ * Status of a stored sandbox order. Only v2 data orders placed with a reserved
+ * test number carry `response.sandbox_outcome` (set by our code, never copied
+ * from a request): "stuck" never leaves pending, "fail" turns failed once
+ * `resolves_at` passes. Any other row (v1, other products, unknown marker)
+ * behaves exactly as deriveSandboxStatus.
+ */
+export function deriveSandboxOrderStatus(
+  row: { resolves_at: string; response?: unknown },
+  now: number = Date.now()
+): SandboxStatus {
+  const r = row.response
+  const marker =
+    r !== null && typeof r === "object" && !Array.isArray(r) ? (r as Record<string, unknown>).sandbox_outcome : undefined
+  const due = new Date(row.resolves_at).getTime() <= now
+  if (marker === "stuck") return "pending"
+  if (marker === "fail") return due ? "failed" : "pending"
+  return due ? "completed" : "pending"
+}
+
 /**
  * Deducts `price` from the caller's test balance and inserts a sandbox_orders
  * row. Returns the same {success, error, status} shape the real v1 routes use
@@ -132,7 +154,7 @@ export async function placeSandboxOrder(params: {
 export async function getSandboxOrdersByReferences(userId: string, references: string[]) {
   const out = new Map<
     string,
-    { reference: string; action: string; response: unknown; price: number; resolves_at: string; created_at: string; status: "pending" | "completed" }
+    { reference: string; action: string; response: unknown; price: number; resolves_at: string; created_at: string; status: SandboxStatus }
   >()
   if (references.length === 0) return out
   try {
@@ -143,7 +165,7 @@ export async function getSandboxOrdersByReferences(userId: string, references: s
       .in("reference", references)
     if (error || !Array.isArray(data)) return null
     for (const r of data) {
-      out.set(r.reference, { ...r, status: deriveSandboxStatus(r.resolves_at) })
+      out.set(r.reference, { ...r, status: deriveSandboxOrderStatus(r) })
     }
     return out
   } catch {
@@ -170,7 +192,7 @@ export async function listSandboxOrders(userId: string, action: SandboxAction, l
     return data.slice(0, n).map(
       (r: { reference: string; action: string; response: unknown; price: number; resolves_at: string; created_at: string }) => ({
         ...r,
-        status: deriveSandboxStatus(r.resolves_at),
+        status: deriveSandboxOrderStatus(r),
       })
     )
   } catch {
@@ -213,6 +235,6 @@ export async function getSandboxOrder(userId: string, reference: string) {
 
   return {
     ...data,
-    status: deriveSandboxStatus(data.resolves_at),
+    status: deriveSandboxOrderStatus(data),
   }
 }

@@ -151,6 +151,14 @@ const START_SECTIONS: V2DocSection[] = [
       "Test keys (prefix dg2_test_) run against a sandbox: they never touch your real wallet or place real orders. Balance calls return a separate sandbox balance with sandbox: true, so you can build and verify your integration end to end before switching to a live key (prefix dg2_live_). The same holds for commission keys: a test commission key places airtime, bill and Standard Bundle orders against the sandbox wallet and never calls a provider, a sandbox verify_token from POST /utilities/lookup works only with test keys and a live verify_token only with live keys (any other pairing returns 400), and a sandbox replay behaves like a live one. A test standard key buys results checker vouchers with fake TEST- PINs against the sandbox wallet and registers AFA customers without anything being registered. A test SMS key sends nothing and spends no credits (see SMS sandbox). Sandbox references are unique per account across all order types (data, airtime, bills and the rest), while live references are unique per order type, so a reference reused for a different order type can conflict in the sandbox only: use a distinct prefix per order type. Test keys are active immediately and need no approval, so you can start building straight away; live keys start as pending and work only after Datagod approves them. Test and live keys are revoked independently, and each environment has its own rate-limit counters.",
     endpoints: [],
   },
+  {
+    id: "sandbox-failures",
+    label: "Testing failures",
+    group: "start",
+    intro:
+      "With a test key you can force a data order to fail or to stay pending by using a reserved recipient number. The rule is the network's three-digit prefix followed by 0000404 (the order fails) or 0000202 (the order stays pending). Ready-made numbers: 0240000404 (MTN), 0200000404 (Telecel) and 0270000404 (AT) fail; 0240000202 (MTN), 0200000202 (Telecel) and 0270000202 (AT) stay pending. They pass the prefix and network checks like any number of that network. Placing the order still returns 201 with status pending and takes the price from your sandbox balance. 20 seconds later a failing order reads failed (GET /orders/{reference}, the order list and replays, bulk replays included, all show it); a pending-number order never resolves and stays pending. There is no automatic refund in the sandbox: a failed test order keeps its charge, so reset your sandbox balance from the dashboard when you run low (a live order that fails is credited back and reads refunded, the sandbox shows failed only). This covers data purchase and data bulk only; airtime, bills, Standard Bundles, results checker, AFA and SMS have no failure numbers. These numbers behave normally with a live key: they are real numbers there and are ordered, verified and fulfilled like any other.",
+    endpoints: [],
+  },
 ]
 
 /** Every access/limit error a standard-key endpoint can return, using the real API strings. */
@@ -318,6 +326,7 @@ const PURCHASE_ENDPOINT: V2Endpoint = {
     "While Datagod's number blocking is on, an MTN recipient that is not registered for MTN data is rejected with 409 RECIPIENT_NOT_REGISTERED and nothing is charged; while it is off the order is accepted and delivered once the number clears. If the registration check itself is unavailable the order is accepted.",
     "The recipient number must belong to the chosen network, otherwise 400 NETWORK_MISMATCH.",
     "A test key uses a separate sandbox wallet: the response carries sandbox: true, no real order is placed and your real wallet is untouched.",
+    "To test failure handling with a test key, order for a reserved number such as 0240000404 (fails after 20 seconds) or 0240000202 (stays pending); see Testing failures. A failed sandbox order is not refunded, and live keys are not affected.",
   ],
 }
 
@@ -373,6 +382,7 @@ const BULK_ENDPOINT: V2Endpoint = {
     `A failed item carries an error value: INSUFFICIENT_BALANCE (the wallet ran short during the batch), REFERENCE_REUSED (the reference was taken by a different order in the meantime), FAILED (the order could not be placed) or ${MSG_NOT_ATTEMPTED} (the deadline was reached before it started). Resending the same batch is safe for all of them: an item that was in fact placed comes back replayed and is never charged twice.`,
     `A bulk call can include at most ${MAX_NEW_MTN_PER_BULK} new MTN orders (400 otherwise, nothing charged); replayed items do not count, so split larger MTN batches across calls.`,
     "Never send prices; the server prices every item from your role.",
+    "With a test key, items whose recipient is a reserved number (0240000404 and the others listed in Testing failures) end up failed or stay pending in the sandbox; live keys are not affected.",
     "A test key uses a sandbox wallet: the response carries sandbox: true and no real order is placed.",
   ],
 }
