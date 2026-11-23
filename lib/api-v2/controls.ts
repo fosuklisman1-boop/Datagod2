@@ -27,31 +27,40 @@ interface QueryError {
   message?: string
 }
 
-/** Tables missing (code shipped before the migration or after a rollback): the true state is "nothing paused". */
-function isTableMissing(err: unknown): boolean {
-  const e = (err ?? {}) as QueryError
+/**
+ * This table is missing (code shipped before the migration or after a rollback): its true state is "nothing paused".
+ * Only the missing-table codes, or the exact missing-table wordings naming THIS table, count. A column or relationship
+ * error ("column ... does not exist", "relationship ... in the schema cache") is a real error, never a fail-open.
+ */
+function isTableMissing(err: unknown, table: string): boolean {
+  if (!err) return false
+  const e = err as QueryError
   if (e.code === "42P01" || e.code === "PGRST205") return true
   const msg = (e.message ?? "").toLowerCase()
-  return msg.includes("schema cache") || msg.includes("does not exist")
+  return msg.includes(`relation "${table}" does not exist`) || msg.includes(`relation "public.${table}" does not exist`) ||
+    (msg.includes("could not find the table") && msg.includes(`${table}'`) && msg.includes("schema cache"))
 }
+
+const PAUSES_TABLE = "api_v2_developer_pauses"
+const CONTROLS_TABLE = "api_v2_service_controls"
 
 type Refreshed = ControlsSnapshot | "error"
 
 async function refresh(client: SupabaseLike, now: number): Promise<Refreshed> {
   try {
     const [pauses, controls] = (await Promise.all([
-      client.from("api_v2_developer_pauses").select("user_id").limit(PAUSED_USERS_CAP + 1),
-      client.from("api_v2_service_controls").select("service, paused, message"),
+      client.from(PAUSES_TABLE).select("user_id").limit(PAUSED_USERS_CAP + 1),
+      client.from(CONTROLS_TABLE).select("service, paused, message"),
     ])) as { data: unknown; error: unknown }[]
-    if (isTableMissing(pauses.error) || isTableMissing(controls.error)) {
-      return { pausedUsers: new Set(), services: new Map(), at: now }
-    }
-    if (pauses.error || controls.error) return "error"
-    const pauseRows = (pauses.data ?? []) as { user_id: string }[]
+    // A missing table reads as empty for THAT table only, so a partial migration never drops the other table's pauses.
+    const pausesMissing = isTableMissing(pauses.error, PAUSES_TABLE)
+    const controlsMissing = isTableMissing(controls.error, CONTROLS_TABLE)
+    if ((pauses.error && !pausesMissing) || (controls.error && !controlsMissing)) return "error"
+    const pauseRows = (pausesMissing ? [] : (pauses.data ?? [])) as { user_id: string }[]
     // A truncated list would silently release people: treat the cap as a read error.
     if (pauseRows.length > PAUSED_USERS_CAP) return "error"
     const services = new Map<ServiceId, { message: string | null }>()
-    for (const r of (controls.data ?? []) as { service: ServiceId; paused: boolean; message: string | null }[]) {
+    for (const r of (controlsMissing ? [] : (controls.data ?? [])) as { service: ServiceId; paused: boolean; message: string | null }[]) {
       if (r.paused) services.set(r.service, { message: r.message ?? null })
     }
     return { pausedUsers: new Set(pauseRows.map((r) => r.user_id)), services, at: now }

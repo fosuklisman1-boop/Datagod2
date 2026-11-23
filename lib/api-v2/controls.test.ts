@@ -87,9 +87,42 @@ describe("controls", () => {
   const missing = [
     { code: "42P01", message: "x" },
     { code: "PGRST205", message: "x" },
-    { message: "Could not find the table in the schema cache" },
+    { message: "Could not find the table 'public.api_v2_developer_pauses' in the schema cache" },
     { message: 'relation "api_v2_developer_pauses" does not exist' },
   ]
+
+  // Review R4-T3 minor 1: wording alone must not fail open (a column error would release every pause).
+  const notMissing = [
+    { code: "42703", message: 'column api_v2_developer_pauses.user_idx does not exist' },
+    { message: 'column "user_idx" does not exist' },
+    { message: "Could not find a relationship between 'a' and 'b' in the schema cache" },
+  ]
+  for (const err of notMissing) {
+    it(`controls: a non-table error with "does not exist"/"schema cache" wording (${JSON.stringify(err)}) -> "error", not an empty snapshot`, async () => {
+      const { client } = fake({ pauses: { data: null, error: err } })
+      expect(await createControls({ client, now: clock().now }).read()).toBe("error")
+    })
+  }
+
+  it("controls: only one table missing -> that table reads as empty, the other table's pauses are kept", async () => {
+    const { client } = fake({
+      pauses: { data: null, error: { code: "42P01", message: "x" } },
+      services: okServices([{ service: "data", paused: true, message: "m" }]),
+    })
+    const s = await createControls({ client, now: clock().now }).read()
+    if (s === "error") throw new Error("unexpected")
+    expect(s.pausedUsers.size).toBe(0)
+    expect(s.services.get("data")).toEqual({ message: "m" })
+
+    const { client: c2 } = fake({
+      pauses: okPauses(["u1"]),
+      services: { data: null, error: { code: "PGRST205", message: "x" } },
+    })
+    const s2 = await createControls({ client: c2, now: clock().now }).read()
+    if (s2 === "error") throw new Error("unexpected")
+    expect(s2.pausedUsers.has("u1")).toBe(true)
+    expect(s2.services.size).toBe(0)
+  })
   for (const err of missing) {
     it(`controls: table-missing errors (${JSON.stringify(err)}) -> empty snapshot, cached for the TTL, NOT "error"`, async () => {
       const { client, calls } = fake({ pauses: { data: null, error: err } })
