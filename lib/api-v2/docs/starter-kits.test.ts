@@ -248,3 +248,91 @@ describe("starterKitResponse and route", () => {
     expect(bad.status).toBe(404)
   })
 })
+
+describe("node kit resend after an unknown outcome", () => {
+  const dir = mkdtempSync(join(tmpdir(), "datagod-kit-resend-"))
+  const file = join(dir, "datagod-starter.mjs")
+  writeFileSync(file, getStarterKit("node")!.source)
+  const load = (): Promise<any> => import(/* @vite-ignore */ pathToFileURL(file).href + "?t=" + Math.random())
+  const realFetch = globalThis.fetch
+  const realKey = process.env.DATAGOD_API_KEY
+  const params = { network: "MTN", volumeGb: 1, recipient: "0244000001", reference: "R1" }
+  const fast = { timeoutMs: 2000, intervalMs: 1 }
+  const ORDER = { reference: "R1", status: "completed" }
+  const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status })
+  let calls: { url: string; init: any }[]
+  beforeEach(() => {
+    process.env.DATAGOD_API_KEY = "test-env-key"
+    calls = []
+  })
+  afterEach(() => {
+    globalThis.fetch = realFetch
+    if (realKey === undefined) delete process.env.DATAGOD_API_KEY
+    else process.env.DATAGOD_API_KEY = realKey
+  })
+  const posts = () => calls.filter((c) => c.init?.method === "POST")
+
+  it("POST throws, GET says 404, so it POSTs again with the same reference and succeeds", async () => {
+    const kit = await load()
+    globalThis.fetch = vi.fn(async (url: any, init: any) => {
+      calls.push({ url: String(url), init })
+      if (init.method === "POST") {
+        if (posts().length === 1) throw new TypeError("fetch failed")
+        return json(201, { success: true, data: { order: ORDER } })
+      }
+      return json(404, { success: false, error: { code: 404, message: "Order not found" } })
+    }) as any
+    const order = await kit.buyDataSafely(params, fast)
+    expect(order.status).toBe("completed")
+    expect(posts()).toHaveLength(2)
+    expect(posts().map((c) => JSON.parse(c.init.body).reference)).toEqual(["R1", "R1"])
+  })
+
+  it("stops after a bounded number of resends and never invents a new reference", async () => {
+    const kit = await load()
+    globalThis.fetch = vi.fn(async (url: any, init: any) => {
+      calls.push({ url: String(url), init })
+      if (init.method === "POST") throw new TypeError("fetch failed")
+      return json(404, { success: false, error: { code: 404, message: "Order not found" } })
+    }) as any
+    await expect(kit.buyDataSafely(params, fast)).rejects.toThrow(/same reference, never a new one/)
+    expect(posts().length).toBeGreaterThan(1)
+    expect(posts().length).toBeLessThanOrEqual(3)
+    expect(new Set(posts().map((c) => JSON.parse(c.init.body).reference))).toEqual(new Set(["R1"]))
+  })
+
+  it("the timeout message says to resend with the same reference, never a new one", async () => {
+    const kit = await load()
+    globalThis.fetch = vi.fn(async () => json(200, { success: true, data: { order: { reference: "R1", status: "pending" } } })) as any
+    await expect(kit.pollOrder("R1", { timeoutMs: 20, intervalMs: 5 })).rejects.toThrow(/resend with the same reference, never a new one/)
+  })
+
+  it("php kit resends on 404, with no curl_close", () => {
+    const src = getStarterKit("php")!.source
+    expect(src).toContain("DATAGOD_MAX_ATTEMPTS")
+    expect(src).toMatch(/\$status === 404/)
+    expect(src).toContain("resend with the same reference, never a new one")
+    expect(src).not.toContain("curl_close")
+  })
+})
+
+describe("demo with a live key", () => {
+  it("node demo refuses a live key without DATAGOD_DEMO_RECIPIENT", () => {
+    const dir = mkdtempSync(join(tmpdir(), "datagod-kit-demo-"))
+    const file = join(dir, "datagod-starter.mjs")
+    writeFileSync(file, getStarterKit("node")!.source)
+    const env = { ...process.env, DATAGOD_API_KEY: "dg2_live_fake", DATAGOD_ALLOW_LIVE: "1" }
+    delete (env as any).DATAGOD_DEMO_RECIPIENT
+    const res = spawnSync(process.execPath, [file], { encoding: "utf8", env })
+    expect(res.status).toBe(1)
+    expect(res.stderr).toContain("DATAGOD_DEMO_RECIPIENT")
+  })
+
+  it("both kits keep the sandbox number for test keys only", () => {
+    for (const id of ["node", "php"] as const) {
+      const src = getStarterKit(id)!.source
+      expect(src).toContain("DATAGOD_DEMO_RECIPIENT")
+      expect(src).toContain("sandbox number, test keys only")
+    }
+  })
+})

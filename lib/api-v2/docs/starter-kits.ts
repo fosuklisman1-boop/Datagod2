@@ -131,14 +131,35 @@ export async function pollOrder(reference, { timeoutMs = 600000, intervalMs = 10
       // A network error while polling is not fatal: try again until the deadline.
     }
     if (Date.now() + intervalMs > deadline) {
-      throw new Error("Timed out waiting for order " + reference + " to reach completed, failed or refunded. Keep polling the same reference; do not place it again.");
+      throw new Error("Timed out waiting for order " + reference + " to reach completed, failed or refunded. Keep checking the same reference; if GET /orders/" + reference + " returns 404 the order never arrived: resend with the same reference, never a new one.");
     }
     await sleep(intervalMs);
   }
 }
 
+const MAX_ATTEMPTS = 3; // 1 purchase plus at most 2 resends of the SAME reference
+
+// After a timeout or network error the order may or may not have arrived. Ask Datagod: a 404 means it
+// never arrived, so resend with the SAME reference (a duplicate is impossible: the reference is claimed
+// once); anything else means it exists or is unconfirmed, so keep polling the same reference.
+async function recoverUnknown(params, pollOptions, attempt) {
+  let status = 0;
+  try {
+    ({ status } = await request("GET", "/orders/" + encodeURIComponent(params.reference)));
+  } catch (err) {
+    // The check itself failed: fall through to polling the same reference.
+  }
+  if (status === 404) {
+    if (attempt >= MAX_ATTEMPTS) {
+      throw new Error("Order " + params.reference + " never arrived after " + MAX_ATTEMPTS + " attempts: resend with the same reference, never a new one.");
+    }
+    return buyDataSafely(params, pollOptions, attempt + 1);
+  }
+  return pollOrder(params.reference, pollOptions);
+}
+
 // Buys data and returns the final order, without ever ordering twice for one purchase.
-export async function buyDataSafely(params, pollOptions) {
+export async function buyDataSafely(params, pollOptions, attempt = 1) {
   apiKey(); // refuse to start without a key, before anything is sent
   let order;
   try {
@@ -152,8 +173,8 @@ export async function buyDataSafely(params, pollOptions) {
       }
       throw err;
     }
-    // Timeout or network error: the order may have been placed. Poll the same reference.
-    return pollOrder(params.reference, pollOptions);
+    // Timeout or network error: the order may have been placed. Check the same reference.
+    return recoverUnknown(params, pollOptions, attempt);
   }
   if (TERMINAL.includes(order.status)) return order;
   return pollOrder(params.reference, pollOptions);
@@ -164,9 +185,17 @@ async function demo() {
   if (!key.startsWith("dg2_test_") && process.env.DATAGOD_ALLOW_LIVE !== "1") {
     throw new Error("This demo only runs with a test key. Set DATAGOD_ALLOW_LIVE=1 to place a real order with a live key.");
   }
+  // A live key buys for real: never fall back to the sandbox number, ask for your own.
+  let recipient = "0244000001"; // sandbox number, test keys only
+  if (!key.startsWith("dg2_test_")) {
+    recipient = process.env.DATAGOD_DEMO_RECIPIENT || "";
+    if (!recipient) {
+      throw new Error("A live key needs DATAGOD_DEMO_RECIPIENT (the phone number to send data to). Set it and run again.");
+    }
+  }
   console.log("Balance:", await getBalance());
   const reference = "DEMO-" + Date.now();
-  const order = await buyDataSafely({ network: "MTN", volumeGb: 1, recipient: "0244000001", reference });
+  const order = await buyDataSafely({ network: "MTN", volumeGb: 1, recipient, reference });
   console.log("Order:", order);
 }
 
@@ -203,6 +232,7 @@ declare(strict_types=1);
 const DATAGOD_BASE_URL = 'https://api.datagod.store/v2';
 const DATAGOD_REQUEST_TIMEOUT = 30; // seconds
 const DATAGOD_TERMINAL = ['completed', 'failed', 'refunded'];
+const DATAGOD_MAX_ATTEMPTS = 3; // 1 purchase plus at most 2 resends of the SAME reference
 
 class DatagodApiError extends RuntimeException
 {
@@ -252,11 +282,9 @@ function datagod_request(string $method, string $path, ?array $body = null): arr
     $raw = curl_exec($ch);
     if ($raw === false) {
         $err = curl_error($ch);
-        curl_close($ch);
         throw new DatagodNetworkError('Network error: ' . $err);
     }
     $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
     $json = json_decode((string) $raw, true);
     return [$status, is_array($json) ? $json : null];
 }
@@ -309,14 +337,14 @@ function datagod_poll_order(string $reference, int $timeoutSeconds = 600, int $i
             // A network error while polling is not fatal: try again until the deadline.
         }
         if (time() + $intervalSeconds > $deadline) {
-            throw new RuntimeException('Timed out waiting for order ' . $reference . ' to reach completed, failed or refunded. Keep polling the same reference; do not place it again.');
+            throw new RuntimeException('Timed out waiting for order ' . $reference . ' to reach completed, failed or refunded. Keep checking the same reference; if GET /orders/' . $reference . ' returns 404 the order never arrived: resend with the same reference, never a new one.');
         }
         sleep($intervalSeconds);
     }
 }
 
 // Buys data and returns the final order, without ever ordering twice for one purchase.
-function datagod_buy_data_safely(string $network, float $volumeGb, string $recipient, string $reference, int $timeoutSeconds = 600, int $intervalSeconds = 10): array
+function datagod_buy_data_safely(string $network, float $volumeGb, string $recipient, string $reference, int $timeoutSeconds = 600, int $intervalSeconds = 10, int $attempt = 1): array
 {
     datagod_key(); // refuse to start without a key, before anything is sent
     try {
@@ -333,7 +361,21 @@ function datagod_buy_data_safely(string $network, float $volumeGb, string $recip
         }
         throw $e;
     } catch (DatagodNetworkError $e) {
-        // Timeout or network error: the order may have been placed. Poll the same reference.
+        // Timeout or network error: the order may or may not have arrived. Ask Datagod: a 404 means it never
+        // arrived, so resend with the SAME reference (a duplicate is impossible: the reference is claimed
+        // once). Anything else means it exists or is unconfirmed, so keep polling the same reference.
+        $status = 0;
+        try {
+            [$status] = datagod_request('GET', '/orders/' . rawurlencode($reference));
+        } catch (DatagodNetworkError $inner) {
+            // The check itself failed: fall through to polling the same reference.
+        }
+        if ($status === 404) {
+            if ($attempt >= DATAGOD_MAX_ATTEMPTS) {
+                throw new RuntimeException('Order ' . $reference . ' never arrived after ' . DATAGOD_MAX_ATTEMPTS . ' attempts: resend with the same reference, never a new one.');
+            }
+            return datagod_buy_data_safely($network, $volumeGb, $recipient, $reference, $timeoutSeconds, $intervalSeconds, $attempt + 1);
+        }
         return datagod_poll_order($reference, $timeoutSeconds, $intervalSeconds);
     }
     if (in_array($order['status'], DATAGOD_TERMINAL, true)) {
@@ -348,8 +390,16 @@ function datagod_demo(): void
     if (strpos($key, 'dg2_test_') !== 0 && getenv('DATAGOD_ALLOW_LIVE') !== '1') {
         throw new RuntimeException('This demo only runs with a test key. Set DATAGOD_ALLOW_LIVE=1 to place a real order with a live key.');
     }
+    // A live key buys for real: never fall back to the sandbox number, ask for your own.
+    $recipient = '0244000001'; // sandbox number, test keys only
+    if (strpos($key, 'dg2_test_') !== 0) {
+        $recipient = (string) getenv('DATAGOD_DEMO_RECIPIENT');
+        if ($recipient === '') {
+            throw new RuntimeException('A live key needs DATAGOD_DEMO_RECIPIENT (the phone number to send data to). Set it and run again.');
+        }
+    }
     echo 'Balance: ' . json_encode(datagod_get_balance()) . "\n";
-    $order = datagod_buy_data_safely('MTN', 1.0, '0244000001', 'DEMO-' . time());
+    $order = datagod_buy_data_safely('MTN', 1.0, $recipient, 'DEMO-' . time());
     echo 'Order: ' . json_encode($order) . "\n";
 }
 
