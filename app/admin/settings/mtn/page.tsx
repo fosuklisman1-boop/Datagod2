@@ -17,6 +17,10 @@ import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import Link from "next/link"
 import { PageHeaderBanner } from "@/components/shared/page-header-banner"
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { KuntaniiCard } from "@/components/admin/kuntanii-card"
 
 interface MTNSettings {
@@ -77,9 +81,11 @@ export default function MTNSettingsPage() {
   const [loadingAtFulfillment, setLoadingAtFulfillment] = useState(true)
   const [togglingAtFulfillment, setTogglingAtFulfillment] = useState(false)
 
-  const [whitelistEnabled, setWhitelistEnabled] = useState(true)
-  const [loadingWhitelist, setLoadingWhitelist] = useState(true)
-  const [togglingWhitelist, setTogglingWhitelist] = useState(false)
+  const [strictEnabled, setStrictEnabled] = useState(false)
+  const [strictWarnings, setStrictWarnings] = useState<string[]>([])
+  const [loadingStrict, setLoadingStrict] = useState(true)
+  const [savingStrict, setSavingStrict] = useState(false)
+  const [strictConfirmOpen, setStrictConfirmOpen] = useState(false)
 
   const [custVerifyEnabled, setCustVerifyEnabled] = useState(false)
   const [custVerifyProviders, setCustVerifyProviders] = useState<string[]>([])
@@ -96,10 +102,6 @@ export default function MTNSettingsPage() {
   const [loadingCustVerify, setLoadingCustVerify] = useState(true)
   const [savingCustVerify, setSavingCustVerify] = useState(false)
 
-  const [switchProviders, setSwitchProviders] = useState<string[]>([])
-  const [switchAvailable, setSwitchAvailable] = useState<Array<{ name: string; configured: boolean }>>([])
-  const [loadingSwitch, setLoadingSwitch] = useState(true)
-  const [savingSwitch, setSavingSwitch] = useState(false)
 
   const [threshold, setThreshold] = useState<number>(500)
   const [thresholdInput, setThresholdInput] = useState<string>("500")
@@ -185,10 +187,9 @@ export default function MTNSettingsPage() {
     loadProvider()
     loadBisdelCatalog()
     loadAtFulfillmentSetting()
-    loadWhitelistSetting()
+    loadStrictSetting()
     loadCustomerVerificationSetting()
     loadBlockedNumbersSetting()
-    loadWhitelistSwitchSetting()
     loadNetworkProvider("telecel", setTelecelProvider)
     loadNetworkProvider("at_ishare", setAtIshareProvider)
     loadNetworkProvider("at_bigtime", setAtBigtimeProvider)
@@ -908,34 +909,39 @@ export default function MTNSettingsPage() {
     finally { setTogglingAtFulfillment(false) }
   }
 
-  const loadWhitelistSetting = async () => {
+  const loadStrictSetting = async () => {
     try {
-      setLoadingWhitelist(true)
+      setLoadingStrict(true)
       const { data: { session } } = await supabase.auth.getSession()
-      const res = await fetch("/api/admin/settings/mtn-whitelist", {
+      const res = await fetch("/api/admin/settings/strict-supplier-verify", {
         headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
       })
-      if (res.ok) { const d = await res.json(); setWhitelistEnabled(d.setting?.enabled ?? true) }
-    } catch (e) { console.error("Error loading whitelist setting:", e) }
-    finally { setLoadingWhitelist(false) }
+      if (res.ok) {
+        const d = await res.json()
+        setStrictEnabled(d.enabled === true)
+        setStrictWarnings(Array.isArray(d.warnings) ? d.warnings : [])
+      }
+    } catch (e) { console.error("Error loading strict verification setting:", e) }
+    finally { setLoadingStrict(false) }
   }
 
-  const toggleWhitelist = async () => {
+  const saveStrictSetting = async (enabled: boolean) => {
     try {
-      setTogglingWhitelist(true)
+      setSavingStrict(true)
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token) { toast.error("Authentication required"); return }
-      const res = await fetch("/api/admin/settings/mtn-whitelist", {
-        method: "POST",
+      const res = await fetch("/api/admin/settings/strict-supplier-verify", {
+        method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ enabled: !whitelistEnabled }),
+        body: JSON.stringify({ enabled }),
       })
-      if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Failed") }
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "Failed") }
       const d = await res.json()
-      setWhitelistEnabled(d.setting.enabled)
-      toast.success(d.message)
+      setStrictEnabled(d.enabled === true)
+      setStrictWarnings(Array.isArray(d.warnings) ? d.warnings : [])
+      toast.success(d.enabled ? "Strict supplier verification is on" : "Strict supplier verification is off")
     } catch (e) { toast.error(e instanceof Error ? e.message : "Failed to update") }
-    finally { setTogglingWhitelist(false) }
+    finally { setSavingStrict(false) }
   }
 
   const loadCustomerVerificationSetting = async () => {
@@ -1030,48 +1036,6 @@ export default function MTNSettingsPage() {
       : [...custVerifyProviders, name]
     setCustVerifyProviders(next)
     saveCustomerVerificationSetting(custVerifyEnabled, next)
-  }
-
-  const loadWhitelistSwitchSetting = async () => {
-    try {
-      setLoadingSwitch(true)
-      const { data: { session } } = await supabase.auth.getSession()
-      const res = await fetch("/api/admin/settings/mtn-whitelist-switch", {
-        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
-      })
-      if (res.ok) {
-        const d = await res.json()
-        setSwitchProviders(d.providers ?? [])
-        setSwitchAvailable(d.availableProviders ?? [])
-      }
-    } catch (e) { console.error("Error loading whitelist-switch setting:", e) }
-    finally { setLoadingSwitch(false) }
-  }
-
-  const saveWhitelistSwitchSetting = async (providers: string[]) => {
-    try {
-      setSavingSwitch(true)
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) { toast.error("Authentication required"); return }
-      const res = await fetch("/api/admin/settings/mtn-whitelist-switch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ providers }),
-      })
-      if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Failed") }
-      const d = await res.json()
-      setSwitchProviders(d.providers)
-      toast.success("Whitelist-switch settings saved")
-    } catch (e) { toast.error(e instanceof Error ? e.message : "Failed to update") }
-    finally { setSavingSwitch(false) }
-  }
-
-  const toggleSwitchProvider = (name: string) => {
-    const next = switchProviders.includes(name)
-      ? switchProviders.filter(p => p !== name)
-      : [...switchProviders, name]
-    setSwitchProviders(next)
-    saveWhitelistSwitchSetting(next)
   }
 
   async function apgAuthHeaders(): Promise<Record<string, string>> {
@@ -1732,41 +1696,71 @@ export default function MTNSettingsPage() {
               </CardContent>
             </Card>
 
-            {/* MTN Whitelist Verification */}
+            {/* Strict supplier verification */}
             <Card className="border-2">
               <CardHeader>
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                   <div>
                     <CardTitle className="flex items-center gap-2">
-                      <ShieldCheck className={`h-5 w-5 ${whitelistEnabled ? "text-success" : "text-muted-foreground"}`} />
-                      MTN Whitelist Verification
+                      <ShieldCheck className={`h-5 w-5 ${strictEnabled ? "text-primary" : "text-muted-foreground"}`} />
+                      Strict supplier verification
                     </CardTitle>
-                    <CardDescription className="mt-1">Check Xpress, Codecraft &amp; AgentPortalGH whitelists before fulfilling MTN orders</CardDescription>
+                    <CardDescription className="mt-1">Only send an MTN order to a supplier that has approved the number itself</CardDescription>
                   </div>
                   <div className="flex items-center gap-3">
-                    {loadingWhitelist ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : (
+                    {loadingStrict ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : (
                       <>
-                        {togglingWhitelist && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-                        <span className={`text-sm font-medium ${whitelistEnabled ? "text-success" : "text-muted-foreground"}`}>{whitelistEnabled ? "Enabled" : "Disabled"}</span>
-                        <Switch checked={whitelistEnabled} onCheckedChange={toggleWhitelist} disabled={togglingWhitelist} />
+                        {savingStrict && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                        <span className={`text-sm font-medium ${strictEnabled ? "text-primary" : "text-muted-foreground"}`}>{strictEnabled ? "Enabled" : "Disabled"}</span>
+                        <Switch
+                          checked={strictEnabled}
+                          onCheckedChange={(checked) => { if (checked) setStrictConfirmOpen(true); else saveStrictSetting(false) }}
+                          disabled={savingStrict}
+                          aria-label="Strict supplier verification"
+                        />
                       </>
                     )}
                   </div>
                 </div>
               </CardHeader>
-              <CardContent>
-                <Alert className={whitelistEnabled ? "border-success/30 bg-success/10" : "border-warning/30 bg-warning/10"}>
-                  <ShieldCheck className={`h-4 w-4 ${whitelistEnabled ? "text-success" : "text-warning"}`} />
-                  <AlertDescription className={whitelistEnabled ? "text-success" : "text-warning"}>
-                    {whitelistEnabled
-                      ? <><strong>ON:</strong> MTN orders are verified against Xpress → Codecraft → AgentPortalGH. Numbers not enabled are held and retried every 24h for up to 72h.</>
-                      : <><strong>OFF:</strong> MTN orders skip whitelist verification and go straight to the active fulfillment provider.</>}
+              <CardContent className="space-y-3">
+                <Alert className={strictEnabled ? "border-primary/30 bg-primary/10" : "border-border bg-muted/40"}>
+                  <ShieldCheck className={`h-4 w-4 ${strictEnabled ? "text-primary" : "text-muted-foreground"}`} />
+                  <AlertDescription>
+                    {strictEnabled
+                      ? <><strong>ON:</strong> each MTN order goes only to a supplier that has approved the number. If none has, the order is held and re-checked automatically.</>
+                      : <><strong>OFF:</strong> MTN orders go to the chosen provider as before. The old whitelist checks and auto-switch controls were replaced by this switch.</>}
                   </AlertDescription>
                 </Alert>
+                {strictWarnings.length > 0 && (
+                  <Alert className="border-warning/30 bg-warning/10">
+                    <AlertCircle className="h-4 w-4 text-warning" />
+                    <AlertDescription className="text-warning">
+                      <ul className="list-disc pl-4 space-y-1">
+                        {strictWarnings.map((w) => <li key={w}>{w}</li>)}
+                      </ul>
+                    </AlertDescription>
+                  </Alert>
+                )}
               </CardContent>
             </Card>
+            <AlertDialog open={strictConfirmOpen} onOpenChange={setStrictConfirmOpen}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Turn on strict supplier verification?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    From now on an MTN order is sent only to a supplier that has approved the number itself. Orders no supplier approves are held and re-checked, and the customer gets one SMS.
+                    {strictWarnings.length > 0 && " Some suppliers can't check numbers right now and will receive no MTN orders."}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => saveStrictSetting(true)}>Turn on</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
 
-            {/* Customer-Facing Live Verification (independent of the internal whitelist gate above) */}
+            {/* Customer-Facing Live Verification (independent of the strict verification switch above) */}
             <Card className="border-2">
               <CardHeader>
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -1775,7 +1769,7 @@ export default function MTNSettingsPage() {
                       <ShieldCheck className={`h-5 w-5 ${custVerifyEnabled ? "text-success" : "text-muted-foreground"}`} />
                       Live Verification at Checkout
                     </CardTitle>
-                    <CardDescription className="mt-1">Shows customers a warning at checkout if their MTN number isn&apos;t verified by any provider selected below. Independent of the whitelist gate above — has its own provider list.</CardDescription>
+                    <CardDescription className="mt-1">Shows customers a warning at checkout if their MTN number isn&apos;t verified by any provider selected below. Independent of the strict verification switch above — has its own provider list.</CardDescription>
                   </div>
                   <div className="flex items-center gap-3">
                     {loadingCustVerify ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : (
@@ -1840,7 +1834,7 @@ export default function MTNSettingsPage() {
                 </div>
                 {(() => {
                   const meaningfullyOn = custVerifyEnabled && custVerifyProviders.length > 0
-                  const promiseUnbacked = meaningfullyOn && !whitelistEnabled
+                  const promiseUnbacked = meaningfullyOn && !strictEnabled
                   const alertClass = promiseUnbacked
                     ? "border-destructive/30 bg-destructive/10"
                     : meaningfullyOn
@@ -1856,7 +1850,7 @@ export default function MTNSettingsPage() {
                           : custVerifyProviders.length === 0
                           ? <><strong>ON, but no providers selected:</strong> every number is treated as verified until you pick at least one provider above.</>
                           : promiseUnbacked
-                          ? <><strong>WARNING:</strong> checking against {custVerifyProviders.join(", ")}, but the MTN Whitelist Verification gate above is OFF — customers who proceed past an "unverified" warning won't actually be held/retried, so the promise shown to them won't be kept. Turn on the whitelist gate above, or turn this off.</>
+                          ? <><strong>WARNING:</strong> checking against {custVerifyProviders.join(", ")}, but the Strict supplier verification switch above is OFF — customers who proceed past an "unverified" warning won't actually be held/retried, so the promise shown to them won't be kept. Turn on strict supplier verification above, or turn this off.</>
                           : custVerifyBlock
                           ? <><strong>ON, BLOCKING:</strong> checking against {custVerifyProviders.join(" → ")}. Numbers they reject can&apos;t be ordered on any channel. MTN only.</>
                           : <><strong>ON:</strong> checking against {custVerifyProviders.join(" → ")}. MTN only.</>}
@@ -1921,48 +1915,6 @@ export default function MTNSettingsPage() {
                 >
                   Save numbers
                 </Button>
-              </CardContent>
-            </Card>
-
-            {/* Whitelist-driven fulfillment switch — per-provider control */}
-            <Card className="border-2">
-              <CardHeader>
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <ShieldCheck className="h-5 w-5 text-primary" />
-                    Whitelist Auto-Switch Providers
-                  </CardTitle>
-                  <CardDescription className="mt-1">
-                    When the whitelist check above finds a DIFFERENT provider recognizes the customer&apos;s number, fulfillment normally switches to that provider. Uncheck a provider here to still let it confirm numbers are valid, without ever letting it take over the order. Independent of that provider being enabled/disabled for normal selection.
-                  </CardDescription>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {loadingSwitch ? (
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                ) : (
-                  <div className="flex flex-wrap gap-3">
-                    {switchAvailable.map(p => (
-                      <label key={p.name} className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm cursor-pointer ${switchProviders.includes(p.name) ? "border-primary bg-primary/5" : "border-border"} ${!p.configured ? "opacity-50" : ""}`}>
-                        <input
-                          type="checkbox"
-                          checked={switchProviders.includes(p.name)}
-                          onChange={() => toggleSwitchProvider(p.name)}
-                          disabled={!p.configured || savingSwitch}
-                        />
-                        {p.name}{!p.configured && " (not configured)"}
-                      </label>
-                    ))}
-                  </div>
-                )}
-                <Alert className="border-primary/20 bg-primary/5">
-                  <ShieldCheck className="h-4 w-4 text-primary" />
-                  <AlertDescription>
-                    {switchProviders.length === 0
-                      ? <>No provider can currently take over fulfillment via auto-switch — every order stays with whichever provider was already selected, even if another provider recognizes the number.</>
-                      : <>{switchProviders.join(", ")} can take over fulfillment via auto-switch. Any other configured provider can still confirm a number is valid, but will never grab the order for itself.</>}
-                  </AlertDescription>
-                </Alert>
               </CardContent>
             </Card>
 
