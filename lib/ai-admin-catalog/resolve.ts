@@ -1,11 +1,11 @@
-import type { CatalogEntry, EntryInput, ResolvedRequest } from "./types"
+import { isSafeAdminPath, type CatalogEntry, type EntryInput, type ResolvedRequest } from "./types"
 
 export type ResolveResult =
   | { ok: true; req: ResolvedRequest }
   | { ok: false; code: "bad_input" | "bad_param" | "secret_in_input"; message: string }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const SLUG_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i
+const SLUG_RE = /^[a-z0-9_-]{1,64}$/
 
 function fail(code: "bad_input" | "bad_param" | "secret_in_input", message: string): ResolveResult {
   return { ok: false, code, message }
@@ -26,16 +26,22 @@ export function resolveRequest(entry: CatalogEntry, input: EntryInput): ResolveR
   const declared = entry.params ?? {}
   const supplied = input.params ?? {}
   for (const k of Object.keys(supplied)) {
-    if (!(k in declared)) return fail("bad_param", `Unexpected parameter "${k}".`)
+    if (!Object.hasOwn(declared, k)) return fail("bad_param", `Unexpected parameter "${k}".`)
   }
-  let path = entry.path
+  const values: Record<string, string> = {}
   for (const [name, kind] of Object.entries(declared)) {
-    const value = supplied[name]
+    const value = Object.hasOwn(supplied, name) ? supplied[name] : undefined
     if (typeof value !== "string" || value === "") return fail("bad_param", `Parameter "${name}" is required.`)
     const ok = kind === "uuid" ? UUID_RE.test(value) : SLUG_RE.test(value)
     if (!ok) return fail("bad_param", `Parameter "${name}" is not a valid ${kind}.`)
-    path = path.split(`:${name}`).join(encodeURIComponent(value))
+    values[name] = encodeURIComponent(value)
   }
+  // Whole path segments only: ":id" must not match inside ":idx".
+  const path = entry.path
+    .split("/")
+    .map((seg) => (seg.startsWith(":") && Object.hasOwn(values, seg.slice(1)) ? values[seg.slice(1)] : seg))
+    .join("/")
+  if (!isSafeAdminPath(path)) return fail("bad_param", "Catalog path is not a safe /api/admin/ path.")
 
   // 2. secrets must never arrive through the model
   const bodyIn = input.body

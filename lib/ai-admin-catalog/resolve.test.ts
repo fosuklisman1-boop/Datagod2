@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { z } from "zod"
 import { resolveRequest, sameRequest } from "./resolve"
-import type { CatalogEntry } from "./types"
+import { ResolvedRequestSchema, type CatalogEntry } from "./types"
 
 const UUID = "123e4567-e89b-12d3-a456-426614174000"
 
@@ -89,6 +89,58 @@ describe("resolveRequest", () => {
     const e = entry({ params: undefined, path: "/api/admin/p", body: undefined })
     expect(resolveRequest(e, { body: { a: 1 } })).toMatchObject({ ok: false, code: "bad_input" })
     expect(resolveRequest(entry(), { params: { id: UUID } })).toMatchObject({ ok: false, code: "bad_input" })
+  })
+})
+
+describe("fix round 1", () => {
+  it("refuses an entry whose path is outside /api/admin/", () => {
+    const e = entry({ path: "/api/other/:id" })
+    expect(resolveRequest(e, { params: { id: UUID }, body: { note: "a" } })).toMatchObject({ ok: false })
+    const e2 = entry({ path: "/api/admin/../x/:id" })
+    expect(resolveRequest(e2, { params: { id: UUID }, body: { note: "a" } })).toMatchObject({ ok: false })
+  })
+
+  it.each([
+    "/api/other/x",
+    "/api/admin/../x",
+    "/api/admin//x",
+    "/api/admin/x?a=1",
+    "/api/admin/x#h",
+    "/api/admin\\x",
+    "/api/admin",
+  ])("ResolvedRequestSchema refuses path %j", (path) => {
+    expect(ResolvedRequestSchema.safeParse({ method: "GET", path, query: "", body: null }).success).toBe(false)
+  })
+
+  it("ResolvedRequestSchema accepts a normal admin path", () => {
+    expect(
+      ResolvedRequestSchema.safeParse({ method: "GET", path: "/api/admin/users/abc", query: "", body: null }).success,
+    ).toBe(true)
+  })
+
+  it("substitutes whole segments only (:id vs :idx)", () => {
+    const e = entry({
+      path: "/api/admin/x/:id/:idx",
+      params: { id: "slug", idx: "slug" },
+      body: undefined,
+      method: "GET",
+    })
+    const r = resolveRequest(e, { params: { id: "aa", idx: "bb" } })
+    expect(r).toMatchObject({ ok: true, req: { path: "/api/admin/x/aa/bb" } })
+  })
+
+  it("refuses inherited param keys", () => {
+    const r = resolveRequest(entry(), { params: { id: UUID, constructor: "x" }, body: { note: "a" } })
+    expect(r).toMatchObject({ ok: false, code: "bad_param" })
+    const e = entry({ path: "/api/admin/x/:id", params: { id: "slug" }, body: undefined, method: "GET" })
+    const proto = JSON.parse('{"id":"aa","__proto__":"x"}')
+    expect(resolveRequest(e, { params: proto })).toMatchObject({ ok: false, code: "bad_param" })
+  })
+
+  it("slug is exactly ^[a-z0-9_-]{1,64}$", () => {
+    const e = entry({ path: "/api/admin/shops/:slug", params: { slug: "slug" } })
+    expect(resolveRequest(e, { params: { slug: "_-a" }, body: { note: "a" } })).toMatchObject({ ok: true })
+    expect(resolveRequest(e, { params: { slug: "Abc" }, body: { note: "a" } })).toMatchObject({ ok: false })
   })
 })
 

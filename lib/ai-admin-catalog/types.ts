@@ -35,10 +35,18 @@ export interface ResolvedRequest {
   body: Record<string, unknown> | null
 }
 
+/** A request path must stay under /api/admin/ with no traversal, empty segments, query, fragment or backslash. */
+export function isSafeAdminPath(path: string): boolean {
+  if (!path.startsWith("/api/admin/")) return false
+  if (/[?#\\]/.test(path)) return false
+  if (path.includes("//")) return false
+  return !path.split("/").some((seg) => seg === ".." || seg === ".")
+}
+
 export const ResolvedRequestSchema = z
   .object({
     method: z.enum(HTTP_METHODS),
-    path: z.string().min(1),
+    path: z.string().min(1).refine(isSafeAdminPath, "path must stay under /api/admin/"),
     query: z.string(),
     body: z.record(z.string(), z.unknown()).nullable(),
   })
