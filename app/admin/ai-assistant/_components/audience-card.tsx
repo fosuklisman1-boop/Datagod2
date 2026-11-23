@@ -14,10 +14,12 @@ const ROWS: { key: AudienceKey; title: string; body: string }[] = [
 ]
 
 export function AudienceCard({
-  audiences, onChange, maxSteps, onMaxSteps, stepsError,
+  audiences, onChange, adminCatalog, onAdminCatalog, maxSteps, onMaxSteps, stepsError,
 }: {
   audiences: Audiences
   onChange: (a: Audiences) => void
+  adminCatalog: boolean
+  onAdminCatalog: (v: boolean) => void
   maxSteps: string
   onMaxSteps: (v: string) => void
   stepsError: string | null
@@ -49,6 +51,20 @@ export function AudienceCard({
             </li>
           ))}
         </ul>
+        <div className="flex items-start gap-3 rounded-xl border border-border p-3">
+          <div className="min-w-0 flex-1">
+            <Label htmlFor="admin-catalog" className="text-sm font-medium text-foreground">
+              Admin assistant can use every admin page (every change needs your tap)
+            </Label>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Off: the assistant works as before. On: it can use every admin page, and every change still needs your tap.
+            </p>
+          </div>
+          <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${adminCatalog ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>
+            {adminCatalog ? "On" : "Off"}
+          </span>
+          <Switch id="admin-catalog" checked={adminCatalog} onCheckedChange={onAdminCatalog} />
+        </div>
         <div className="space-y-1">
           <Label htmlFor="max-steps" className="text-sm font-medium">Max tool steps per answer</Label>
           <Input

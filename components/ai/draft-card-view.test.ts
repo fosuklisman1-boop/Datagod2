@@ -286,3 +286,108 @@ describe("state_changed_message", () => {
     expect(v.showPrepareAgain).toBe(true)
   })
 })
+
+// ---- admin_route cards (Task 7) ----
+import { adminCardTone, buildConfirmSecrets, confirmErrorMessage, safePageLink, secretsReady } from "./draft-card-view"
+
+const adminDisplay = (over: Record<string, unknown> = {}) => ({
+  kind: "admin_route",
+  entryId: "users.reset-password",
+  page: "/admin/users",
+  pageTitle: "Users",
+  summary: "Set a new password for Kofi Mensah.",
+  lines: [{ label: "User", value: "Kofi Mensah" }],
+  risk: "normal",
+  secretFields: [],
+  ...over,
+})
+const adminView = (displayOver: Record<string, unknown> = {}, over: Partial<CardViewState> = {}) =>
+  view({ display: adminDisplay(displayOver), ...over })
+
+describe("admin_route cards", () => {
+  it("renders pageTitle, summary and lines", () => {
+    const v = adminView()
+    expect(v.title).toBe("Users")
+    expect(v.summary).toBe("Set a new password for Kofi Mensah.")
+    expect(v.lines).toEqual([{ label: "User", value: "Kofi Mensah" }])
+    expect(v.risk).toBe("normal")
+    expect(v.dangerNote).toBeNull()
+    expect(v.showConfirm).toBe(true)
+  })
+
+  it("danger is red with the exact irreversible line", () => {
+    const v = adminView({ risk: "danger" })
+    expect(v.risk).toBe("danger")
+    expect(v.dangerNote).toBe("This cannot be undone.")
+    expect(adminCardTone("danger")).toContain("destructive")
+  })
+
+  it("money is amber, normal is the navy accent", () => {
+    expect(adminView({ risk: "money" }).risk).toBe("money")
+    expect(adminCardTone("money")).toContain("amber")
+    expect(adminCardTone("normal")).toContain("primary")
+  })
+
+  it("tolerates missing or garbled fields without crashing", () => {
+    const v = adminView({ pageTitle: 42, summary: null, lines: "nope", risk: "wild", secretFields: [null, { name: 5 }, "x"] })
+    expect(v.title).toBe("Confirm action")
+    expect(v.summary).toBeNull()
+    expect(v.lines).toEqual([])
+    expect(v.risk).toBe("normal")
+    expect(v.secretFields).toEqual([])
+    expect(draftCardView(base({ display: { kind: "admin_route" } }), NOW).variant).toBe("pending")
+  })
+
+  it("exposes only well-formed secret fields", () => {
+    const v = adminView({ secretFields: [{ name: "password", label: "New password", min: 8, max: 72 }, { name: "", label: "x", min: 1, max: 5 }] })
+    expect(v.secretFields).toEqual([{ name: "password", label: "New password", min: 8, max: 72 }])
+  })
+
+  it("confirm stays disabled until every secret meets min", () => {
+    const f = [{ name: "password", label: "P", min: 8, max: 72 }, { name: "key", label: "K", min: 1, max: 10 }]
+    expect(secretsReady(f, {})).toBe(false)
+    expect(secretsReady(f, { password: "short", key: "a" })).toBe(false)
+    expect(secretsReady(f, { password: "longenough", key: "" })).toBe(false)
+    expect(secretsReady(f, { password: "longenough", key: "a" })).toBe(true)
+    expect(secretsReady(f, { password: "longenough", key: "a".repeat(11) })).toBe(false)
+    expect(secretsReady([], {})).toBe(true)
+  })
+
+  it("the confirm payload carries only declared names", () => {
+    const f = [{ name: "password", label: "P", min: 1, max: 72 }]
+    expect(buildConfirmSecrets(f, { password: "pw1234", injected: "evil" })).toEqual({ secrets: { password: "pw1234" } })
+    expect(buildConfirmSecrets([], { injected: "evil" })).toBeNull()
+  })
+
+  it("unknown outcome says we could not confirm and links to the page; no recheck button", () => {
+    const v = adminView({}, { status: "unknown", outcome: { code: "no_response", pageLink: "/admin/users" } })
+    expect(v.message).toBe("We couldn't confirm the result.")
+    expect(v.pageLink).toBe("/admin/users")
+    expect(v.showCheckAgain).toBe(false)
+  })
+
+  it("only /admin links are kept", () => {
+    expect(safePageLink("/admin/users?x=1")).toBe("/admin/users?x=1")
+    expect(safePageLink("/admin")).toBe("/admin")
+    for (const bad of ["https://evil.com", "//evil.com", "/administrator", "/dashboard", "javascript:alert(1)", "/admin\evil", 5, null, undefined])
+      expect(safePageLink(bad)).toBeNull()
+    const v = adminView({}, { status: "unknown", outcome: { code: "no_response", pageLink: "https://evil.com" } })
+    expect(v.pageLink).toBeNull()
+  })
+
+  it("non-admin cards are unchanged", () => {
+    const v = view({ status: "unknown", outcome: { code: "no_response" } })
+    expect(v.showCheckAgain).toBe(true)
+    expect(v.risk).toBeNull()
+    expect(v.secretFields).toEqual([])
+    expect(v.pageLink).toBeNull()
+  })
+
+  it("maps confirm errors to messages that never echo values", () => {
+    expect(confirmErrorMessage(400, { code: "missing_secret", error: "Enter the new password." })).toBe("Enter the new password.")
+    expect(confirmErrorMessage(400, { code: "bad_secret", error: "Password is too short." })).toBe("Password is too short.")
+    expect(confirmErrorMessage(400, { code: "bad_body", error: "Invalid request body" })).toBe("")
+    expect(confirmErrorMessage(413, null)).toBe("That value is too long.")
+    expect(confirmErrorMessage(400, { code: "missing_secret", error: 5 })).toBe("Please fill in the secure box.")
+  })
+})

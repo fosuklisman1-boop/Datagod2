@@ -20,6 +20,8 @@ export interface ConsoleForm {
   tone: AssistantTone
   audiences: Audiences
   max_tool_steps: number | null
+  /** Admin assistant may use every admin page (every change still needs a card tap). */
+  admin_catalog_enabled: boolean
   storefront_provider: ProviderName
   storefront_model: string
   dashboard_provider: ProviderName
@@ -59,7 +61,7 @@ export function hasEmptyModel(f: ConsoleForm): boolean {
 }
 
 const SCALAR_FIELDS = [
-  "assistant_name", "tone", "max_tool_steps",
+  "assistant_name", "tone", "max_tool_steps", "admin_catalog_enabled",
   "storefront_provider", "storefront_model", "dashboard_provider", "dashboard_model",
   "admin_provider", "admin_model", "whatsapp_provider", "whatsapp_model",
 ] as const

@@ -35,6 +35,76 @@ export interface CardView {
   /** Set for insufficient_balance. */
   topUpHref: string | null
   warnings: string[]
+  /** Admin cards only (null otherwise). */
+  risk: AdminRisk | null
+  summary: string | null
+  /** "This cannot be undone." on danger cards. */
+  dangerNote: string | null
+  secretFields: SecretField[]
+  /** A safe /admin link (unknown outcome of an admin card), else null. */
+  pageLink: string | null
+}
+
+export type AdminRisk = "normal" | "money" | "danger"
+export interface SecretField { name: string; label: string; min: number; max: number }
+
+export const DANGER_NOTE = "This cannot be undone."
+
+/** Card border classes per risk: navy brand accent (primary), amber for money, red for danger. */
+export function adminCardTone(risk: AdminRisk): string {
+  return risk === "danger" ? "border-destructive/60" : risk === "money" ? "border-amber-500/60" : "border-primary/30"
+}
+
+const SAFE_ADMIN_LINK = /^\/admin(?:[/?#]|$)[^\s\\]*$/
+
+/** Only an /admin path is ever linked. The value is server data and is treated as untrusted. */
+export function safePageLink(v: unknown): string | null {
+  return typeof v === "string" && v.length <= 300 && SAFE_ADMIN_LINK.test(v) ? v : null
+}
+
+function readAdminDisplay(display: unknown) {
+  const d = (display && typeof display === "object" ? display : null) as Record<string, unknown> | null
+  if (!d || d.kind !== "admin_route") return null
+  const risk: AdminRisk = d.risk === "danger" || d.risk === "money" ? d.risk : "normal"
+  const secretFields: SecretField[] = (Array.isArray(d.secretFields) ? d.secretFields : []).flatMap((f) => {
+    const o = (f && typeof f === "object" ? f : {}) as Record<string, unknown>
+    if (typeof o.name !== "string" || !/^[A-Za-z0-9_]{1,64}$/.test(o.name)) return []
+    const min = typeof o.min === "number" && Number.isFinite(o.min) && o.min >= 1 ? Math.floor(o.min) : 1
+    const max = typeof o.max === "number" && Number.isFinite(o.max) && o.max >= min ? Math.floor(o.max) : 256
+    return [{ name: o.name, label: typeof o.label === "string" && o.label.trim() ? o.label.trim() : o.name, min, max }]
+  })
+  return {
+    title: typeof d.pageTitle === "string" && d.pageTitle.trim() ? d.pageTitle.trim() : "Confirm action",
+    summary: typeof d.summary === "string" && d.summary.trim() ? d.summary.trim() : null,
+    risk,
+    secretFields,
+  }
+}
+
+/** Confirm stays disabled until every secret box meets its min (and does not exceed max). */
+export function secretsReady(fields: SecretField[], values: Record<string, string>): boolean {
+  return fields.every((f) => {
+    const v = values[f.name]
+    return typeof v === "string" && v.length >= f.min && v.length <= f.max
+  })
+}
+
+/** The confirm request body: only the declared names. Null when there is nothing secret to send. */
+export function buildConfirmSecrets(fields: SecretField[], values: Record<string, string>): { secrets: Record<string, string> } | null {
+  if (fields.length === 0) return null
+  const secrets: Record<string, string> = {}
+  for (const f of fields) secrets[f.name] = values[f.name] ?? ""
+  return { secrets }
+}
+
+/** Message for a failed confirm ("" = use the generic one). Server text is used only for the two secret codes. */
+export function confirmErrorMessage(status: number, body: unknown): string {
+  const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>
+  if (status === 413) return "That value is too long."
+  if (status === 400 && (b.code === "missing_secret" || b.code === "bad_secret")) {
+    return typeof b.error === "string" && b.error.trim() ? b.error.trim().slice(0, 200) : "Please fill in the secure box."
+  }
+  return ""
 }
 
 export const TOP_UP_HREF = "/dashboard/wallet"
@@ -148,7 +218,10 @@ export function linkedCardState(s: { status: string; outcome?: Record<string, un
 }
 
 export function draftCardView(state: CardViewState, nowMs: number): CardView {
-  const { title, lines } = readDisplay(state.display)
+  const read = readDisplay(state.display)
+  const admin = readAdminDisplay(state.display)
+  const title = admin ? admin.title : read.title
+  const lines = read.lines
   const o = state.outcome ?? {}
   const warnings = (state.warnings ?? []).map((w) => WARNING_TEXT[w]).filter((w): w is string => !!w)
   const view: CardView = {
@@ -166,6 +239,11 @@ export function draftCardView(state: CardViewState, nowMs: number): CardView {
     items: [],
     topUpHref: null,
     warnings: [],
+    risk: admin ? admin.risk : null,
+    summary: admin ? admin.summary : null,
+    dangerNote: admin?.risk === "danger" ? DANGER_NOTE : null,
+    secretFields: admin ? admin.secretFields : [],
+    pageLink: null,
   }
 
   if (state.loadError) {
@@ -221,6 +299,8 @@ export function draftCardView(state: CardViewState, nowMs: number): CardView {
       return { ...view, variant: "failed", message: f.message, showPrepareAgain: f.prepareAgain, topUpHref: f.topUp ? TOP_UP_HREF : null }
     }
     case "unknown":
+      // An admin route has no generic recheck: the page itself is the truth, so link to it instead.
+      if (admin) return { ...view, variant: "unknown", message: unknownMessage(o), pageLink: safePageLink(o.pageLink) }
       return { ...view, variant: "unknown", message: unknownMessage(o), showCheckAgain: true }
     case "expired":
       return { ...view, variant: "expired", greyed: true, showPrepareAgain: true, message: "This card has expired." }

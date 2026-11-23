@@ -2,7 +2,17 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
-import { draftCardView, UNKNOWN_MESSAGE, type CardViewState, type LoadError } from "./draft-card-view"
+import {
+  adminCardTone,
+  buildConfirmSecrets,
+  confirmErrorMessage,
+  draftCardView,
+  secretsReady,
+  UNKNOWN_MESSAGE,
+  type CardViewState,
+  type LoadError,
+  type SecretField,
+} from "./draft-card-view"
 
 // Confirm card for an AI-prepared action. It renders server state only: every status below comes from
 // GET/POST /api/ai/drafts/[id]. The one local fabrication is the "stopped waiting" unknown after 90 s of executing.
@@ -20,14 +30,22 @@ const POLL_FOR_MS = 90_000
 
 type ServerState = Pick<CardViewState, "status" | "finalStatus" | "outcome" | "display">
 
-async function call(draftId: string, getToken: () => Promise<string>, method: "GET" | "POST", action?: "confirm" | "recheck" | "cancel") {
+async function call(
+  draftId: string,
+  getToken: () => Promise<string>,
+  method: "GET" | "POST",
+  action?: "confirm" | "recheck" | "cancel",
+  body?: { secrets: Record<string, string> } | null,
+) {
   const token = await getToken()
   const res = await fetch(`/api/ai/drafts/${draftId}${action ? `/${action}` : ""}`, {
     method,
-    headers: { Authorization: `Bearer ${token}` },
+    headers: body ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } : { Authorization: `Bearer ${token}` },
+    ...(body ? { body: JSON.stringify(body) } : {}),
   })
   if (res.ok) return { ok: true as const, state: (await res.json()) as ServerState }
-  return { ok: false as const, status: res.status }
+  const errBody: unknown = await res.json().catch(() => null)
+  return { ok: false as const, status: res.status, body: errBody }
 }
 
 const HTTP_MESSAGES: Record<number, string> = {
@@ -53,6 +71,9 @@ export function DraftCard({ draftId, initial, getToken, onPrepareAgain }: DraftC
   const [error, setError] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const [showItems, setShowItems] = useState(false)
+  // Secure-box values live only in this component's memory: never persisted, logged or put in a message.
+  const [secrets, setSecrets] = useState<Record<string, string>>({})
+  const [revealed, setRevealed] = useState<Record<string, boolean>>({})
   const busyRef = useRef(false)
   const mounted = useRef(true)
 
@@ -65,6 +86,7 @@ export function DraftCard({ draftId, initial, getToken, onPrepareAgain }: DraftC
     mounted.current = true
     return () => {
       mounted.current = false
+      setSecrets({})
     }
   }, [])
 
@@ -116,16 +138,17 @@ export function DraftCard({ draftId, initial, getToken, onPrepareAgain }: DraftC
   }, [state.status, draftId, getToken, apply])
 
   const act = useCallback(
-    async (action: "confirm" | "recheck" | "cancel") => {
+    async (action: "confirm" | "recheck" | "cancel", fields: SecretField[] = [], typed: Record<string, string> = {}) => {
       if (busyRef.current) return // one request per click: a second tap before the answer is ignored
       busyRef.current = true
       setBusy(true)
       setError(null)
       try {
-        const r = await call(draftId, getToken, "POST", action)
+        const payload = action === "confirm" ? buildConfirmSecrets(fields, typed) : null
+        const r = await call(draftId, getToken, "POST", action, payload)
         if (!mounted.current) return
         if (r.ok) apply(r.state)
-        else setError(HTTP_MESSAGES[r.status] ?? "Something went wrong. Please try again.")
+        else setError(confirmErrorMessage(r.status, r.body) || HTTP_MESSAGES[r.status] || "Something went wrong. Please try again.")
       } catch {
         // The request may have reached the server. Ask it what happened instead of guessing.
         try {
@@ -142,6 +165,11 @@ export function DraftCard({ draftId, initial, getToken, onPrepareAgain }: DraftC
         }
       } finally {
         busyRef.current = false
+        if (action === "confirm" && mounted.current) {
+          // Typed secrets are dropped once the attempt resolves, success or failure.
+          setSecrets({})
+          setRevealed({})
+        }
         if (mounted.current) setBusy(false)
       }
     },
@@ -151,12 +179,15 @@ export function DraftCard({ draftId, initial, getToken, onPrepareAgain }: DraftC
   const view = draftCardView(loaded ? state : { ...state, loadError: loadError ?? undefined }, now)
   const loading = !loaded && !loadError
   const disabled = busy || !loaded
+  const confirmBlocked = disabled || !secretsReady(view.secretFields, secrets)
   const tone =
     view.variant === "succeeded"
       ? "border-emerald-500/40"
       : view.variant === "failed" || view.variant === "partial"
         ? "border-destructive/40"
-        : "border-primary/30"
+        : view.risk
+          ? adminCardTone(view.risk)
+          : "border-primary/30"
 
   return (
     <div
@@ -164,6 +195,18 @@ export function DraftCard({ draftId, initial, getToken, onPrepareAgain }: DraftC
       data-variant={view.variant}
     >
       <p className="font-semibold text-primary">{view.title}</p>
+
+      {view.risk && view.risk !== "normal" && (
+        <span
+          className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+            view.risk === "danger" ? "bg-destructive/10 text-destructive" : "bg-amber-500/15 text-amber-700 dark:text-amber-400"
+          }`}
+        >
+          {view.risk === "danger" ? "Danger" : "Money"}
+        </span>
+      )}
+
+      {view.summary && <p className="mt-2 break-words">{view.summary}</p>}
 
       {view.lines.length > 0 && (
         <dl className="mt-2 space-y-1">
@@ -174,6 +217,51 @@ export function DraftCard({ draftId, initial, getToken, onPrepareAgain }: DraftC
             </div>
           ))}
         </dl>
+      )}
+
+      {view.dangerNote && view.variant === "pending" && <p className="mt-2 text-xs font-semibold text-destructive">{view.dangerNote}</p>}
+
+      {view.variant === "pending" && view.secretFields.length > 0 && (
+        <div className="mt-3 space-y-2">
+          {view.secretFields.map((f) => {
+            const id = `${draftId}-secret-${f.name}`
+            const shown = revealed[f.name] === true
+            return (
+              <div key={f.name}>
+                <label htmlFor={id} className="text-xs font-medium text-muted-foreground">
+                  {f.label}
+                </label>
+                <div className="mt-1 flex gap-2">
+                  <input
+                    id={id}
+                    type={shown ? "text" : "password"}
+                    autoComplete="new-password"
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    maxLength={f.max}
+                    disabled={disabled}
+                    value={secrets[f.name] ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value
+                      setSecrets((prev) => ({ ...prev, [f.name]: v }))
+                    }}
+                    placeholder="Type it here, not in chat"
+                    className="min-w-0 flex-1 rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setRevealed((prev) => ({ ...prev, [f.name]: !shown }))}
+                    aria-pressed={shown}
+                    className="rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-accent"
+                  >
+                    {shown ? "Hide" : "Show"}
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
       )}
 
       {view.warnings.map((w, i) => (
@@ -198,6 +286,14 @@ export function DraftCard({ draftId, initial, getToken, onPrepareAgain }: DraftC
         )}
         {error && <p className="mt-1 text-destructive">{error}</p>}
       </div>
+
+      {view.pageLink && (
+        <p className="mt-1">
+          <Link href={view.pageLink} className="text-xs font-medium text-primary underline">
+            Check the page
+          </Link>
+        </p>
+      )}
 
       {loading && <p className="mt-2 text-xs text-muted-foreground">Checking this card...</p>}
 
@@ -239,8 +335,8 @@ export function DraftCard({ draftId, initial, getToken, onPrepareAgain }: DraftC
           {view.showConfirm && (
             <button
               type="button"
-              disabled={disabled}
-              onClick={() => act("confirm")}
+              disabled={confirmBlocked}
+              onClick={() => act("confirm", view.secretFields, secrets)}
               className="rounded-xl bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
             >
               {busy ? "Confirming..." : "Confirm"}

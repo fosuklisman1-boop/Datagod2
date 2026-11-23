@@ -5,6 +5,7 @@ const base = (over: Partial<ConsoleForm> = {}): ConsoleForm => ({
   assistant_name: "DATAGOD AI", tone: "default",
   audiences: { admins: true, signedIn: true, shopVisitors: true, publicVisitors: true },
   max_tool_steps: null,
+  admin_catalog_enabled: false,
   storefront_provider: "anthropic", storefront_model: "claude-haiku-4-5-20251001",
   dashboard_provider: "anthropic", dashboard_model: "claude-haiku-4-5-20251001",
   admin_provider: "anthropic", admin_model: "claude-haiku-4-5-20251001",
@@ -43,6 +44,11 @@ describe("changedSettings", () => {
     const a = { admins: true, signedIn: false, shopVisitors: true, publicVisitors: true }
     expect(changedSettings(base(), base({ audiences: a }))).toEqual({ audiences: a })
     expect(changedSettings(base(), base({ audiences: { ...base().audiences } }))).toEqual({})
+  })
+  it("sends admin_catalog_enabled only when it changed", () => {
+    expect(changedSettings(base(), base({ admin_catalog_enabled: true }))).toEqual({ admin_catalog_enabled: true })
+    expect(changedSettings(base({ admin_catalog_enabled: true }), base({ admin_catalog_enabled: false }))).toEqual({ admin_catalog_enabled: false })
+    expect(changedSettings(base({ admin_catalog_enabled: true }), base({ admin_catalog_enabled: true }))).toEqual({})
   })
   it("sends max_tool_steps null to reset", () => {
     expect(changedSettings(base({ max_tool_steps: 8 }), base({ max_tool_steps: null }))).toEqual({ max_tool_steps: null })
