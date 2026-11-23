@@ -358,6 +358,97 @@ describe("runStrictRecheck: switch on", () => {
     expect(notifyAdminsPush).not.toHaveBeenCalled()
   })
 
+  it("an overlapping run closing the hold as released between claim and expiry still ends expired", async () => {
+    const db = world({
+      on: true,
+      holds: [hold("orders", "o1", PHONE_A, { held_at: ago(73 * H) })],
+      tables: { orders: [{ id: "o1", status: "held_registration" }] },
+    })
+    db.beforeUpdate = (t, v) => {
+      // The other run's closeMovedOn lands right after this run's claim.
+      if (t === "orders" && v.status === "pending") {
+        const h = holdOf(db, "orders", "o1")
+        h.state = "released"
+        h.closed_at = NOW.toISOString()
+      }
+    }
+    const r = await runStrictRecheck(db as any, NOW)
+    expect(holdOf(db, "orders", "o1")).toMatchObject({ state: "expired" })
+    expect(r.expired).toBe(1)
+  })
+
+  it("an expiry write that matches nothing is not counted or pushed", async () => {
+    const db = world({
+      on: true,
+      holds: [hold("orders", "o1", PHONE_A, { held_at: ago(73 * H) })],
+      tables: { orders: [{ id: "o1", status: "held_registration" }] },
+    })
+    db.beforeUpdate = (t, v) => {
+      // The hold row vanishes into a later episode (different held_at, so nothing can match).
+      if (t === "orders" && v.status === "pending") holdOf(db, "orders", "o1").held_at = ago(1 * H)
+    }
+    const r = await runStrictRecheck(db as any, NOW)
+    expect(r.expired).toBe(0)
+    expect(notifyAdminsPush).not.toHaveBeenCalled()
+  })
+
+  it("switch off: stops starting releases once the run budget is spent; leftovers stay open", async () => {
+    let clock = 1_000_000
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => clock)
+    vi.mocked(processManualFulfillment).mockImplementation(async () => {
+      clock += 300_000
+      return { success: true, message: "ok" } as any
+    })
+    try {
+      const db = world({
+        holds: [hold("orders", "o1", PHONE_A), hold("orders", "o2", PHONE_B)],
+        tables: { orders: [{ id: "o1", status: "held_registration" }, { id: "o2", status: "held_registration" }] },
+      })
+      const r = await runStrictRecheck(db as any, NOW)
+      expect(r.released).toBe(1)
+      expect(r.stillHeld).toBe(1)
+      expect(holdOf(db, "orders", "o2").state).toBe("open")
+      expect(db.tables.orders[1].status).toBe("held_registration")
+    } finally {
+      nowSpy.mockRestore()
+    }
+  })
+
+  it("approved: stops starting releases once the run budget is spent; leftovers stay open", async () => {
+    vi.mocked(askSupplier).mockResolvedValue("yes")
+    let clock = 1_000_000
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => clock)
+    vi.mocked(processManualFulfillment).mockImplementation(async () => {
+      clock += 300_000
+      return { success: true, message: "ok" } as any
+    })
+    try {
+      const db = world({
+        on: true,
+        holds: [hold("orders", "o1", PHONE_A, { last_checked_at: ago(60) }), hold("shop_orders", "s1", PHONE_A, { last_checked_at: ago(60) })],
+        tables: { orders: [{ id: "o1", status: "held_registration" }], shop_orders: [{ id: "s1", order_status: "held_registration" }] },
+      })
+      const r = await runStrictRecheck(db as any, NOW)
+      expect(r.released).toBe(1)
+      expect(r.stillHeld).toBe(1)
+    } finally {
+      nowSpy.mockRestore()
+    }
+  })
+
+  it("a failing verdict save does not abort the run", async () => {
+    vi.mocked(askSupplier).mockImplementation(async (s) => (s === "xpress" ? "yes" : "no_answer"))
+    const db = world({
+      on: true,
+      holds: [hold("orders", "o1", PHONE_A, { last_checked_at: ago(60) })],
+      tables: { orders: [{ id: "o1", status: "held_registration" }] },
+    })
+    db.failUpsert = () => ({ message: `boom ${PHONE_A}` })
+    const r = await runStrictRecheck(db as any, NOW)
+    expect(r.released).toBe(1)
+    expect(allLogs()).not.toContain(PHONE_A)
+  })
+
   it("an order status read error leaves those holds alone", async () => {
     const db = world({
       on: true,

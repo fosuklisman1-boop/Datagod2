@@ -1,3 +1,4 @@
+import { isStrictVerifyOn } from "@/lib/strict-verify/settings"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { findBlacklistedPhones } from "@/lib/blacklist"
 import { judgeOrder, type OrderSnapshot, type Verdict } from "@/lib/order-queue/eligibility"
@@ -299,8 +300,12 @@ const STRICT_HOLD_TABLE_FOR: Record<OrderType, string> = {
  * not existing yet (0194 not applied) blocks nothing. One row per (table, order), so a 100-id chunk stays under the
  * 1000-row page (the table has no id column for readAll's paging order).
  */
-async function readExpiredStrictHolds(db: SupabaseClient, candidates: Candidate[]): Promise<Set<string>> {
+async function readExpiredStrictHolds(db: SupabaseClient, allCandidates: Candidate[]): Promise<Set<string>> {
   const out = new Set<string>()
+  // Strict holds only exist for MTN orders, and only while the strict switch is on (a read error counts as on).
+  const candidates = allCandidates.filter((c) => c.network === "MTN")
+  if (candidates.length === 0) return out
+  if (!(await isStrictVerifyOn(db))) return out
   const tableOf = new Map(candidates.map((c) => [c.id, STRICT_HOLD_TABLE_FOR[c.type]]))
   for (const chunk of chunks(candidates.map((c) => c.id))) {
     const { data, error } = await db.from("mtn_strict_holds").select("order_table, order_id").in("order_id", chunk).eq("state", "expired")

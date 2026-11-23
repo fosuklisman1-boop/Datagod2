@@ -186,10 +186,25 @@ async function expireHold(db: SupabaseClient, h: StrictHoldRow, now: Date): Prom
   const claim = await moveOrder(db, h, "pending")
   if (claim === "error") return "kept"
   if (claim === "not_held") return (await closeMovedOn(db, h, now)) ? "closed" : "kept"
-  const { error } = await holdWhereOpen(db, { state: "expired", closed_at: now.toISOString() }, h)
-  if (error) {
+  const closedAt = now.toISOString()
+  const { data: written, error } = await holdWhereOpen(db, { state: "expired", closed_at: closedAt }, h).select("order_id")
+  let wrote = !error && Array.isArray(written) && written.length > 0
+  if (!error && !wrote) {
+    // An overlapping run's closeMovedOn may have marked this same hold episode released between our claim and now.
+    // We own the order (the claim succeeded), so the episode ends expired.
+    const { data: again, error: againErr } = await db
+      .from(STRICT_HOLDS_TABLE)
+      .update({ state: "expired", closed_at: closedAt })
+      .eq("order_table", h.order_table)
+      .eq("order_id", h.order_id)
+      .eq("state", "released")
+      .eq("held_at", h.held_at)
+      .select("order_id")
+    wrote = !againErr && Array.isArray(again) && again.length > 0
+  }
+  if (!wrote) {
     // A pending order with an open hold would be closed as "released" later and picked up by auto-fulfil: put it back.
-    console.error(`${TAG} expiring hold failed for ${key(h)}:`, errCode(error))
+    console.error(`${TAG} expiring hold failed for ${key(h)}:`, error ? errCode(error) : "no row matched")
     const col = statusColumnFor(h.order_table)
     const { error: backErr } = await db
       .from(h.order_table)
@@ -266,7 +281,10 @@ export async function runStrictRecheck(db: SupabaseClient, now: Date): Promise<R
 
   // Switch off: every open hold goes back to today's normal dispatch.
   if (!(await isStrictVerifyOn(db))) {
-    for (const h of holds) tally(h, await releaseHold(db, h, now))
+    for (const h of holds) {
+      if (Date.now() - started >= RUN_BUDGET_MS) break // leftovers stay open for the next run
+      tally(h, await releaseHold(db, h, now))
+    }
     summary.stillHeld = holds.filter((h) => !closed.has(key(h))).length
     console.log(`${TAG} switch off: released=${summary.released} kept=${summary.stillHeld}`)
     return summary
@@ -331,7 +349,13 @@ export async function runStrictRecheck(db: SupabaseClient, now: Date): Promise<R
               answer = "no_answer"
             }
             if (supplier === "hubnet" && answer === "no_answer") hubnetStopped = true
-            if (answer === "yes" || answer === "no") await saveVerdicts(db, [{ phone, supplier, verdict: answer }], now)
+            if (answer === "yes" || answer === "no") {
+              try {
+                await saveVerdicts(db, [{ phone, supplier, verdict: answer }], now)
+              } catch {
+                console.error(`${TAG} saving a verdict failed (ids only)`)
+              }
+            }
           }
           if (answer === "yes") {
             approved = true
@@ -355,6 +379,7 @@ export async function runStrictRecheck(db: SupabaseClient, now: Date): Promise<R
         }
         for (const h of all) {
           if (closed.has(key(h))) continue
+          if (Date.now() - started >= RUN_BUDGET_MS) break // leftovers stay open for the next run
           tally(h, await releaseHold(db, h, now))
         }
         continue
