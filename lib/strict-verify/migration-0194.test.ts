@@ -79,7 +79,8 @@ if (!PGliteCtor && process.env.REQUIRE_PGLITE === "1") {
 describe.skipIf(!PGliteCtor)("0194 in PGlite", () => {
   const PHONE = "0000000000"
   const hold = (db: any, over: Record<string, any> = {}) => {
-    const r = { order_table: "orders", order_id: "o1", phone: PHONE, reason: "rejected", ...over }
+    const r: { order_table: string; order_id: string; phone: string; reason: string; state?: string } =
+      { order_table: "orders", order_id: "o1", phone: PHONE, reason: "rejected", ...over }
     return db.query(
       `INSERT INTO mtn_strict_holds (order_table, order_id, phone, reason, state) VALUES ($1, $2, $3, $4, COALESCE($5, 'open'))`,
       [r.order_table, r.order_id, r.phone, r.reason, r.state ?? null])
@@ -129,8 +130,8 @@ describe.skipIf(!PGliteCtor)("0194 in PGlite", () => {
   it("holds: the (state, last_checked_at) index and the partial open-phone index exist", async () => {
     const db = await makeDb()
     const idx = (await db.query(`SELECT indexdef FROM pg_indexes WHERE tablename = 'mtn_strict_holds'`)).rows.map((r: any) => r.indexdef as string)
-    expect(idx.some((d) => d.includes("(state, last_checked_at)"))).toBe(true)
-    expect(idx.some((d) => d.includes("(phone)") && /WHERE \(?state = 'open'/.test(d))).toBe(true)
+    expect(idx.some((d: string) => d.includes("(state, last_checked_at)"))).toBe(true)
+    expect(idx.some((d: string) => d.includes("(phone)") && /WHERE \(?state = 'open'/.test(d))).toBe(true)
   }, 60_000)
 
   it("applies twice without error and keeps existing rows", async () => {
