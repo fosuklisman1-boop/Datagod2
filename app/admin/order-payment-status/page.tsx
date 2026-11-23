@@ -22,6 +22,7 @@ import { BulkActionBar } from "@/components/admin/order-queue/bulk-action-bar"
 import { ACK_MISMATCH_COPY, SendConfirmDialog } from "@/components/admin/order-queue/send-confirm-dialog"
 import { SendResults, type SendResultData } from "@/components/admin/order-queue/send-results"
 import { AutoFulfilPanel } from "@/components/admin/order-queue/auto-fulfil-panel"
+import type { ApprovalPreview } from "@/lib/order-queue/approval-preview"
 import { getProviderOptionsForNetwork, suppliersForNetworks, type SupplierOption } from "@/lib/order-queue/supplier-capability"
 import { buildSendBody, parseSupplierBalances, summarizeSelection, type SelectionSummary } from "@/lib/order-queue/confirm-summary"
 import { emptySelection, selectionReducer, SELECTION_CAP } from "@/lib/order-queue/selection"
@@ -120,6 +121,7 @@ function OrderPaymentStatusPageInner() {
   const [sendSupplier, setSendSupplier] = useState<SupplierOption | null>(null)
   /** The selection as it was when the dialog opened: what the admin confirms is exactly what is sent. */
   const [sendSummary, setSendSummary] = useState<SelectionSummary | null>(null)
+  const [approval, setApproval] = useState<ApprovalPreview | null>(null)
   const [ackTyped, setAckTyped] = useState("")
   const [ackChecked, setAckChecked] = useState(false)
   const [sending, setSending] = useState(false)
@@ -252,6 +254,41 @@ function OrderPaymentStatusPageInner() {
       } catch { /* balances are optional */ }
     })()
   }, [anySelected])
+
+  // The picked supplier's SAVED approvals for the orders in the dialog (strict MTN verification). Fetched when the
+  // dialog opens and again whenever its order list changes. Loading, an error or a switched-off feature all leave
+  // `approval` null, so the dialog shows nothing new.
+  useEffect(() => {
+    setApproval(null)
+    if (!sendSupplier || !sendSummary) return
+    const orders = [...sendSummary.sendable, ...sendSummary.risky].map((r) => ({ id: r.id, type: r.type }))
+    if (orders.length === 0) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch("/api/admin/fulfillment/approval-preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+          body: JSON.stringify({ orders, supplier: sendSupplier.value }),
+        })
+        if (!res.ok) return
+        const data = await res.json().catch(() => null)
+        if (!cancelled && data && data.enabled === true && data.counts) setApproval(data as ApprovalPreview)
+      } catch { /* the preview is optional */ }
+    })()
+    return () => { cancelled = true }
+  }, [sendSupplier, sendSummary])
+
+  // "Remove the N not approved": deselect them and rebuild the dialog's summary (which refreshes the preview).
+  const removeNotApproved = () => {
+    if (!approval || !sendSummary) return
+    const drop = new Set(approval.perOrder.filter((o) => o.status === "not_approved").map((o) => o.id))
+    if (drop.size === 0) return
+    // An "all matching" selection has no id list; materialise it first so single ids can be removed.
+    if (selection.allMatching) dispatchSelection({ type: "selectPage", ids: selectedRows.map((r) => r.id) })
+    for (const id of drop) dispatchSelection({ type: "toggle", id })
+    setSendSummary(summarizeSelection(selectedRows.filter((r) => !drop.has(r.id))))
+  }
 
   // Poll fulfillment queue progress while a batch is active
   useEffect(() => {
@@ -1118,6 +1155,8 @@ function OrderPaymentStatusPageInner() {
         error={sendError}
         onSend={handleSendSelected}
         onCancel={() => setSendSupplier(null)}
+        approval={approval}
+        onRemoveNotApproved={removeNotApproved}
       />
 
       <BulkToolDialog

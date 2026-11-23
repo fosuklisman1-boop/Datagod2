@@ -6,17 +6,19 @@ vi.mock('@supabase/supabase-js', () => ({
 }))
 
 /** Minimal fake client: `.from(table).select(col).eq(statusCol, val)` resolves
- *  to whatever rows are configured for that table. */
+ *  to whatever rows are configured for that table. The strict-hold lookup
+ *  (`.eq().eq().eq().maybeSingle()` on mtn_strict_holds) finds nothing. */
 function fakeSupabase(rowsByTable: Record<string, any[]>) {
   return {
     from(table: string) {
       return {
         select() {
-          return {
-            eq() {
-              return Promise.resolve({ data: rowsByTable[table] ?? [], error: null })
-            },
+          const q: any = {
+            eq: () => q,
+            maybeSingle: () => Promise.resolve({ data: null, error: null }),
+            then: (ok: any, bad: any) => Promise.resolve({ data: rowsByTable[table] ?? [], error: null }).then(ok, bad),
           }
+          return q
         },
       }
     },

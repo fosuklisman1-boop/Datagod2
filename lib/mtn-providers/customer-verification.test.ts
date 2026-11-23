@@ -16,6 +16,8 @@ vi.mock("@/lib/blocked-numbers/record", () => ({
 const afterMock = vi.hoisted(() => ({ fn: (() => { throw new Error("outside request scope") }) as any }))
 vi.mock("next/server", async (orig) => ({ ...(await orig<typeof import("next/server")>()), after: (t: any) => afterMock.fn(t) }))
 
+// Strict supplier verification is off for these legacy-behaviour tests.
+vi.mock("@/lib/strict-verify/settings", () => ({ isStrictVerifyOn: async () => false }))
 vi.mock("@/lib/supabase", () => ({
   supabaseAdmin: {
     from: vi.fn(),

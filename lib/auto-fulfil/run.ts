@@ -1,3 +1,4 @@
+import { isStrictVerifyOn } from "@/lib/strict-verify/settings"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { findBlacklistedPhones } from "@/lib/blacklist"
 import { judgeOrder, type OrderSnapshot, type Verdict } from "@/lib/order-queue/eligibility"
@@ -285,6 +286,42 @@ async function readBlacklistedQueue(db: SupabaseClient, candidates: Candidate[])
   return out
 }
 
+const STRICT_HOLD_TABLE_FOR: Record<OrderType, string> = {
+  bulk: "orders",
+  shop: "shop_orders",
+  api: "api_orders",
+  ussd: "ussd_orders",
+  ussd_shop: "ussd_shop_orders",
+}
+
+/**
+ * Candidates whose strict MTN hold expired (72 h without a supplier approval): never auto-sent. A later hold episode
+ * re-opens the same row, so only a row still in state 'expired' blocks. A read error throws (fail closed); the table
+ * not existing yet (0194 not applied) blocks nothing. One row per (table, order), so a 100-id chunk stays under the
+ * 1000-row page (the table has no id column for readAll's paging order).
+ */
+async function readExpiredStrictHolds(db: SupabaseClient, allCandidates: Candidate[]): Promise<Set<string>> {
+  const out = new Set<string>()
+  // Strict holds only exist for MTN orders, and only while the strict switch is on (a read error counts as on).
+  const candidates = allCandidates.filter((c) => c.network === "MTN")
+  if (candidates.length === 0) return out
+  if (!(await isStrictVerifyOn(db))) return out
+  const tableOf = new Map(candidates.map((c) => [c.id, STRICT_HOLD_TABLE_FOR[c.type]]))
+  for (const chunk of chunks(candidates.map((c) => c.id))) {
+    const { data, error } = await db.from("mtn_strict_holds").select("order_table, order_id").in("order_id", chunk).eq("state", "expired")
+    if (error) {
+      const code = (error as { code?: string }).code
+      if (code === "42P01" || code === "PGRST205") return new Set()
+      throw new Error(`auto-fulfil: strict holds read failed: ${error.message}`)
+    }
+    for (const r of (data ?? []) as any[]) {
+      const id = String(r.order_id)
+      if (tableOf.get(id) === r.order_table) out.add(id)
+    }
+  }
+  return out
+}
+
 function parseCandidates(data: unknown): Candidate[] {
   const out: Candidate[] = []
   const seen = new Set<string>()
@@ -311,9 +348,11 @@ async function decidePage(
   const history = await readHistory(db, candidates.map((c) => c.id))
   const blacklisted = await findBlacklistedPhones(candidates.map((c) => c.phone), db)
   const blacklistedQueue = await readBlacklistedQueue(db, candidates)
+  const strictExpired = await readExpiredStrictHolds(db, candidates)
 
   return candidates.map((c) => {
     if (blacklistedQueue.has(c.id)) return { c, decision: { kind: "skip", reason: "blacklisted_queue" } as Decision }
+    if (strictExpired.has(c.id)) return { c, decision: { kind: "skip", reason: "strict_hold_expired" } as Decision }
     const raw = snaps.get(c.id) ?? null
     // A live/delivered fulfillment_logs row is a live attempt: judgeOrder then blocks it as live_at_supplier.
     const snap = raw && history.liveLog.has(c.id) ? { ...raw, hasLiveAttempt: true } : raw

@@ -35,7 +35,17 @@ export interface MTNOrderResponse {
     provider_cost_ghs?: number
     /** The provider's own reference for the order. Only some providers report it. */
     provider_reference?: string
+    /** Strict supplier verification: why no supplier approved (error_type STRICT_HOLD). */
+    strictHoldReason?: "rejected" | "unanswered"
 }
+
+/**
+ * error_type values of the strict per-supplier send gate (lib/strict-verify/send.ts).
+ * STRICT_HOLD: no candidate supplier approved the number (held).
+ * SUPPLIER_NOT_APPROVED / SUPPLIER_CHECK_UNAVAILABLE: an admin-pinned supplier
+ * said no / could not check; the order is refused for that supplier, never re-routed.
+ */
+export type StrictErrorType = "STRICT_HOLD" | "SUPPLIER_NOT_APPROVED" | "SUPPLIER_CHECK_UNAVAILABLE"
 
 export interface MTNOrderStatusResponse {
     success: boolean

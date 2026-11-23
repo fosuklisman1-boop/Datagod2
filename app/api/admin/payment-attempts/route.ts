@@ -619,7 +619,10 @@ export async function PATCH(request: NextRequest) {
                   })
                 } else if (mtnResult.held) {
                   const { holdMtnOrder } = await import("@/lib/mtn-hold")
-                  await holdMtnOrder({ table: "shop_orders", orderId: String(attempt.order_id), phone: normalizedPhone })
+                  await holdMtnOrder({
+                    table: "shop_orders", orderId: String(attempt.order_id), phone: normalizedPhone,
+                    errorType: mtnResult.error_type, strictReason: mtnResult.strictHoldReason,
+                  })
                 } else if (mtnResult.order_id) {
                   await saveMTNTracking(
                     attempt.order_id,

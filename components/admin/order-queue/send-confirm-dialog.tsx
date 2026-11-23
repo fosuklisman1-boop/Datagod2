@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { formatGb, rejectReasonLabel, riskyAckReady, type SelectionSummary } from "@/lib/order-queue/confirm-summary"
 import type { SupplierOption } from "@/lib/order-queue/supplier-capability"
+import type { ApprovalPreview } from "@/lib/order-queue/approval-preview"
 
 export const HARD_PIN_COPY = "This supplier is a hard pin — if it refuses an order, it will not try another."
 export const HUBNET_COPY = "Hubnet takes about 10 orders a minute."
@@ -26,6 +27,9 @@ export type SendConfirmBodyProps = {
   error: string | null
   onSend: () => void
   onCancel: () => void
+  /** The picked supplier's saved approvals; null/undefined (loading, error) or enabled false shows nothing. */
+  approval?: ApprovalPreview | null
+  onRemoveNotApproved?: () => void
 }
 
 const shortId = (id: string) => id.slice(0, 8)
@@ -43,6 +47,8 @@ export function SendConfirmBody({
   error,
   onSend,
   onCancel,
+  approval,
+  onRemoveNotApproved,
 }: SendConfirmBodyProps) {
   const riskyCount = summary.risky.length
   const toSend = summary.sendable.length + riskyCount
@@ -65,6 +71,19 @@ export function SendConfirmBody({
       </dl>
 
       <p className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-sm" data-copy="hard-pin">{HARD_PIN_COPY}</p>
+      {approval?.enabled && (
+        <div className="space-y-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-sm" data-section="approval">
+          <p data-copy="approval">
+            {supplier.label}: {approval.counts.approved} approved · {approval.counts.notApproved} not approved ·{" "}
+            {approval.counts.notChecked} not checked yet
+          </p>
+          {approval.counts.notApproved > 0 && onRemoveNotApproved && (
+            <Button type="button" variant="outline" size="sm" onClick={onRemoveNotApproved} disabled={sending} data-action="remove-not-approved">
+              Remove the {approval.counts.notApproved} not approved
+            </Button>
+          )}
+        </div>
+      )}
       {supplier.value === "hubnet" && (
         <p className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-sm" data-copy="hubnet">{HUBNET_COPY}</p>
       )}

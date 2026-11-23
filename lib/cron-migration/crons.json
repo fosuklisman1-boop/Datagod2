@@ -208,6 +208,10 @@
     {
       "path": "/api/cron/auto-fulfil-pending",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/mtn-strict-recheck",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

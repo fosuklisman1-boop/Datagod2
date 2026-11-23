@@ -318,7 +318,10 @@ async function v1POST(request: NextRequest) {
             })
           } else if (orderId && mtnResult.held) {
             const { holdMtnOrder } = await import("@/lib/mtn-hold")
-            await holdMtnOrder({ table: "api_orders", orderId: String(orderId), phone: normalizedRecipientPhone })
+            await holdMtnOrder({
+              table: "api_orders", orderId: String(orderId), phone: normalizedRecipientPhone,
+              errorType: mtnResult.error_type, strictReason: mtnResult.strictHoldReason,
+            })
           } else if (orderId && mtnResult.order_id) {
             await saveMTNTracking(String(orderId), mtnResult.order_id, mtnRequest, mtnResult, "api", mtnResult.provider || "sykes")
             if (mtnResult.success) {

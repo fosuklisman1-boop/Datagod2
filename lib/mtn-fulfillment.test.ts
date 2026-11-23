@@ -43,14 +43,19 @@ vi.mock("@/lib/refunds/dispatch-guard", () => ({
 // Spy on rows written to mtn_fulfillment_tracking (saveMTNTracking).
 const trackingInsert = vi.hoisted(() => vi.fn())
 const trackingRow = vi.hoisted(() => ({ current: null as any }))
+// admin_settings rows served by the fake; tests flip the strict switch here.
+const settingsRows = vi.hoisted(() => ({
+  // Registration gate OFF (the gate itself is covered by mtn-hold.test.ts).
+  rows: { mtn_registration_gate_enabled: { enabled: false } } as Record<string, any>,
+}))
+
+vi.mock("@/lib/strict-verify/ask", () => ({
+  canCheck: (s: string, disabled: Set<string>) => s !== "sykes" && !disabled.has(s),
+  askSupplier: vi.fn(),
+}))
 
 vi.mock("@/lib/supabase", () => {
-  const settings = fakeSupabase({
-    // Registration gate OFF isolates these tests to the whitelist pre-check
-    // (the gate itself is already covered by mtn-hold.test.ts).
-    mtn_registration_gate_enabled: { enabled: false },
-    mtn_whitelist_enabled: { enabled: true },
-  })
+  const settings = fakeSupabase(settingsRows.rows)
   return {
     supabaseAdmin: {
       from(table: string) {
@@ -87,14 +92,6 @@ vi.mock("@/lib/mtn-providers/factory", async (importOriginal) => {
   }
 })
 
-vi.mock("@/lib/mtn-providers/provider-whitelist", () => ({
-  hasWhitelistProviders: vi.fn(() => true),
-  // Mirrors the real WHITELIST_REGISTRY shape: only codecraft/xpress-style
-  // providers participate in whitelisting — sykes/datakazina/etc. don't.
-  isWhitelistProvider: vi.fn((name: string) => name === "codecraft" || name === "xpress"),
-  checkWhitelistForOrder: vi.fn(),
-}))
-
 import {
   normalizePhoneNumber,
   isValidPhoneFormat,
@@ -105,7 +102,7 @@ import {
   saveMTNTracking,
 } from "@/lib/mtn-fulfillment"
 import { getProviderByName, getMTNProvider, getRetrySequence } from "@/lib/mtn-providers/factory"
-import { checkWhitelistForOrder } from "@/lib/mtn-providers/provider-whitelist"
+import { askSupplier } from "@/lib/strict-verify/ask"
 import { flagReversal } from "@/lib/mtn-reversal"
 import type { MTNProvider } from "@/lib/mtn-providers/types"
 
@@ -119,6 +116,11 @@ function fakeMtnProvider(name: string, result: any): MTNProvider {
 }
 
 describe("MTN Fulfillment Service", () => {
+  // The strict switch ships off; only the strict tests turn it on.
+  beforeEach(() => {
+    delete settingsRows.rows.mtn_strict_supplier_verification
+  })
+
   describe("normalizePhoneNumber", () => {
     it("should handle 10-digit format with 0 prefix", () => {
       expect(normalizePhoneNumber("0241234567")).toBe("0241234567")
@@ -240,74 +242,65 @@ describe("MTN Fulfillment Service", () => {
     })
   })
 
-  describe("createMTNOrder — whitelist pre-check scoping", () => {
+  describe("createMTNOrder — strict supplier gate and switch-off parity", () => {
     beforeEach(() => {
       vi.clearAllMocks()
     })
 
-    it("does not run the whitelist pre-check when the active provider has no whitelist endpoint", async () => {
-      // sykes has no entry in WHITELIST_REGISTRY (it's the system default provider) —
-      // an unrelated provider's whitelist database not knowing this number must
-      // never block an order that was never going through that provider anyway.
-      const sykes = fakeMtnProvider("sykes", { success: true, order_id: "1", message: "ok" })
-      vi.mocked(getProviderByName).mockReturnValue(sykes)
-      vi.mocked(checkWhitelistForOrder).mockResolvedValue({ allowed: false, provider: null })
-
-      const result = await createMTNOrder({
-        recipient_phone: "0551234567",
-        network: "MTN",
-        size_gb: 1,
-        provider: "sykes",
-      })
-
-      expect(checkWhitelistForOrder).not.toHaveBeenCalled()
-      expect(sykes.createOrder).toHaveBeenCalledTimes(1)
-      expect(result.success).toBe(true)
-    })
-
-    it("still runs the whitelist pre-check when the active provider does have a whitelist endpoint", async () => {
-      // codecraft is whitelist-capable, so the check still runs and is still
-      // logged/visible — but an explicit admin pick (order.provider set) is no
-      // longer pre-emptively held on a whitelist "not recognized" result. The
-      // admin already chose this specific provider, so it gets a real attempt;
-      // codecraft's own API decides success/failure, not a whitelist guess.
+    it("switch off: a pinned send goes straight to that provider, nobody is asked", async () => {
       const codecraft = fakeMtnProvider("codecraft", { success: true, order_id: "2", message: "ok" })
       vi.mocked(getProviderByName).mockReturnValue(codecraft)
-      vi.mocked(checkWhitelistForOrder).mockResolvedValue({ allowed: false, provider: null })
 
-      const result = await createMTNOrder({
-        recipient_phone: "0551234567",
-        network: "MTN",
-        size_gb: 1,
-        provider: "codecraft",
-      })
+      const result = await createMTNOrder({ recipient_phone: "0551234567", network: "MTN", size_gb: 1, provider: "codecraft" })
 
-      expect(checkWhitelistForOrder).toHaveBeenCalledTimes(1)
+      expect(askSupplier).not.toHaveBeenCalled()
       expect(codecraft.createOrder).toHaveBeenCalledTimes(1)
-      expect(result.success).toBe(true)
+      expect(result).toMatchObject({ success: true, provider: "codecraft" })
       expect(result.held).toBeUndefined()
     })
 
-    it("holds on a whitelist block when the provider was auto-selected (not an explicit pick)", async () => {
-      // The auto-selected path keeps the original protection: a whitelist block
-      // still skips the attempt and holds (after the retry sequence, tested
-      // elsewhere, also fails) — only an explicit admin pick bypasses the hold.
+    it("switch off: an auto-selected provider is sent without any whitelist hold", async () => {
       const codecraft = fakeMtnProvider("codecraft", { success: true, order_id: "3", message: "ok" })
       vi.mocked(getMTNProvider).mockResolvedValue(codecraft)
       vi.mocked(getRetrySequence).mockResolvedValue([])
-      vi.mocked(checkWhitelistForOrder).mockResolvedValue({ allowed: false, provider: null })
 
-      const result = await createMTNOrder({
-        recipient_phone: "0551234567",
-        network: "MTN",
-        size_gb: 1,
-      })
+      const result = await createMTNOrder({ recipient_phone: "0551234567", network: "MTN", size_gb: 1 })
 
-      expect(checkWhitelistForOrder).toHaveBeenCalledTimes(1)
-      expect(codecraft.createOrder).not.toHaveBeenCalled()
-      expect(result.success).toBe(false)
-      expect(result.held).toBe(true)
-      expect(result.error_type).toBe("WHITELIST_BLOCKED")
+      expect(askSupplier).not.toHaveBeenCalled()
+      expect(codecraft.createOrder).toHaveBeenCalledTimes(1)
+      expect(result.success).toBe(true)
+    })
+
+    it("switch on: only an approving supplier is sent; the unapproved primary is never contacted", async () => {
+      settingsRows.rows.mtn_strict_supplier_verification = { enabled: true }
+      const primary = fakeMtnProvider("codecraft", { success: true, order_id: "p", message: "ok" })
+      const next = fakeMtnProvider("xpress", { success: true, order_id: "n", message: "ok" })
+      vi.mocked(getMTNProvider).mockResolvedValue(primary)
+      vi.mocked(getRetrySequence).mockResolvedValue(["xpress"])
+      vi.mocked(getProviderByName).mockImplementation(((n: string) => (n === "xpress" ? next : primary)) as any)
+      vi.mocked(askSupplier).mockImplementation(async (s: string) => (s === "xpress" ? "yes" : "no"))
+
+      const result = await createMTNOrder({ recipient_phone: "0551234567", network: "MTN", size_gb: 1 })
+
+      expect(result).toMatchObject({ success: true, provider: "xpress" })
+      expect(primary.createOrder).not.toHaveBeenCalled()
+      expect(next.createOrder).toHaveBeenCalledTimes(1)
+    })
+
+    it("switch on: a pin the supplier rejects is refused and never re-routed", async () => {
+      settingsRows.rows.mtn_strict_supplier_verification = { enabled: true }
+      const pinned = fakeMtnProvider("codecraft", { success: true, order_id: "p", message: "ok" })
+      const other = fakeMtnProvider("xpress", { success: true, order_id: "n", message: "ok" })
+      vi.mocked(getRetrySequence).mockResolvedValue(["xpress"])
+      vi.mocked(getProviderByName).mockImplementation(((n: string) => (n === "xpress" ? other : pinned)) as any)
+      vi.mocked(askSupplier).mockResolvedValue("no")
+
+      const result = await createMTNOrder({ recipient_phone: "0551234567", network: "MTN", size_gb: 1, provider: "codecraft" })
+
+      expect(result.error_type).toBe("SUPPLIER_NOT_APPROVED")
+      expect(pinned.createOrder).not.toHaveBeenCalled()
+      expect(other.createOrder).not.toHaveBeenCalled()
+      expect(vi.mocked(askSupplier).mock.calls.map((c) => c[0])).toEqual(["codecraft"])
     })
   })
 

@@ -9,7 +9,7 @@
 // fulfillment_queue enforces the 0191 partial unique index (23505).
 
 type Row = Record<string, any>
-type Filter = { op: "in" | "eq" | "gte" | "is"; col: string; val: any }
+type Filter = { op: "in" | "eq" | "gte" | "lt" | "lte" | "is"; col: string; val: any }
 
 export type Call = {
   table: string
@@ -45,6 +45,8 @@ function matches(row: Row, filters: Filter[]) {
   return filters.every((f) => {
     if (f.op === "eq") return row[f.col] === f.val
     if (f.op === "gte") return row[f.col] != null && String(row[f.col]) >= String(f.val)
+    if (f.op === "lt") return row[f.col] != null && String(row[f.col]) < String(f.val)
+    if (f.op === "lte") return row[f.col] != null && String(row[f.col]) <= String(f.val)
     if (f.op === "is") return (row[f.col] ?? null) === f.val
     return (f.val as any[]).includes(row[f.col])
   })
@@ -79,6 +81,14 @@ export function makeFakeDb(tables: Record<string, Row[]> = {}): FakeDb {
             },
             gte(col: string, val: any) {
               call.filters.push({ op: "gte", col, val })
+              return q
+            },
+            lt(col: string, val: any) {
+              call.filters.push({ op: "lt", col, val })
+              return q
+            },
+            lte(col: string, val: any) {
+              call.filters.push({ op: "lte", col, val })
               return q
             },
             is(col: string, val: any) {
@@ -209,6 +219,14 @@ export function makeFakeDb(tables: Record<string, Row[]> = {}): FakeDb {
             },
             eq(col: string, val: any) {
               call.filters.push({ op: "eq", col, val })
+              return q
+            },
+            lt(col: string, val: any) {
+              call.filters.push({ op: "lt", col, val })
+              return q
+            },
+            lte(col: string, val: any) {
+              call.filters.push({ op: "lte", col, val })
               return q
             },
             then(ok: any, bad: any) {

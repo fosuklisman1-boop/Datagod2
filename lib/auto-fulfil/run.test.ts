@@ -26,8 +26,10 @@ function world(opts: {
   nonMtnSwitch?: unknown
   candidates?: Cand[]
   tables?: Record<string, any[]>
+  strictOn?: boolean
 }): FakeDb {
   const admin_settings: any[] = []
+  if (opts.strictOn !== undefined) admin_settings.push({ key: "mtn_strict_supplier_verification", value: { enabled: opts.strictOn } })
   if (opts.settings !== undefined) admin_settings.push({ key: AUTO_FULFIL_SETTINGS_KEY, value: opts.settings })
   if (opts.mtnSwitch !== undefined) admin_settings.push({ key: "mtn_auto_fulfillment_enabled", value: opts.mtnSwitch })
   if (opts.nonMtnSwitch !== undefined) admin_settings.push({ key: "auto_fulfillment_enabled", value: opts.nonMtnSwitch })
@@ -1060,5 +1062,73 @@ describe("runAutoFulfil: backpressure and run time (S3)", () => {
     })
     await runAutoFulfil(db as any, NOW)
     expect(autoQueued(db)).toEqual(["late"])
+  })
+})
+
+describe("runAutoFulfil: strict holds (strict supplier verification)", () => {
+  const sh = (order_table: string, order_id: string, state: string) => ({ order_table, order_id, phone: PHONE_A, reason: "unanswered", state })
+
+  it("skips a candidate whose strict hold expired (strict_hold_expired); a released hold is queued normally", async () => {
+    const db = world({
+      strictOn: true,
+      settings: on(),
+      ...ALL_ON,
+      candidates: [cand("o1", 60, PHONE_A), cand("o2", 50, PHONE_B), cand("s1", 40, PHONE_C, "MTN", "shop")],
+      tables: {
+        orders: [bulk("o1"), bulk("o2")],
+        shop_orders: [{ id: "s1", order_status: "pending", network: "MTN" }],
+        // o2's expired row is filed for shop_orders, not orders: it must not block the bulk order o2.
+        mtn_strict_holds: [sh("orders", "o1", "expired"), sh("shop_orders", "o2", "expired"), sh("shop_orders", "s1", "released")],
+      },
+    })
+    const s = await runAutoFulfil(db as any, NOW)
+    expect(autoQueued(db)).not.toContain("o1")
+    expect(autoQueued(db)).toContain("o2")
+    expect(s.skipped.strict_hold_expired).toBe(1)
+  })
+
+  it("a strict hold read error fails closed (nothing queued, throws)", async () => {
+    const db = world({ strictOn: true, settings: on(), ...ALL_ON, candidates: [cand("o1", 60)], tables: { orders: [bulk("o1")] } })
+    db.failSelect = (t) => (t === "mtn_strict_holds" ? { message: "read failed" } : null)
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      await expect(runAutoFulfil(db as any, NOW)).rejects.toThrow()
+    } finally {
+      err.mockRestore()
+    }
+    expect(queueRows(db)).toHaveLength(0)
+  })
+
+  it("the strict holds table not existing yet (0194 not applied) blocks nothing", async () => {
+    const db = world({ strictOn: true, settings: on(), ...ALL_ON, candidates: [cand("o1", 60)], tables: { orders: [bulk("o1")] } })
+    db.failSelect = (t) => (t === "mtn_strict_holds" ? ({ code: "PGRST205", message: "not in schema cache" } as any) : null)
+    await runAutoFulfil(db as any, NOW)
+    expect(autoQueued(db)).toEqual(["o1"])
+  })
+  it("switch off: an expired row does not block, the order is queued and the holds table is never read", async () => {
+    const db = world({
+      strictOn: false,
+      settings: on(),
+      ...ALL_ON,
+      candidates: [cand("o1", 60)],
+      tables: { orders: [bulk("o1")], mtn_strict_holds: [sh("orders", "o1", "expired")] },
+    })
+    db.failSelect = (t) => (t === "mtn_strict_holds" ? { message: "read failed" } : null)
+    const s = await runAutoFulfil(db as any, NOW)
+    expect(autoQueued(db)).toEqual(["o1"])
+    expect(s.skipped.strict_hold_expired).toBeUndefined()
+  })
+
+  it("switch on: only MTN candidates are checked; a holds read error does not fail a non-MTN-only page", async () => {
+    const db = world({
+      strictOn: true,
+      settings: on(),
+      ...ALL_ON,
+      candidates: [cand("t1", 60, PHONE_A, "Telecel")],
+      tables: { orders: [bulk("t1", "Telecel")] },
+    })
+    db.failSelect = (t) => (t === "mtn_strict_holds" ? { message: "read failed" } : null)
+    await runAutoFulfil(db as any, NOW)
+    expect(autoQueued(db)).toEqual(["t1"])
   })
 })
