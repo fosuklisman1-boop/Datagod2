@@ -140,6 +140,47 @@ describe("SendConfirmBody", () => {
   })
 })
 
+describe("SendConfirmBody approval preview", () => {
+  const base = (over: Partial<SendConfirmBodyProps> = {}): SendConfirmBodyProps => ({
+    summary: summarizeSelection([row()]),
+    supplier: { value: "hubnet", label: "Hubnet" },
+    typedCount: "",
+    onTypedCountChange: noop,
+    checked: false,
+    onCheckedChange: noop,
+    sending: false,
+    error: null,
+    onSend: noop,
+    onCancel: noop,
+    ...over,
+  })
+  const render = (p: SendConfirmBodyProps) => renderToStaticMarkup(createElement(SendConfirmBody, p))
+  const preview = (enabled: boolean, approved: number, notApproved: number, notChecked: number) => ({
+    enabled,
+    counts: { approved, notApproved, notChecked },
+    perOrder: [],
+  })
+
+  it("shows the line and the remove button when enabled", () => {
+    const html = render(base({ approval: preview(true, 40, 7, 3), onRemoveNotApproved: noop }))
+    expect(html).toContain("Hubnet: 40 approved · 7 not approved · 3 not checked yet")
+    expect(html).toContain("Remove the 7 not approved")
+    expect(html).toContain(HARD_PIN_COPY)
+  })
+  it("hides the remove button when nothing is not approved", () => {
+    const html = render(base({ approval: preview(true, 4, 0, 1), onRemoveNotApproved: noop }))
+    expect(html).toContain("4 approved · 0 not approved · 1 not checked yet")
+    expect(html).not.toContain("Remove the")
+  })
+  it("shows nothing when the switch is off, while loading, or on error", () => {
+    for (const approval of [preview(false, 0, 0, 0), null, undefined]) {
+      const html = render(base({ approval }))
+      expect(html).not.toContain("not approved")
+      expect(html).not.toContain("approved ·")
+    }
+  })
+})
+
 describe("SendResults", () => {
   it("lists queued ids and rejected ids with readable reasons", () => {
     const html = renderToStaticMarkup(
