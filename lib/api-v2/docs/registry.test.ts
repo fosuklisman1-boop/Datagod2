@@ -1842,3 +1842,15 @@ describe("sandbox-failures section", () => {
     }
   })
 })
+
+describe("Testing failures section text", () => {
+  const intro = v2DocsRegistry.find((s) => s.id === "sandbox-failures")!.intro
+  it("does not point v2 developers at a dashboard reset or an order list", () => {
+    expect(intro).not.toMatch(/reset your sandbox balance/i)
+    expect(intro).not.toMatch(/order list/i)
+  })
+  it("tells developers to contact the admin to top up the sandbox balance", () => {
+    expect(intro).toMatch(/not refunded/i)
+    expect(intro).toMatch(/contact the admin/i)
+  })
+})
