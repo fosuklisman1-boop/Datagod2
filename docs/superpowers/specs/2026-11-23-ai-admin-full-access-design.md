@@ -139,6 +139,7 @@ Role and permission management (create, edit permissions, move members, archive)
 - **`unknown` result.** Shown as "We couldn't confirm the result" with a link to the entry's page. Recheck returns `check_manually` for this action.
 - **Timeouts.** Entries may set `timeoutMs` (default 15 s, max 60 s). Routes that routinely run longer (broadcast, provider batch jobs) are either set to 60 s or, if they exceed it, excluded with "use the page".
 - **Result filtering.** `resultKeep` is REQUIRED for every lookup (allowlist first). Name-based hiding is only a backstop with an exact list (`password`, `secret`, `api_key`, `*_api_key`, `*_secret`, `access_token`, `refresh_token`, `service_role_key`, `webhook_secret`), so fields like `token_count` are not hidden.
+- **Ships dark behind a switch.** `ai_provider_config.admin_catalog_enabled` (default false, toggled on the AI Assistant Settings tab). Off: admin tools and prompt are byte-identical to today (frozen golden and snapshot tests keep passing). On: the catalog tools replace every acting admin tool and the prompt gains the page list and the "only changes the admin asked for" rule. The owner flips it after the live check.
 - **Migration number.** The plan takes the next free number on origin/main at build time; 0195 is already applied (API rebuild).
 
 ## 6. Building it (left to the builder unless noted)
