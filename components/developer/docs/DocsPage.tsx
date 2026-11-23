@@ -1,14 +1,15 @@
 // components/developer/docs/DocsPage.tsx
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo } from "react"
 import { cn } from "@/lib/utils"
 import { V2_BASE_URL, type V2DocSection } from "@/lib/api-v2/docs/registry"
 import { Callout } from "./Callout"
 import { EndpointBlock } from "./EndpointBlock"
 import { InlineCode, RichText } from "./RichText"
-import { DOCS_BAR_SPACE_PX, DOCS_SCROLL_MT, SectionBar, type SectionLink } from "./SectionBar"
+import { DOCS_SCROLL_MT, SectionBar, type SectionLink } from "./SectionBar"
 import { StepList } from "./StepList"
+import { useScrollSpy } from "./useScrollSpy"
 
 export const DOC_GROUP_LABELS: Record<V2DocSection["group"], string> = {
   start: "Getting started",
@@ -19,35 +20,13 @@ export const DOC_GROUP_LABELS: Record<V2DocSection["group"], string> = {
   sandbox: "Sandbox",
 }
 
-/** Highlights the section whose card crosses the band just below the sticky bar (IntersectionObserver scroll-spy). */
-function useScrollSpy(ids: string[], stickyTop: number): [string, (id: string) => void] {
-  const [active, setActive] = useState(ids[0] ?? "")
-  useEffect(() => {
-    const visible = new Map<string, boolean>()
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) visible.set(e.target.id, e.isIntersecting)
-        const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4
-        const next = atBottom ? ids[ids.length - 1] : ids.find((id) => visible.get(id))
-        if (next) setActive(next)
-      },
-      { rootMargin: `-${DOCS_BAR_SPACE_PX + stickyTop}px 0px -55% 0px`, threshold: 0 }
-    )
-    for (const id of ids) {
-      const el = document.getElementById(id)
-      if (el) observer.observe(el)
-    }
-    return () => observer.disconnect()
-  }, [ids, stickyTop])
-  return [active, setActive]
-}
-
 export function DocsPage({
   sections,
   top,
   compact = false,
   navFooter,
   stickyTop = 0,
+  showSectionNav = true,
 }: {
   sections: V2DocSection[]
   /** Height in px of the host's own sticky header, so the SECTION bar, side nav and anchors sit below it. */
@@ -58,13 +37,15 @@ export function DocsPage({
   compact?: boolean
   /** Rendered under the desktop side nav. */
   navFooter?: React.ReactNode
+  /** false when the host shows its own nav (the public docs sidebar): no SECTION bar and no side column. */
+  showSectionNav?: boolean
 }) {
   const links = useMemo<SectionLink[]>(
     () => sections.map((s) => ({ id: s.id, label: s.label, group: DOC_GROUP_LABELS[s.group] })),
     [sections]
   )
   const ids = useMemo(() => sections.map((s) => s.id), [sections])
-  const [activeId, setActiveId] = useScrollSpy(ids, stickyTop)
+  const [activeId, setActiveId] = useScrollSpy(showSectionNav ? ids : [], stickyTop)
 
   return (
     <div
@@ -81,8 +62,8 @@ export function DocsPage({
         </header>
       )}
 
-      <div className="lg:grid lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-8">
-        <SectionBar sections={links} activeId={activeId} onNavigate={setActiveId} navFooter={navFooter} />
+      <div className={cn(showSectionNav && "lg:grid lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-8")}>
+        {showSectionNav && <SectionBar sections={links} activeId={activeId} onNavigate={setActiveId} navFooter={navFooter} />}
 
         <div className="min-w-0 space-y-6">
           {top && <div className="flex flex-wrap items-center gap-3">{top}</div>}

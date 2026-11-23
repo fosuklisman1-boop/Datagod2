@@ -1,5 +1,6 @@
 import { buildOpenApi } from "./openapi"
 import { buildApiMarkdown } from "./api-markdown"
+import { buildSearchIndex } from "./search-index"
 
 const CACHE = "public, max-age=300"
 
@@ -19,6 +20,17 @@ export function markdownResponse(): Response {
     status: 200,
     headers: {
       "Content-Type": "text/markdown; charset=utf-8",
+      "Content-Disposition": "inline",
+      "Cache-Control": CACHE,
+    },
+  })
+}
+
+export function searchIndexResponse(): Response {
+  return new Response(JSON.stringify(buildSearchIndex()), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
       "Content-Disposition": "inline",
       "Cache-Control": CACHE,
     },

@@ -65,6 +65,21 @@ describe("buildSitemapEntries", () => {
     expect(on).toContain("https://www.datagod.store/developers")
   })
 
+  it("lists the doc pages when the developer API is on, and none when off", () => {
+    const base = "https://www.datagod.store/developers"
+    const paths = ["data", "airtime", "bills", "bundles", "results", "afa", "sms", "go-live", "starter-kits", "errors", "changelog"]
+    const on = buildSitemapEntries(facts({ apiV2Enabled: true })).map((e) => e.url)
+    const off = buildSitemapEntries(facts()).map((e) => e.url)
+    expect(on).toContain(base)
+    for (const p of paths) {
+      expect(on).toContain(`${base}/${p}`)
+      expect(off).not.toContain(`${base}/${p}`)
+    }
+    expect(new Set(on).size).toBe(on.length)
+    expect(on).not.toContain(`${base}/openapi.json`)
+    expect(on).not.toContain(`${base}/api.md`)
+  })
+
   it("uses stable content dates as lastModified, never the current time", () => {
     const a = buildSitemapEntries(facts())
     for (const e of a) expect(e.lastModified, e.url).toMatch(/^\d{4}-\d{2}-\d{2}$/)
@@ -153,6 +168,11 @@ describe("buildLlmsTxt", () => {
     expect(buildLlmsTxt(facts())).not.toContain("## For developers")
     expect(buildLlmsTxt(facts())).not.toContain("/developers")
     expect(buildLlmsTxt(facts({ apiV2Enabled: true }))).toContain("## For developers")
+  })
+
+  it("links the Markdown API description only when developers is available", () => {
+    expect(buildLlmsTxt(facts())).not.toContain("/developers/api.md")
+    expect(buildLlmsTxt(facts({ apiV2Enabled: true }))).toContain("https://www.datagod.store/developers/api.md")
   })
 
   it("never says instant", () => {

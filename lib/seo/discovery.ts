@@ -9,6 +9,7 @@ import { PRODUCTS, getProduct, REFUND_LINE, SPEED_LINE, type ProductEntry } from
 import { formatCedis, type LiveFacts } from "./live-facts"
 import { availableLandings } from "./landing-pages"
 import { publishedGuides, type Guide } from "./guides"
+import { DOC_PAGES, STATIC_DOC_PAGES, docPath } from "@/lib/api-v2/docs/pages"
 
 type Entry = MetadataRoute.Sitemap[number]
 
@@ -26,6 +27,9 @@ export const STATIC_PAGE_UPDATED: Record<string, string> = {
   "/terms": "2026-11-01",
   "/privacy": "2026-11-01",
 }
+
+/** Content date of the developer docs pages. Bump by hand with the docs, like STATIC_PAGE_UPDATED. */
+const DEVELOPER_DOCS_UPDATED = "2026-11-23"
 
 /**
  * Not listed: /vouchers (a client-rendered PIN lookup form for existing
@@ -46,6 +50,11 @@ export function buildSitemapEntries(facts: LiveFacts, guides: readonly Guide[] =
     page("/", 1, "daily"),
     page("/services", 0.9, "weekly"),
     ...PRODUCTS.filter((p) => isAvailable(facts, p)).map((p) => entry(p.path, p.updated, p.priority, "weekly")),
+    // Developer docs: one page per product plus the static pages, only while the developers product is available.
+    // /developers itself comes from the product registry above. openapi.json and api.md are machine files, not pages.
+    ...(isAvailable(facts, getProduct("developers"))
+      ? [...DOC_PAGES, ...STATIC_DOC_PAGES].map((p) => entry(docPath(p.slug), DEVELOPER_DOCS_UPDATED, 0.5, "monthly"))
+      : []),
     // Landing pages (lib/seo/landing-pages.ts): only "ok" ones, never an off or failed one.
     ...availableLandings(facts).map((e) => entry(e.path, e.updated, e.priority, "weekly")),
     // Guides (lib/seo/guides.ts): each at its own `updated`; the hub at the newest of them.
@@ -121,7 +130,13 @@ export function buildLlmsTxt(facts: LiveFacts, guides: readonly Guide[] = publis
   // Developers (only when the API is on)
   const dev = getProduct("developers")
   if (isAvailable(facts, dev)) {
-    lines.push("## For developers", "", `- [${dev.name}](${absoluteUrl(dev.path)}): sell data and airtime from your own app or website with simple API calls.`, "")
+    lines.push(
+      "## For developers",
+      "",
+      `- [${dev.name}](${absoluteUrl(dev.path)}): sell data and airtime from your own app or website with simple API calls.`,
+      `- [API description in Markdown](${absoluteUrl("/developers/api.md")}): the whole v2 API on one page, for AI assistants and tools.`,
+      "",
+    )
   }
 
   lines.push(

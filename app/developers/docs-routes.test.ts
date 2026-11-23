@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest"
 import { GET as getOpenApi } from "./openapi.json/route"
 import { GET as getMarkdown } from "./api.md/route"
+import { GET as getSearchIndex } from "./search-index.json/route"
+import { buildSearchIndex } from "@/lib/api-v2/docs/search-index"
 import { buildOpenApi } from "@/lib/api-v2/docs/openapi"
 import { buildApiMarkdown } from "@/lib/api-v2/docs/api-markdown"
 
@@ -21,5 +23,13 @@ describe("docs routes", () => {
     expect(res.headers.get("content-disposition")).not.toMatch(/attachment/)
     expect(res.headers.get("cache-control")).toBe("public, max-age=300")
     expect(await res.text()).toBe(buildApiMarkdown())
+  })
+
+  it("serves the search index as cacheable JSON", async () => {
+    const res = await getSearchIndex()
+    expect(res.status).toBe(200)
+    expect(res.headers.get("content-type")).toMatch(/application\/json/)
+    expect(res.headers.get("cache-control")).toBe("public, max-age=300")
+    expect(await res.json()).toEqual(JSON.parse(JSON.stringify(buildSearchIndex())))
   })
 })
