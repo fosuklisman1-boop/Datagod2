@@ -16,6 +16,8 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 export async function POST(request: NextRequest) {
   const { isAdmin, userId, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse
+  // A person must own this action (the audit row needs them); the cron secret has no user id.
+  if (!userId) return NextResponse.json({ error: "Sign in with an admin account to do this." }, { status: 403 })
 
   const supabase = createClient(supabaseUrl, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },

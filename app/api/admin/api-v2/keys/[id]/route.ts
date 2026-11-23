@@ -18,6 +18,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const { isAdmin, userId, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse
 
+  // A person must own every key change (the audit row needs them); the cron secret has no user id.
+  if (!userId) return NextResponse.json({ error: "Sign in with an admin account to change keys." }, { status: 403 })
+
   const { id } = await params
 
   let body: unknown

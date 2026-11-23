@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server"
+import { after, NextRequest, NextResponse } from "next/server"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { requireCapability } from "@/lib/roles/require-capability"
 import { canRequestKey } from "@/lib/api-v2/eligibility"
@@ -91,11 +91,19 @@ export async function POST(request: NextRequest) {
   }
 
   if (created.alert) {
+    const work = async () => {
+      try {
+        await alertAdminsOfRequest("api_access", { kind: "access", code: created.code, who: caller.label })
+        await notifyUserOfOutcome("api_access", "requested", { userId: sessionUser.id, reference: created.code }, { kind: "access", code: created.code })
+      } catch {
+        // notifications never undo or fail the request
+      }
+    }
+    // After the response; without a request scope (tests) it runs unawaited.
     try {
-      await alertAdminsOfRequest("api_access", { kind: "access", code: created.code, who: caller.label })
-      await notifyUserOfOutcome("api_access", "requested", { userId: sessionUser.id, reference: created.code }, { kind: "access", code: created.code })
+      after(work)
     } catch {
-      // notifications never undo or fail the request
+      void work()
     }
   }
   return NextResponse.json({ id: created.id, code: created.code, status: "pending" }, { status: 201 })

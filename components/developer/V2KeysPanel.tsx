@@ -123,6 +123,23 @@ export function V2KeysPanel({ onAccessStateChange }: { onAccessStateChange?: (st
       }
     })
 
+  /** Cancels a waiting replacement; refused (409) if an admin approved it a moment ago. */
+  const cancelRequest = (key: V2KeySummary) =>
+    run(slotId(key.key_type, key.environment), async () => {
+      try {
+        const res = await fetch(`/api/user/v2-keys?id=${encodeURIComponent(key.id)}&only=pending`, {
+          method: "DELETE",
+          headers: await authHeader(),
+        })
+        const data = await readJson(res)
+        if (res.ok) toast.success("Request cancelled. Your current key keeps working.")
+        else toast.error(typeof data.error === "string" ? data.error : "Could not cancel the request")
+        await load()
+      } catch {
+        toast.error("Could not cancel the request")
+      }
+    })
+
   const revoke = (key: V2KeySummary) =>
     run(slotId(key.key_type, key.environment), async () => {
       try {
@@ -186,6 +203,7 @@ export function V2KeysPanel({ onAccessStateChange }: { onAccessStateChange?: (st
           busySlot={busySlot}
           onGenerate={(t, e) => void generate(t, e)}
           onRevoke={(k) => void revoke(k)}
+          onCancelRequest={(k) => void cancelRequest(k)}
           approval={approval}
           rejections={rejections}
           accessRequest={accessRequest}

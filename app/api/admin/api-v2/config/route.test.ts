@@ -7,7 +7,7 @@ const h = vi.hoisted(() => ({
 }))
 
 vi.mock("@/lib/admin-auth", () => ({
-  verifyAdminAccess: async () => ({ isAdmin: true, userId: "admin-1", errorResponse: null }),
+  verifyAdminAccess: async () => ({ isAdmin: true, userId: (globalThis as any).__noAdminId ? undefined : "admin-1", errorResponse: null }),
 }))
 vi.mock("@/lib/api-v2/store", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api-v2/store")>("@/lib/api-v2/store")
@@ -207,6 +207,16 @@ describe("PUT /api/admin/api-v2/config audit", () => {
     expect(res.status).toBe(200)
     expect((await res.json()).auditFailed).toBe(true)
     expect(updates()).toHaveLength(1)
+  })
+  it("the cron secret (admin with no user id) cannot change settings or the approval contact: 403, no update", async () => {
+    ;(globalThis as any).__noAdminId = true
+    try {
+      expect((await put({ approval_whatsapp: "0241112222" })).status).toBe(403)
+      expect((await put({ enabled: false })).status).toBe(403)
+      expect(updates()).toHaveLength(0)
+    } finally {
+      ;(globalThis as any).__noAdminId = false
+    }
   })
   it("a failed save writes no audit row", async () => {
     setWorld({ updateError: { message: "x" } })

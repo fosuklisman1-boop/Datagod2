@@ -101,6 +101,7 @@ export interface V2KeysCardProps {
   busySlot: string | null
   onGenerate: (type: KeyType, env: Environment) => void
   onRevoke: (key: V2KeySummary) => void
+  onCancelRequest?: (key: V2KeySummary) => void
   approval?: ApprovalInfo | null
   rejections?: SlotRejection[]
   accessRequest?: AccessRequestView | null
@@ -111,7 +112,7 @@ export interface V2KeysCardProps {
 
 /** Presentational: everything comes in through props so it can be previewed without the network. */
 export function V2KeysCard({
-  keys, access, loading, smsAvailable, busySlot, onGenerate, onRevoke,
+  keys, access, loading, smsAvailable, busySlot, onGenerate, onRevoke, onCancelRequest,
   approval = null, rejections = [], accessRequest = null, accessBusy = false, onRequestAccess, onCancelAccess,
 }: V2KeysCardProps) {
   if (loading || !access) {
@@ -122,7 +123,7 @@ export function V2KeysCard({
     )
   }
 
-  const handlers = { canGenerate: access.canGenerate, busySlot, onGenerate, onRevoke, approval, rejections }
+  const handlers = { canGenerate: access.canGenerate, busySlot, onGenerate, onRevoke, onCancelRequest, approval, rejections }
   const usable = keys.filter((k) => k.status === "pending" || k.status === "active")
   // A type is shown when it can be generated, or when the user still holds a key of it (so it can be revoked).
   const canOffer = (t: KeyType) => (t === "sms" ? offersSmsKey(access.canGenerate, smsAvailable) : access.canGenerate)

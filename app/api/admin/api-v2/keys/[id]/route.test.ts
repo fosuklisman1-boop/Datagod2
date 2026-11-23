@@ -12,7 +12,7 @@ const h = vi.hoisted(() => ({
 vi.mock("@/lib/admin-auth", () => ({
   verifyAdminAccess: async () =>
     h.admin
-      ? { isAdmin: true, userId: "admin-1", errorResponse: null }
+      ? { isAdmin: true, userId: (globalThis as any).__noAdminId ? undefined : "admin-1", errorResponse: null }
       : { isAdmin: false, errorResponse: NextResponse.json({ error: "Forbidden" }, { status: 403 }) },
 }))
 vi.mock("@/lib/api-v2/approvals", async () => {
@@ -89,6 +89,16 @@ describe("PATCH /api/admin/api-v2/keys/[id]", () => {
     await patch({ action: "set_limits", limits: { purchase: 50 } })
     await patch({ action: "reset_limits" })
     expect(audits().map((a) => a.payload.action)).toEqual(["api_key_limits", "api_key_limits"])
+  })
+  it("the cron secret (admin with no user id) cannot revoke or change limits: 403, nothing written", async () => {
+    ;(globalThis as any).__noAdminId = true
+    try {
+      expect((await patch({ action: "revoke" })).status).toBe(403)
+      expect((await patch({ action: "set_limits", limits: { purchase: 50 } })).status).toBe(403)
+      expect(updates()).toHaveLength(0)
+    } finally {
+      ;(globalThis as any).__noAdminId = false
+    }
   })
   it("an audit failure keeps the action and reports auditFailed", async () => {
     h.auditOk = false

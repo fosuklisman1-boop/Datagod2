@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server"
+import { after, NextRequest, NextResponse } from "next/server"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { requireCapability } from "@/lib/roles/require-capability"
 import { accessSummary, canIssue, isIssuableType, type AccessSummary } from "@/lib/api-v2/key-issue"
@@ -76,6 +76,18 @@ interface Rejection {
   key_type: KeyType
   reason: string
   at: string
+  /** The rejected request's code, so the developer can message the admin about it. */
+  code: string | null
+}
+
+/** Runs post-response work with next's after(); without a request scope (tests) it runs caught, unawaited. */
+function afterResponse(work: () => Promise<void>): void {
+  const run = () => void work().catch(() => {})
+  try {
+    after(work)
+  } catch {
+    run()
+  }
 }
 
 /**
@@ -89,19 +101,22 @@ async function latestRejections(
   try {
     const { data, error } = await client
       .from("api_v2_keys")
-      .select("key_type, reject_reason, rejected_at")
+      .select("key_type, reject_reason, rejected_at, request_code")
       .eq("user_id", userId)
       .eq("environment", "live")
       .eq("status", "revoked")
+      // Only rejected keys: ordinary revoked keys (NULL rejected_at sort first) would otherwise fill the limit.
+      .not("rejected_at", "is", null)
       .order("rejected_at", { ascending: false })
       .limit(30)
     if (error || !Array.isArray(data)) return []
     const out: Rejection[] = []
-    for (const r of data as Array<{ key_type: KeyType; reject_reason: string | null; rejected_at: string | null }>) {
+    type Row = { key_type: KeyType; reject_reason: string | null; rejected_at: string | null; request_code?: string | null }
+    for (const r of data as Row[]) {
       const at = r.rejected_at
       if (!at || out.some((o) => o.key_type === r.key_type)) continue
       if (open.some((k) => k.key_type === r.key_type && k.environment === "live" && k.created_at > at)) continue
-      out.push({ key_type: r.key_type, reason: r.reject_reason ?? "", at })
+      out.push({ key_type: r.key_type, reason: r.reject_reason ?? "", at, code: r.request_code ?? null })
     }
     return out
   } catch {
@@ -305,7 +320,8 @@ export async function POST(request: NextRequest) {
   }
 
   const { row } = result
-  if (row.environment === "live") await announceKeyRequest(sessionUser.id, caller, row, result.hadActive)
+  // The full key is in this response and is shown only once: never make it wait on email/SMS/push.
+  if (row.environment === "live") afterResponse(() => announceKeyRequest(sessionUser.id, caller, row, result.hadActive))
   return NextResponse.json(
     {
       message: "API key created. Save this key securely — it will not be shown again.",
@@ -327,8 +343,12 @@ export async function DELETE(request: NextRequest) {
   const sessionUser = await getSessionUser(request)
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const keyId = new URL(request.url).searchParams.get("id")
+  const params = new URL(request.url).searchParams
+  const keyId = params.get("id")
   if (!keyId) return NextResponse.json({ error: "Key ID is required" }, { status: 400 })
+  // "Cancel request" on a waiting replacement: only a still-pending key may go. If an admin approved it a moment
+  // ago it is now the working key, and revoking it would leave the developer with no live key.
+  const onlyPending = params.get("only") === "pending"
 
   const now = new Date().toISOString()
   const { data, error } = await client
@@ -336,11 +356,14 @@ export async function DELETE(request: NextRequest) {
     .update({ status: "revoked", revoked_at: now, revoked_by: sessionUser.id, updated_at: now })
     .eq("id", keyId)
     .eq("user_id", sessionUser.id)
-    .in("status", ["pending", "active"])
+    .in("status", onlyPending ? ["pending"] : ["pending", "active"])
     .select("id")
 
   if (error) return NextResponse.json({ error: "Failed to revoke API key" }, { status: 500 })
   if (!Array.isArray(data) || data.length === 0) {
+    if (onlyPending) {
+      return NextResponse.json({ error: "This request was already approved or removed. Refresh the page." }, { status: 409 })
+    }
     return NextResponse.json({ error: "Key not found" }, { status: 404 })
   }
   return NextResponse.json({ message: "API key revoked successfully" })

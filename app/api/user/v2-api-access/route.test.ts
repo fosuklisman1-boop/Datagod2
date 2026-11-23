@@ -140,6 +140,10 @@ describe("POST /api/user/v2-api-access", () => {
     expect(h.alertAdmins).not.toHaveBeenCalled()
     expect(h.notifyUser).not.toHaveBeenCalled()
   })
+  it("answers without waiting for the notifications", async () => {
+    h.alertAdmins.mockReturnValueOnce(new Promise(() => {}))
+    expect((await POST(req())).status).toBe(201)
+  })
   it("a notifier failure still answers 201", async () => {
     h.alertAdmins.mockRejectedValueOnce(new Error("down"))
     expect((await POST(req())).status).toBe(201)

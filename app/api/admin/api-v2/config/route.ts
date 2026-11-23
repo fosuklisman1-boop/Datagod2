@@ -49,6 +49,8 @@ export async function GET(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   const { isAdmin, userId, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse
+  // A person must own every settings change (incl. the approval WhatsApp number); the cron secret has no user id.
+  if (!userId) return NextResponse.json({ error: "Sign in with an admin account to change settings." }, { status: 403 })
 
   let body: unknown
   try {

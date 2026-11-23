@@ -19,6 +19,8 @@ export interface SlotRejection {
   key_type: KeyType
   reason: string
   at: string
+  /** The rejected request's code, for the Message admin button. */
+  code?: string | null
 }
 
 export const slotId = (type: KeyType, env: Environment) => `${type}:${env}`
@@ -90,6 +92,8 @@ export interface SlotHandlers {
   busySlot: string | null
   onGenerate: (type: KeyType, env: Environment) => void
   onRevoke: (key: V2KeySummary) => void
+  /** Cancels a waiting replacement only while it is still pending (never the key an admin just approved). */
+  onCancelRequest?: (key: V2KeySummary) => void
   /** Where "Message admin" goes; null while unknown. */
   approval?: ApprovalInfo | null
   rejections?: SlotRejection[]
@@ -150,7 +154,7 @@ function KeySlot({ type, env, keys, h }: { type: KeyType; env: Environment; keys
             title="Cancel the new key request?"
             body={<p>The new key is discarded. Your current live key keeps working.</p>}
             action="Cancel request"
-            onConfirm={() => h.onRevoke(replacement)}
+            onConfirm={() => (h.onCancelRequest ?? h.onRevoke)(replacement)}
           />
         </div>
       )}
@@ -159,7 +163,7 @@ function KeySlot({ type, env, keys, h }: { type: KeyType; env: Environment; keys
         <RejectedNotice
           reason={rejection.reason || null}
           approval={h.approval ?? null}
-          code={null}
+          code={rejection.code ?? null}
           onRequestAgain={h.canGenerate ? () => h.onGenerate(type, env) : undefined}
           disabled={locked}
         />

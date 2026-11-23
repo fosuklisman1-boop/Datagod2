@@ -59,13 +59,16 @@ vi.mock("@/lib/api-v2/store", async () => {
             return w.grant === "error" ? { data: null, error: { message: "x" } } : { data: w.grant ? { user_id: "u1" } : null, error: null }
           }
           if (table === "sms_accounts") return { data: w.smsRow ?? null, error: null }
+          if (table === "api_v2_keys" && rec.op === "update") return { data: w.revoked ?? [{ id: "k1" }], error: null }
           if (table === "api_v2_keys") return { data: rec.cols?.includes("reject_reason") ? (w.rejections ?? []) : (w.keys ?? []), error: null }
           return { data: null, error: null }
         }
         const b: any = {
-          select(c?: string) { rec.cols = c; return b },
-          eq() { return b },
-          in() { return b },
+          select(c?: string) { if ((rec as any).op !== "update") rec.cols = c; return b },
+          update(p: any) { rec.op = "update"; (rec as any).payload = p; return b },
+          eq(c: string, v: any) { ((rec as any).filters ??= []).push(["eq", c, v]); return b },
+          in(c: string, v: any) { ((rec as any).filters ??= []).push(["in", c, v]); return b },
+          not(c: string, o: string, v: any) { ((rec as any).filters ??= []).push(["not", c, o, v]); return b },
           order() { return b },
           limit() { return b },
           maybeSingle() { return Promise.resolve(result()) },
@@ -77,7 +80,7 @@ vi.mock("@/lib/api-v2/store", async () => {
   }
 })
 
-import { GET, POST } from "./route"
+import { DELETE, GET, POST } from "./route"
 
 const world = (over: any = {}) => {
   h.world = { role: "dealer", cap: "yes", grant: false, enabled: true, allowed: ["dealer"], suspended: false, ...over }
@@ -278,7 +281,7 @@ describe("GET /api/user/v2-keys approval details", () => {
         { key_type: "commission", reject_reason: "superseded", rejected_at: "2026-11-21T09:00:00Z" },
       ],
     })
-    expect((await (await get()).json()).rejections).toEqual([{ key_type: "standard", reason: "Need more history", at: "2026-11-21T10:00:00Z" }])
+    expect((await (await get()).json()).rejections).toEqual([{ key_type: "standard", reason: "Need more history", at: "2026-11-21T10:00:00Z", code: null }])
   })
   it("shows an open access request, and a rejected one with its retry time", async () => {
     world({ role: "user", requests: [{ request_code: "API-M4T8WX", status: "pending", reason: null, decided_at: null, created_at: "t" }] })
@@ -291,5 +294,39 @@ describe("GET /api/user/v2-keys approval details", () => {
     const body = await (await get()).json()
     expect(body.access.canGenerate).toBe(true)
     expect(body.accessRequest.status).toBe("pending")
+  })
+})
+
+describe("final-review fixes", () => {
+  const keyRec = (op: string) => h.recs.filter((r: any) => r.table === "api_v2_keys" && r.op === op)
+  const del = (qs: string) => DELETE({ url: `http://x/api/user/v2-keys?${qs}`, headers: new Headers({ Authorization: "Bearer t" }) } as any)
+
+  it("F2: cancelling a replacement only revokes a still-pending key, and says so when it was already approved", async () => {
+    const ok = await del("id=k2&only=pending")
+    expect(ok.status).toBe(200)
+    expect((keyRec("update")[0] as any).filters).toContainEqual(["in", "status", ["pending"]])
+    h.recs.length = 0
+    world({ revoked: [] })
+    expect((await del("id=k2&only=pending")).status).toBe(409)
+  })
+  it("F2: a plain revoke still covers pending and active keys", async () => {
+    await del("id=k1")
+    expect((keyRec("update")[0] as any).filters).toContainEqual(["in", "status", ["pending", "active"]])
+  })
+  it("F3: the rejection read skips keys that were never rejected (NULLs would fill the limit)", async () => {
+    await get()
+    const rej = h.recs.find((r: any) => r.table === "api_v2_keys" && r.cols?.includes("reject_reason")) as any
+    expect(rej.filters).toContainEqual(["not", "rejected_at", "is", null])
+  })
+  it("F4: a rejection carries its request code so the WhatsApp button can be shown", async () => {
+    world({ rejections: [{ key_type: "standard", reject_reason: "No", rejected_at: "2026-11-21T10:00:00Z", request_code: "API-7K3Q9M" }] })
+    expect((await (await get()).json()).rejections[0].code).toBe("API-7K3Q9M")
+  })
+  it("F5: the one-time key is returned without waiting for the notifications", async () => {
+    h.createKey.mockResolvedValueOnce(liveRow() as any)
+    h.alertAdmins.mockReturnValueOnce(new Promise(() => {}))
+    const res = await post()
+    expect(res.status).toBe(201)
+    expect((await res.json()).key).toBe("dg2_live_secret")
   })
 })
