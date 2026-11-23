@@ -79,3 +79,13 @@ describe("logReason", () => {
     expect(checked).toBeGreaterThan(30)
   })
 })
+
+describe("logReason pause slugs", () => {
+  it("MSG_PAUSED -> developer_paused; the service pause marker -> service_paused; arbitrary admin text -> never a slug (falls to the existing default)", async () => {
+    const { MSG_PAUSED, MSG_SERVICE_PAUSED_DEFAULT } = await import("./access")
+    expect(logReason(403, MSG_PAUSED)).toBe("developer_paused")
+    expect(logReason(503, MSG_SERVICE_PAUSED_DEFAULT)).toBe("service_paused")
+    expect(logReason(503, "Airtime is paused until 5pm, sorry")).toBe("http_503")
+    expect(logReason(403, "developer_paused")).toBe("http_403")
+  })
+})

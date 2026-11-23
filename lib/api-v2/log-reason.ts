@@ -4,6 +4,8 @@ import {
   MSG_SUSPENDED,
   MSG_ROLE_NOT_ALLOWED,
   MSG_UNAVAILABLE,
+  MSG_PAUSED,
+  MSG_SERVICE_PAUSED_DEFAULT,
   msgWrongKeyType,
 } from "./access"
 import type { KeyType } from "./keys"
@@ -20,6 +22,8 @@ const ACCESS_REASONS: ReadonlyMap<string, string> = new Map([
   [MSG_SUSPENDED, "account_suspended"],
   [MSG_ROLE_NOT_ALLOWED, "not_eligible"],
   [MSG_UNAVAILABLE, "unavailable"],
+  [MSG_PAUSED, "developer_paused"],
+  [MSG_SERVICE_PAUSED_DEFAULT, "service_paused"],
 ])
 
 const KEY_TYPES: readonly KeyType[] = ["standard", "commission", "sms"]
