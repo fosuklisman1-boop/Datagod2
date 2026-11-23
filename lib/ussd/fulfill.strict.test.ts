@@ -5,9 +5,17 @@ vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
     from: (table: string) => ({
       update: (patch: any) => ({
-        eq: async (_c: string, id: string) => {
-          updates.push({ table, patch, id })
-          return { error: null }
+        eq: (_c: string, id: string) => {
+          const u: any = { table, patch, id }
+          updates.push(u)
+          const done = { error: null }
+          return {
+            then: (res: any, rej: any) => Promise.resolve(done).then(res, rej),
+            in: async (col: string, vals: string[]) => {
+              u.guard = { col, vals }
+              return done
+            },
+          }
         },
       }),
     }),
@@ -43,6 +51,8 @@ describe("fulfillUssdOrder — strict supplier verification", () => {
       expect(r).toEqual({ success: false, message: "Hubnet hasn't approved this number" })
       expect(createMTNOrder.mock.calls[0][0].provider).toBe("hubnet")
       expect(updates.map((u) => u.patch.order_status)).toEqual(["pending"])
+      // Never overwrite a completed/cancelled order: only from pending/processing/failed.
+      expect(updates[0].guard).toEqual({ col: "order_status", vals: ["pending", "processing", "failed"] })
       expect(saveMTNTracking).not.toHaveBeenCalled()
       expect(holdMtnOrder).not.toHaveBeenCalled()
       expect(notifyAdmins).not.toHaveBeenCalled()

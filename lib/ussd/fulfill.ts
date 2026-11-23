@@ -29,12 +29,15 @@ function extractGb(packageSize: string): number {
 async function markUssdOrderStatus(
   orderId: string,
   status: 'completed' | 'failed' | 'processing' | 'pending',
-  orderTable: "ussd_orders" | "ussd_shop_orders" = "ussd_orders"
+  orderTable: "ussd_orders" | "ussd_shop_orders" = "ussd_orders",
+  /** When set, only rows currently in one of these statuses are changed. */
+  onlyFrom?: string[]
 ) {
-  await supabase
+  const q = supabase
     .from(orderTable)
     .update({ order_status: status, updated_at: new Date().toISOString() })
     .eq("id", orderId)
+  await (onlyFrom ? q.in("order_status", onlyFrom) : q)
 }
 
 export async function fulfillUssdOrder(
@@ -88,7 +91,8 @@ export async function fulfillUssdOrder(
           // Strict verification refused the admin-pinned supplier: nothing was sent.
           // Pending, no tracking row (no retry count), no alert; the caller shows the message.
           console.warn("[USSD-FULFILL] MTN pinned supplier refused:", mtnResponse.error_type)
-          await markUssdOrderStatus(orderId, 'pending', orderTable)
+          // Guarded: never overwrite a completed/cancelled order.
+          await markUssdOrderStatus(orderId, 'pending', orderTable, ["pending", "processing", "failed"])
           return { success: false, message: mtnResponse.message }
         }
         if (mtnResponse.held) {

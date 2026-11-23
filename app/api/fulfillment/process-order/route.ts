@@ -303,7 +303,9 @@ async function handleMTNAutoFulfillment(
         })
         return NextResponse.json({
           success: true,
-          message: "Order held pending MTN number registration",
+          message: mtnResponse.error_type === "STRICT_HOLD"
+            ? "Order held while suppliers check this number"
+            : "Order held pending MTN number registration",
         })
       }
       if (isOutcomeUnknown(mtnResponse)) {
