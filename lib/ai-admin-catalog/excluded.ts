@@ -24,8 +24,10 @@ export const EXCLUDED: ExcludedRoute[] = [
   { path: "/api/admin/mtn-registration/export", method: "GET", reason: "file download (CSV/XLSX/binary) response, not JSON" },
   { path: "/api/admin/orders/download", method: "POST", reason: "file download (CSV/XLSX/binary) response, not JSON" },
   { path: "/api/admin/orders/phone-export", method: "GET", reason: "file download (CSV/XLSX/binary) response, not JSON" },
+  { path: "/api/admin/orders/recover-xpress-reversals", method: "POST", reason: "long-running (up to 300 s, one supplier call per order); use the page" },
   { path: "/api/admin/phone-verify/session/:id/export", method: "GET", reason: "file download (CSV/XLSX/binary) response, not JSON" },
   { path: "/api/admin/phone-verify/upload", method: "POST", reason: "multipart file upload (formData), cannot be driven from JSON" },
   { path: "/api/admin/results-checker/upload", method: "POST", reason: "multipart file upload (formData), cannot be driven from JSON" },
   { path: "/api/admin/setup-rls", method: "POST", reason: "one-off RLS setup script, alters database security policy" },
+  { path: "/api/admin/stale-tracking/recheck", method: "POST", reason: "long-running (up to 300 s, paced supplier calls); use the page" },
 ]

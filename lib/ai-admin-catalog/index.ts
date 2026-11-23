@@ -1,6 +1,8 @@
 import type { CatalogEntry } from "./types"
+import { ORDERS_ENTRIES } from "./areas/orders"
 
-export const CATALOG: CatalogEntry[] = []
+// Each area task adds its exported entry array here: CATALOG = [...ORDERS_ENTRIES, ...NEXT_ENTRIES]
+export const CATALOG: CatalogEntry[] = [...ORDERS_ENTRIES]
 
 export function getEntry(id: string): CatalogEntry | undefined {
   return CATALOG.find((e) => e.id === id)

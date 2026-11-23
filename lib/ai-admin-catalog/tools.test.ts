@@ -48,7 +48,11 @@ function add(e: CatalogEntry) {
   added.push(e)
 }
 
+// These tests build their own entries, so the real area entries (registered in CATALOG as area tasks land) are set aside.
+const realEntries: CatalogEntry[] = []
+
 beforeEach(() => {
+  realEntries.push(...CATALOG.splice(0, CATALOG.length))
   vi.stubEnv("CRON_SECRET", "cron-secret-value")
   createDraftMock.fn.mockReset()
   createDraftMock.fn.mockImplementation(async (_db: unknown, i: Record<string, unknown>) => ({
@@ -62,6 +66,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
   for (const e of added) CATALOG.splice(CATALOG.indexOf(e), 1)
   added.length = 0
+  CATALOG.push(...realEntries.splice(0, realEntries.length))
 })
 
 function okFetch(body: unknown, status = 200) {
