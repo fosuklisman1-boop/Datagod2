@@ -137,8 +137,8 @@ export const ADMIN_PAGES: AdminPageGuide[] = [
   {
     path: "/admin/debtors",
     title: "Debtors",
-    purpose: "Users whose wallet is negative, meaning the platform paid out more than they funded.",
-    tasks: ["See who owes money", "See the total outstanding debt"],
+    purpose: "Users whose wallet balance is negative, with the total outstanding debt.",
+    tasks: ["See which users have a negative balance", "See the total outstanding debt"],
   },
   {
     path: "/admin/gateway",
@@ -222,12 +222,13 @@ export const ADMIN_PAGES: AdminPageGuide[] = [
   {
     path: "/admin/orders",
     title: "Order Management",
-    purpose: "Download pending orders for fulfilment, track downloaded batches and see fulfilment logs.",
+    purpose: "Download pending orders by network, manage downloaded batches and follow MTN fulfilment logs.",
     tasks: [
-      "Download pending orders",
-      "Update the status of a batch of orders",
-      "Fulfil orders manually",
-      "Check and retry failed fulfilments",
+      "Download pending orders for chosen networks",
+      "Fulfil pending MTN orders one by one or in bulk",
+      "Re-download a batch or change its orders' status",
+      "Delete old batches before a chosen date",
+      "Export order phone numbers, and retry or clear failed fulfilments",
     ],
   },
   {
@@ -336,24 +337,25 @@ export const ADMIN_PAGES: AdminPageGuide[] = [
   {
     path: "/admin/settings/mtn",
     title: "MTN Fulfillment Settings",
-    purpose: "Choose which suppliers deliver MTN data, in what order they are tried, and how numbers are checked.",
+    purpose: "Choose which suppliers deliver data for each network, the backup order, number checks and each supplier's own settings.",
     tasks: [
-      "Pick the main MTN supplier",
-      "Set the backup order if one fails",
-      "Check supplier wallet balances",
-      "Control checks on unregistered and unverified numbers",
+      "Pick the supplier per network and set the backup order",
       "Switch automatic fulfilment on or off",
+      "Check supplier wallet balances and set the low-balance alert",
+      "Control checks on unregistered, unverified and blocked numbers",
+      "Open a supplier's tab for its routes, wallet, webhooks and orders",
     ],
   },
   {
     path: "/admin/settings",
     title: "App Settings",
-    purpose: "Site-wide settings such as community links, notices, sign-in pop-ups and payment options.",
+    purpose: "Site-wide switches and content: pause ordering, turn features on or off, price adjustments, notices, links and terms. Payments are on /admin/gateway.",
     tasks: [
-      "Edit community and support links",
-      "Set the notice shown to users",
-      "Change sign-in and shop options",
-      "Update payment and wallet settings",
+      "Pause or resume ordering for the whole site",
+      "Turn individual features and USSD shop options on or off",
+      "Adjust package prices per network and set supplier cost",
+      "Edit community, support and guest-purchase links",
+      "Set announcements, terms of service and the phone-number blacklist",
     ],
   },
   {
@@ -437,7 +439,13 @@ export const ADMIN_PAGES: AdminPageGuide[] = [
     path: "/admin/users",
     title: "User Management",
     purpose: "Find users, see their roles and wallet balances and manage their accounts.",
-    tasks: ["Search for a user", "Change a user's role", "Adjust a user's wallet balance", "Suspend or manage an account"],
+    tasks: [
+      "Search and filter users",
+      "Change a user's role or custom prices",
+      "Adjust a wallet balance or change a password",
+      "Suspend, unsuspend or delete accounts, one or in bulk",
+      "Message selected users or download user lists",
+    ],
   },
   {
     path: "/admin/ussd-hubtel",
