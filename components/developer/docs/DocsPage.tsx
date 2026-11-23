@@ -8,6 +8,7 @@ import { Callout } from "./Callout"
 import { EndpointBlock } from "./EndpointBlock"
 import { InlineCode, RichText } from "./RichText"
 import { DOCS_SCROLL_MT, SectionBar, type SectionLink } from "./SectionBar"
+import { TryIt } from "./TryIt"
 import { StepList } from "./StepList"
 import { useScrollSpy } from "./useScrollSpy"
 
@@ -27,6 +28,8 @@ export function DocsPage({
   navFooter,
   stickyTop = 0,
   showSectionNav = true,
+  tryIt = false,
+  endpointLayout = "stack",
 }: {
   sections: V2DocSection[]
   /** Height in px of the host's own sticky header, so the SECTION bar, side nav and anchors sit below it. */
@@ -39,6 +42,9 @@ export function DocsPage({
   navFooter?: React.ReactNode
   /** false when the host shows its own nav (the public docs sidebar): no SECTION bar and no side column. */
   showSectionNav?: boolean
+  /** Show the Try-it console under every endpoint (public docs only; test keys). */
+  tryIt?: boolean
+  endpointLayout?: "stack" | "split"
 }) {
   const links = useMemo<SectionLink[]>(
     () => sections.map((s) => ({ id: s.id, label: s.label, group: DOC_GROUP_LABELS[s.group] })),
@@ -111,7 +117,12 @@ export function DocsPage({
               {s.endpoints.length > 0 && (
                 <div className="space-y-6">
                   {s.endpoints.map((ep) => (
-                    <EndpointBlock key={ep.id} endpoint={ep} />
+                    <EndpointBlock
+                      key={ep.id}
+                      endpoint={ep}
+                      layout={endpointLayout}
+                      tryIt={tryIt ? <TryIt endpoint={ep} /> : undefined}
+                    />
                   ))}
                 </div>
               )}

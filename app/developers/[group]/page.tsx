@@ -31,7 +31,7 @@ export default async function DeveloperGroupPage({ params }: Props) {
         <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">{page.title}</h1>
         <p className="max-w-2xl text-base leading-7 text-muted-foreground">{page.description}</p>
       </header>
-      <DocsPage sections={sectionsForPage(v2DocsRegistry, page.slug)} compact showSectionNav={false} stickyTop={DOCS_HEADER_PX} />
+      <DocsPage sections={sectionsForPage(v2DocsRegistry, page.slug)} compact showSectionNav={false} tryIt endpointLayout="split" stickyTop={DOCS_HEADER_PX} />
     </>
   )
 }

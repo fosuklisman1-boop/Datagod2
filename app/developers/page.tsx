@@ -44,7 +44,7 @@ export default async function DevelopersPage() {
 
       <QuickStart />
 
-      <DocsPage sections={sectionsForPage(v2DocsRegistry, null)} compact showSectionNav={false} stickyTop={DOCS_HEADER_PX} />
+      <DocsPage sections={sectionsForPage(v2DocsRegistry, null)} compact showSectionNav={false} tryIt endpointLayout="split" stickyTop={DOCS_HEADER_PX} />
 
       {mainSite && <RelatedProducts keys={getProduct("developers").related} facts={facts} />}
     </>

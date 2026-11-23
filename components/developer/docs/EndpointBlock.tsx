@@ -20,7 +20,7 @@ const METHOD_CLS: Record<V2Endpoint["method"], string> = {
 }
 
 /** Status badge colours: auth/permission rose, rate limit amber, server/upstream slate, other client errors orange. */
-function statusCls(status: number): string {
+export function statusCls(status: number): string {
   if (status === 401 || status === 403) return "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300"
   if (status === 429) return "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
   if (status >= 500) return "border-slate-500/30 bg-slate-500/10 text-slate-700 dark:text-slate-300"
@@ -42,7 +42,15 @@ function Chip({ icon: Icon, children }: { icon: typeof KeyRound; children: React
 
 const json = (v: unknown) => JSON.stringify(v, null, 2)
 
-export function EndpointBlock({ endpoint: ep }: { endpoint: V2Endpoint }) {
+export function EndpointBlock({
+  endpoint: ep,
+  tryIt,
+  layout = "stack",
+}: {
+  endpoint: V2Endpoint
+  tryIt?: React.ReactNode
+  layout?: "stack" | "split"
+}) {
   const samples = buildSamples(ep)
   const name = `${ep.method} ${ep.path}`
 
@@ -68,6 +76,76 @@ export function EndpointBlock({ endpoint: ep }: { endpoint: V2Endpoint }) {
         </p>
       </header>
 
+      {layout === "split" ? (
+        <div className="grid gap-6 xl:grid-cols-2">
+          <div className="min-w-0 space-y-6">
+      {ep.params.length > 0 && (
+        <section className="space-y-2.5">
+          <Heading>Parameters</Heading>
+          <ParamTable params={ep.params} />
+        </section>
+      )}
+
+      {ep.errors.length > 0 && (
+        <section className="space-y-2.5">
+          <Heading>Errors</Heading>
+          <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border">
+            {ep.errors.map((e, i) => (
+              <li key={i} className="flex items-start gap-3 px-4 py-3">
+                <span className={cn("mt-0.5 shrink-0 rounded-md border px-1.5 py-0.5 font-mono text-xs font-bold", statusCls(e.status))}>
+                  {e.status}
+                </span>
+                <span className="min-w-0 text-sm leading-6 text-foreground/85">{e.message}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs leading-5 text-muted-foreground">
+            Every error uses the envelope{" "}
+            <InlineCode>{'{ "success": false, "error": { "code": <number>, "message": "<text>" } }'}</InlineCode>, where code
+            repeats the HTTP status.
+          </p>
+        </section>
+      )}
+
+      {ep.notes.length > 0 && (
+        <section className="space-y-2.5">
+          <Heading>Notes</Heading>
+          <ul className="space-y-2.5 rounded-xl bg-muted/70 p-4 dark:bg-white/[0.04]">
+            {ep.notes.map((n, i) => (
+              <li key={i} className="flex gap-2.5 text-sm leading-6 text-foreground/85">
+                <span aria-hidden className="font-bold text-primary">→</span>
+                <span className="min-w-0">
+                  <RichText text={n} />
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+          </div>
+          <div className="min-w-0 space-y-6">
+      {ep.requestExample !== null && (
+        <section className="space-y-2.5">
+          <Heading>Request body</Heading>
+          <CodeBlock code={json(ep.requestExample)} title="JSON" copyLabel={`${name} request body`} />
+        </section>
+      )}
+
+      <section className="space-y-2.5">
+        <Heading>Success response</Heading>
+        <CodeBlock code={json(ep.successExample)} title="JSON · 200 OK" copyLabel={`${name} success response`} />
+      </section>
+
+      <section className="space-y-3">
+        <Heading>Code sample</Heading>
+        <CodeTabs samples={samples} label={`for ${name}`} />
+      </section>
+            {tryIt}
+          </div>
+        </div>
+      ) : (
+        <>
       {ep.params.length > 0 && (
         <section className="space-y-2.5">
           <Heading>Parameters</Heading>
@@ -128,6 +206,9 @@ export function EndpointBlock({ endpoint: ep }: { endpoint: V2Endpoint }) {
         <Heading>Code sample</Heading>
         <CodeTabs samples={samples} label={`for ${name}`} />
       </section>
+          {tryIt}
+        </>
+      )}
     </article>
   )
 }
