@@ -109,7 +109,8 @@ describe("runStrictRecheck: switch off", () => {
     const r = await runStrictRecheck(db as any, NOW)
     expect(r).toEqual({ checked: 0, released: 2, expired: 0, stillHeld: 0 })
     expect(db.tables.orders[0].status).toBe("pending")
-    expect(db.tables.ussd_orders[0].order_status).toBe("pending")
+    // USSD releases are claimed straight to processing (fulfillUssdOrder takes no pending->processing lock).
+    expect(db.tables.ussd_orders[0].order_status).toBe("processing")
     expect(holdOf(db, "orders", "o1")).toMatchObject({ state: "released", closed_at: NOW.toISOString() })
     expect(holdOf(db, "ussd_orders", "u1")).toMatchObject({ state: "released", closed_at: NOW.toISOString() })
     expect(processManualFulfillment).toHaveBeenCalledTimes(1)
@@ -136,6 +137,66 @@ describe("runStrictRecheck: switch off", () => {
     await runStrictRecheck(db as any, NOW)
     expect(db.tables.orders[0].status).toBe("held_registration")
     expect(holdOf(db, "orders", "o1").state).toBe("open")
+  })
+
+  for (const table of ["ussd_orders", "ussd_shop_orders"] as const) {
+    it(`${table} release: the order is processing (not pending) while fulfillUssdOrder runs, so nothing else can claim it`, async () => {
+      const db = world({
+        holds: [hold(table, "u1", PHONE_A)],
+        tables: { [table]: [{ id: "u1", order_status: "held_registration", network: "MTN", package_size: "1GB", recipient_phone: PHONE_A }] },
+      })
+      let seen: { status: string; hold: string; drainClaims: number } | null = null
+      vi.mocked(fulfillUssdOrder).mockImplementation(async () => {
+        // What the auto-fulfil drain does: claim only rows that are still pending.
+        const { data } = await db.from(table).update({ order_status: "processing" }).eq("id", "u1").eq("order_status", "pending").select("id")
+        seen = { status: db.tables[table][0].order_status, hold: holdOf(db, table, "u1").state, drainClaims: data.length }
+        return { success: true, message: "ok" }
+      })
+      await runStrictRecheck(db as any, NOW)
+      expect(seen).toEqual({ status: "processing", hold: "released", drainClaims: 0 })
+      expect(fulfillUssdOrder).toHaveBeenCalledTimes(1)
+    })
+  }
+
+  it("a second overlapping re-check during a USSD dispatch window does not dispatch it again", async () => {
+    const db = world({
+      holds: [hold("ussd_orders", "u1", PHONE_A)],
+      tables: { ussd_orders: [{ id: "u1", order_status: "held_registration", network: "MTN", package_size: "1GB", recipient_phone: PHONE_A }] },
+    })
+    vi.mocked(fulfillUssdOrder).mockImplementation(async () => {
+      await runStrictRecheck(db as any, NOW)
+      return { success: true, message: "ok" }
+    })
+    await runStrictRecheck(db as any, NOW)
+    expect(fulfillUssdOrder).toHaveBeenCalledTimes(1)
+  })
+
+  it("shop / bulk / api releases still go to pending (processManualFulfillment locks atomically)", async () => {
+    const db = world({
+      holds: [hold("shop_orders", "s1", PHONE_A), hold("api_orders", "a1", PHONE_B)],
+      tables: {
+        shop_orders: [{ id: "s1", order_status: "held_registration" }],
+        api_orders: [{ id: "a1", status: "held_registration" }],
+      },
+    })
+    vi.mocked(processManualFulfillment).mockImplementation(async (id: string) => {
+      const row = (db.tables.shop_orders.find((r) => r.id === id) ?? db.tables.api_orders.find((r) => r.id === id))!
+      expect(row.order_status ?? row.status).toBe("pending")
+      return { success: true, message: "ok" } as any
+    })
+    await runStrictRecheck(db as any, NOW)
+    expect(processManualFulfillment).toHaveBeenCalledTimes(2)
+  })
+
+  it("a USSD order that cannot be read for dispatch goes back to pending (nothing was sent)", async () => {
+    const db = world({
+      holds: [hold("ussd_orders", "u1", PHONE_A)],
+      tables: { ussd_orders: [{ id: "u1", order_status: "held_registration", network: "MTN", package_size: "1GB", recipient_phone: PHONE_A }] },
+    })
+    db.failSelect = (t) => (t === "ussd_orders" ? { message: "read down" } : null)
+    await runStrictRecheck(db as any, NOW)
+    expect(fulfillUssdOrder).not.toHaveBeenCalled()
+    expect(db.tables.ussd_orders[0].order_status).toBe("pending")
   })
 
   it("an order that already moved on is closed without dispatch", async () => {

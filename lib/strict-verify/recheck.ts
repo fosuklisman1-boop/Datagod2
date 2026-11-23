@@ -7,7 +7,8 @@
 // - due (unanswered: 5 min since the last check; rejected: 24 h): ask each candidate supplier (fresh saved verdict
 //   first). Any "yes" releases every open hold for that phone.
 //
-// Release order (never strand an order): claim the order held_registration -> pending (guarded), THEN close the hold,
+// Release order (never strand an order): claim the order held_registration -> pending (USSD: -> processing, because
+// fulfillUssdOrder has no lock of its own; see releaseHold) (guarded), THEN close the hold,
 // THEN dispatch. If the dispatch holds the order again, Task 4's holdMtnOrder opens a fresh hold row.
 // Every hold write is guarded on its held_at, so a hold re-opened by someone else is never closed by mistake.
 // Two overlapping runs are safe: only the run that wins the guarded claim dispatches.
@@ -135,6 +136,21 @@ async function closeMovedOn(db: SupabaseClient, h: StrictHoldRow, now: Date): Pr
   return true
 }
 
+/** processing -> pending for a USSD order claimed for dispatch that was never sent. Never throws. */
+async function revertToPending(db: SupabaseClient, h: StrictHoldRow): Promise<void> {
+  const col = statusColumnFor(h.order_table)
+  try {
+    const { error } = await db
+      .from(h.order_table)
+      .update({ [col]: "pending", updated_at: new Date().toISOString() })
+      .eq("id", h.order_id)
+      .eq(col, "processing")
+    if (error) console.error(`${TAG} could not return ${key(h)} to pending:`, errCode(error))
+  } catch {
+    console.error(`${TAG} could not return ${key(h)} to pending`)
+  }
+}
+
 async function dispatch(db: SupabaseClient, h: StrictHoldRow): Promise<"sent" | "failed"> {
   try {
     if (isUssd(h.order_table)) {
@@ -145,8 +161,9 @@ async function dispatch(db: SupabaseClient, h: StrictHoldRow): Promise<"sent" | 
         .eq("id", h.order_id)
         .maybeSingle()
       if (error || !data) {
-        // The order stays pending (today's normal flows pick it up).
+        // Nothing was sent: back to pending (guarded on processing) so today's normal flows pick it up.
         console.error(`${TAG} order read for dispatch failed for ${key(h)}`)
+        await revertToPending(db, h)
         return "failed"
       }
       const row = data as Record<string, any>
@@ -172,7 +189,10 @@ async function dispatch(db: SupabaseClient, h: StrictHoldRow): Promise<"sent" | 
 
 /** Claim -> close -> dispatch (unpinned). */
 async function releaseHold(db: SupabaseClient, h: StrictHoldRow, now: Date): Promise<"released" | "closed" | "kept"> {
-  const claim = await moveOrder(db, h, "pending")
+  // USSD: fulfillUssdOrder takes no pending -> processing lock and the strict gate can take ~10 s, so the claim goes
+  // straight to processing (the drain and admin sends only take pending rows). Every fulfillUssdOrder exit leaves a
+  // sane status from there. Shop/bulk/api: processManualFulfillment locks atomically, so pending is right.
+  const claim = await moveOrder(db, h, isUssd(h.order_table) ? "processing" : "pending")
   if (claim === "error") return "kept"
   if (claim === "not_held") return (await closeMovedOn(db, h, now)) ? "closed" : "kept"
   const { error } = await holdWhereOpen(db, { state: "released", closed_at: now.toISOString() }, h)
