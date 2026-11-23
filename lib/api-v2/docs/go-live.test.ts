@@ -53,3 +53,11 @@ describe("go-live steps", () => {
     expect(text).toMatch(/keeps working until the new one is approved/)
   })
 })
+
+describe("go-live sandbox testing step", () => {
+  it("says failed sandbox orders are not refunded and who tops up the balance", () => {
+    const step = GO_LIVE_STEPS.find((s) => s.id === "failure-numbers")!
+    expect(step.body).toMatch(/not refunded/i)
+    expect(step.body).toMatch(/contact the admin/i)
+  })
+})

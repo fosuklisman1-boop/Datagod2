@@ -32,7 +32,7 @@ export const GO_LIVE_STEPS: readonly GoLiveStep[] = [
   {
     id: "failure-numbers",
     title: "Test the failure paths",
-    body: "Data orders with a test key to a reserved number behave on purpose: 0240000404, 0200000404 and 0270000404 fail after a short delay, and 0240000202, 0200000202 and 0270000202 stay pending forever. Make sure your software handles a failed order and an order that never completes.",
+    body: "Data orders with a test key to a reserved number behave on purpose: 0240000404, 0200000404 and 0270000404 fail after a short delay, and 0240000202, 0200000202 and 0270000202 stay pending forever. Make sure your software handles a failed order and an order that never completes. Failed sandbox orders are not refunded, so if your sandbox balance runs low, contact the admin (use Message admin or support) to top it up.",
     links: [{ label: "Sandbox failure numbers", href: sectionHref("sandbox-failures") }],
   },
   {
