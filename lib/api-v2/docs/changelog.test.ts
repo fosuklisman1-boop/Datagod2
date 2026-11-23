@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { CHANGELOG } from "./changelog"
+import { CHANGELOG, changelogAt } from "./changelog"
 import { V2_BASE_URL, v2DocsRegistry } from "./registry"
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/
@@ -40,5 +40,24 @@ describe("CHANGELOG", () => {
 
   it("states the base URL exactly", () => {
     expect(CHANGELOG.some((e) => e.items.some((i) => i.includes(V2_BASE_URL)))).toBe(true)
+  })
+})
+
+describe("changelogAt", () => {
+  const retired = (now: string) => changelogAt(new Date(now)).find((e) => e.date === "2026-11-30")!
+  it("shows the v1 retirement as scheduled before 2026-11-30 00:00 GMT", () => {
+    const e = retired("2026-11-29T23:59:59Z")
+    expect(e.status).toBe("scheduled")
+    expect(e.items.join(" ")).toContain("scheduled to be retired")
+  })
+  it("shows it as released from 2026-11-30 00:00 GMT", () => {
+    const e = retired("2026-11-30T00:00:00Z")
+    expect(e.status).toBe("released")
+    expect(e.items.join(" ")).not.toContain("scheduled")
+    expect(e.items.join(" ")).toContain("retired on 2026-11-30")
+  })
+  it("leaves every other entry untouched", () => {
+    const others = changelogAt(new Date("2027-01-01T00:00:00Z")).filter((e) => e.date !== "2026-11-30")
+    expect(others).toEqual(CHANGELOG.filter((e) => e.date !== "2026-11-30"))
   })
 })

@@ -11,6 +11,27 @@ export interface ChangelogEntry {
   source: string
 }
 
+/** The v1 retirement instant (00:00 GMT on the entry date). */
+const V1_RETIREMENT_AT = Date.UTC(2026, 10, 30)
+
+/**
+ * The changelog as of `now`: the v1 retirement entry reads "scheduled" before 2026-11-30 00:00 GMT
+ * and "released" from then on. The clock is injectable for tests.
+ */
+export function changelogAt(now: Date = new Date()): ChangelogEntry[] {
+  return CHANGELOG.map((e) => {
+    if (e.date !== "2026-11-30" || now.getTime() < V1_RETIREMENT_AT) return e
+    return {
+      ...e,
+      status: "released",
+      items: [
+        "Version 1 of the API was retired on 2026-11-30 at 00:00 GMT.",
+        "Version 1 requests are now refused with HTTP 410. Version 2 keeps working.",
+      ],
+    }
+  })
+}
+
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
     date: "2026-11-30",

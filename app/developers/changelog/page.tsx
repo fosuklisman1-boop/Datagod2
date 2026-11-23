@@ -1,9 +1,12 @@
 import type { Metadata } from "next"
-import { CHANGELOG } from "@/lib/api-v2/docs/changelog"
+import { changelogAt } from "@/lib/api-v2/docs/changelog"
 import { docPageMetadata } from "@/lib/api-v2/docs/page-meta"
 import { cn } from "@/lib/utils"
 
 export const metadata: Metadata = docPageMetadata("changelog")
+
+// The v1 retirement entry flips from scheduled to released at 2026-11-30 00:00 GMT.
+export const revalidate = 3600
 
 export default function ChangelogPage() {
   return (
@@ -14,7 +17,7 @@ export default function ChangelogPage() {
         <p className="max-w-2xl text-base leading-7 text-muted-foreground">What changed in the API and when, newest first.</p>
       </header>
       <ol className="space-y-4">
-        {CHANGELOG.map((c) => (
+        {changelogAt().map((c) => (
           <li key={c.date + c.title} className="min-w-0 space-y-2 rounded-2xl border border-border bg-card p-4 sm:p-6">
             <div className="flex flex-wrap items-center gap-2">
               <time dateTime={c.date} className="font-mono text-sm font-semibold text-muted-foreground">
