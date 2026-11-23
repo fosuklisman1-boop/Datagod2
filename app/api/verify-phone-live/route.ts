@@ -137,7 +137,8 @@ export async function POST(request: NextRequest) {
     }
     const { verdicts, blocking } = await verifyRecipientsForOrder(
       phones,
-      context ? { context, defer: (task) => after(() => task()) } : {}
+      // Unauthenticated endpoint: never start background strict supplier asks from here.
+      context ? { context, defer: (task) => after(() => task()), strictBackground: false } : { strictBackground: false }
     )
     const results = phones.map(phone => ({ phone, verified: verdicts.get(phone) !== false }))
     return NextResponse.json({ results, blocking, notice: await blockedNotice(surface, blocking, results) })

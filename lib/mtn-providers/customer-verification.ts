@@ -367,6 +367,12 @@ export async function verifyRecipientsForOrder(
     /** Test seams for the strict per-supplier recording. */
     strictDb?: SupabaseClient
     ask?: typeof askSupplier
+    /**
+     * Strict mode only: start the out-of-band supplier asks (default true). The unauthenticated preview endpoint
+     * passes false so anonymous callers cannot spend supplier rate limits or grow the verdict table; the
+     * main-check answers are still saved (they cost no extra supplier calls).
+     */
+    strictBackground?: boolean
   } = {}
 ): Promise<OrderVerification> {
   try {
@@ -397,7 +403,7 @@ export async function verifyRecipientsForOrder(
     if (strict) {
       // The main-check answers are saved before returning (so an immediate send finds them), bounded to 1 s.
       await saveMainAnswersBounded(strictDb, answers)
-      try {
+      if (opts.strictBackground !== false) try {
         // Asking happens out of band; the task saves the answers again, including any that land after the race timeout.
         const ask = opts.ask ?? ((sup: string, p: string) => askSupplier(sup, p, { registry: opts.registry }))
         await runDeferred(opts.defer, () => strictBackground([...new Set(phones)], settings.providers, answers, strictDb, ask))

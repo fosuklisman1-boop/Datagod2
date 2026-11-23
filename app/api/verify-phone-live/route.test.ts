@@ -151,6 +151,15 @@ describe("POST /api/verify-phone-live", () => {
     spy.mockRestore()
   })
 
+  it("never lets the unauthenticated endpoint start background supplier asks", async () => {
+    const { verifyRecipientsForOrder } = await import("@/lib/mtn-providers/customer-verification")
+    await POST(makeRequest({ phones: ["0551111111"] }))
+    const calls = (verifyRecipientsForOrder as any).mock.calls
+    expect(calls[calls.length - 1][1]).toMatchObject({ strictBackground: false })
+    await POST(makeRequest({ phones: ["0551111111"], surface: "storefront_preview" }))
+    expect(calls[calls.length - 1][1]).toMatchObject({ strictBackground: false })
+  })
+
   describe("blocked-number recording context", () => {
     const SHOP = "11111111-1111-4111-8111-111111111111"
 

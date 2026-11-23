@@ -492,6 +492,51 @@ describe("runStrictRecheck: switch on", () => {
     expect(holdOf(db, "orders", "o1").last_checked_at).toBe(ago(10))
   })
 
+  describe("verdict prune", () => {
+    const D = 24 * 60 // minutes
+    const verdict = (n: number, ageDays: number) => ({
+      phone: `055900${String(1000 + n)}`,
+      supplier: "xpress",
+      verdict: "no",
+      checked_at: ago(ageDays * D),
+    })
+
+    it("deletes verdicts older than 30 days and keeps newer ones, even with no holds", async () => {
+      const db = world({ holds: [], verdicts: [verdict(1, 31), verdict(2, 29), verdict(3, 90)] })
+      await runStrictRecheck(db as any, NOW)
+      expect(db.tables.mtn_supplier_verdicts.map((r) => r.phone)).toEqual(["0559001002"])
+    })
+
+    it("deletes at most 1000 rows per run (oldest first)", async () => {
+      const rows = Array.from({ length: 1200 }, (_, i) => ({
+        phone: `055900${String(10000 + i)}`,
+        supplier: "xpress",
+        verdict: "no",
+        // distinct timestamps, all older than 30 days; larger i = newer
+        checked_at: new Date(NOW.getTime() - 40 * 86_400_000 + i * 1000).toISOString(),
+      }))
+      const db = world({ holds: [], verdicts: rows })
+      await runStrictRecheck(db as any, NOW)
+      // 999 go (rows strictly older than the batch's newest stamp); the newest 201 survive and are pruned next run.
+      expect(db.tables.mtn_supplier_verdicts).toHaveLength(201)
+      expect(db.tables.mtn_supplier_verdicts[0].phone).toBe(rows[999].phone)
+    })
+
+    it("a prune error is logged by code only and does not stop the run", async () => {
+      const db = world({
+        on: true,
+        holds: [hold("orders", "o1", PHONE_A, { reason: "rejected", last_checked_at: ago(1) })],
+        tables: { orders: [{ id: "o1", status: "held_registration" }] },
+        verdicts: [verdict(1, 40)],
+      })
+      db.failSelect = (t) => (t === "mtn_supplier_verdicts" ? { message: `boom ${PHONE_A}`, code: "XX000" } as any : null)
+      const r = await runStrictRecheck(db as any, NOW)
+      expect(r.stillHeld).toBe(1)
+      expect(errSpy.mock.calls.flat().map(String).join(" ")).toContain("XX000")
+      expect(allLogs()).not.toContain(PHONE_A)
+    })
+  })
+
   it("never logs a phone number", async () => {
     vi.mocked(askSupplier).mockResolvedValue("yes")
     vi.mocked(processManualFulfillment).mockRejectedValue(new Error(`send failed for ${PHONE_A}`))

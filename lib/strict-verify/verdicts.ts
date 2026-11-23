@@ -61,3 +61,49 @@ export async function saveVerdicts(
     console.error("[STRICT-VERIFY] saving supplier verdicts threw, rows:", stamped.length)
   }
 }
+
+/** Saved verdicts older than this are deleted by the re-check cron (a "yes" is only trusted for 30 days anyway). */
+export const VERDICT_RETENTION_MS = 30 * 86_400_000
+export const VERDICT_PRUNE_BATCH = 1000
+
+/**
+ * Deletes verdicts with checked_at older than 30 days, at most 1,000 per call (oldest first). The table has a
+ * composite key and no id, so the batch is bounded by its newest timestamp: rows strictly older than it go (the rows
+ * sharing that last timestamp wait for the next run). Never throws; logs the error code only, never a phone.
+ */
+export async function pruneOldVerdicts(db: SupabaseClient, now: Date): Promise<number> {
+  const cutoff = new Date(now.getTime() - VERDICT_RETENTION_MS).toISOString()
+  const codeOf = (e: unknown) => (e && typeof e === "object" && "code" in e ? String((e as { code?: unknown }).code ?? "error") : "error")
+  try {
+    const { data, error } = await db
+      .from(TABLE)
+      .select("checked_at")
+      .lt("checked_at", cutoff)
+      .order("checked_at", { ascending: true })
+      .limit(VERDICT_PRUNE_BATCH)
+    if (error) {
+      console.error("[STRICT-VERIFY] verdict prune read failed:", codeOf(error))
+      return 0
+    }
+    const stamps = (Array.isArray(data) ? data : []).map((r: { checked_at: string }) => r.checked_at).filter(Boolean)
+    if (stamps.length === 0) return 0
+    const first = stamps[0]
+    const last = stamps[stamps.length - 1]
+    // A short batch is everything older than the cutoff. A full batch stops before its newest timestamp (so it never
+    // deletes more than it read); if the whole batch shares one timestamp, that one upsert batch goes together.
+    const q = db.from(TABLE).delete()
+    const { error: delErr } = stamps.length < VERDICT_PRUNE_BATCH
+      ? await q.lt("checked_at", cutoff)
+      : first === last
+        ? await q.lte("checked_at", last)
+        : await q.lt("checked_at", last)
+    if (delErr) {
+      console.error("[STRICT-VERIFY] verdict prune delete failed:", codeOf(delErr))
+      return 0
+    }
+    return stamps.length
+  } catch {
+    console.error("[STRICT-VERIFY] verdict prune threw")
+    return 0
+  }
+}

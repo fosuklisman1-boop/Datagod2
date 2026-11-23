@@ -78,6 +78,20 @@ describe("verifyRecipientsForOrder strict recording", () => {
     expect(state.saved).toContainEqual({ phone: PHONE, supplier: "b", verdict: "yes" })
   })
 
+  it("strictBackground:false schedules no background asks but still saves the main-check answer", async () => {
+    const { p, deferred, ask } = run([entry("a", true), entry("b", true)], { strictBackground: false })
+    await p
+    expect(deferred).toHaveLength(0)
+    expect(ask).not.toHaveBeenCalled()
+    expect(state.saved).toEqual([{ phone: PHONE, supplier: "a", verdict: "yes" }])
+  })
+
+  it("strictBackground defaults to on", async () => {
+    const { p, deferred } = run([entry("a", true), entry("b", true)])
+    await p
+    expect(deferred).toHaveLength(1)
+  })
+
   it("does not wait for the deferred task", async () => {
     const { p } = run([entry("a", true), entry("b", true)], { ask: () => new Promise(() => {}) })
     await expect(p).resolves.toBeTruthy()

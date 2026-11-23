@@ -17,7 +17,7 @@ import { HOLD_STATUS, MTN_ORDER_TABLES, STRICT_HOLDS_TABLE, phoneColumnFor, stat
 import { askSupplier, canCheck, type Answer } from "./ask"
 import { buildCandidates } from "./send"
 import { isStrictVerifyOn } from "./settings"
-import { getFreshVerdicts, saveVerdicts } from "./verdicts"
+import { getFreshVerdicts, pruneOldVerdicts, saveVerdicts } from "./verdicts"
 
 export const RECHECK_LIMIT = 500
 export const EXPIRE_AFTER_MS = 72 * 3_600_000
@@ -259,6 +259,9 @@ function isDue(h: StrictHoldRow, now: Date): boolean {
 export async function runStrictRecheck(db: SupabaseClient, now: Date): Promise<RecheckSummary> {
   const summary: RecheckSummary = { checked: 0, released: 0, expired: 0, stillHeld: 0 }
   const started = Date.now()
+
+  // Housekeeping first (bounded, never throws): old saved verdicts are deleted so the table cannot grow unbounded.
+  await pruneOldVerdicts(db, now)
 
   const { data, error } = await db
     .from(STRICT_HOLDS_TABLE)
