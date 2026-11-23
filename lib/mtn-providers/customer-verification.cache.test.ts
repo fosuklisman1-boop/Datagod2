@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
+// Strict supplier verification is off for these legacy-behaviour tests.
+vi.mock("@/lib/strict-verify/settings", () => ({ isStrictVerifyOn: async () => false }))
 vi.mock("@/lib/supabase", () => ({ supabaseAdmin: { from: vi.fn() } }))
 
 const providerCalls: string[][] = []

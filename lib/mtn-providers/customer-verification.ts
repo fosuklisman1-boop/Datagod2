@@ -23,6 +23,11 @@ import { WHITELIST_REGISTRY, type WhitelistEntry } from "./provider-whitelist"
 import { getCachedVerdicts, setCachedVerdicts } from "./verdict-cache"
 import { recordBlockedRecipients } from "@/lib/blocked-numbers/record"
 import type { BlockContext } from "@/lib/blocked-numbers/types"
+import type { SupabaseClient } from "@supabase/supabase-js"
+import { normalizeGhanaPhone } from "@/lib/phone-format"
+import { isStrictVerifyOn } from "@/lib/strict-verify/settings"
+import { getFreshVerdicts, saveVerdicts } from "@/lib/strict-verify/verdicts"
+import { askSupplier } from "@/lib/strict-verify/ask"
 
 export const SETTING_KEY = "customer_verification_settings"
 
@@ -164,6 +169,8 @@ export interface VerdictIo {
   /** The shared guard (checkCustomerFacingVerification); receives the WRAPPED registry. */
   check(phones: string[], registry: WhitelistEntry[], settings: CustomerVerificationSettings): Promise<Array<{ phone: string; verified: boolean }>>
   timeoutMs: number
+  /** Strict verification: called for each definite per-supplier answer (phone normalised to 0XXXXXXXXX). */
+  onAnswer?: (supplier: string, phone: string, verdict: "yes" | "no") => void
 }
 
 /** Error class name only: provider errors can carry phone numbers. */
@@ -198,6 +205,13 @@ export async function resolveVerdicts(phones: string[], io: VerdictIo): Promise<
       checkBatch: async (msisdns: string[]) => {
         const r = await (p.checkBatchStrict ?? p.checkBatch)(msisdns)
         answered++
+        if (io.onAnswer) {
+          const asked = new Set(msisdns.map((m) => normalizeGhanaPhone(m)).filter((x): x is string => !!x))
+          for (const row of Array.isArray(r) ? r : []) {
+            const n = normalizeGhanaPhone(String(row?.msisdn ?? ""))
+            if (n && asked.has(n) && typeof row.allowed === "boolean") io.onAnswer(p.name, n, row.allowed ? "yes" : "no")
+          }
+        }
         return r
       },
       checkBatchStrict: undefined,
@@ -219,6 +233,50 @@ export async function resolveVerdicts(phones: string[], io: VerdictIo): Promise<
     return unchecked()
   } finally {
     if (timer) clearTimeout(timer)
+  }
+}
+
+/** Runs `task` out of band: opts.defer, else after(); outside a request scope after() throws, so await it. */
+async function runDeferred(defer: ((task: () => Promise<unknown>) => void) | undefined, task: () => Promise<unknown>): Promise<void> {
+  if (defer) { defer(task); return }
+  let deferred = false
+  try {
+    after(task)
+    deferred = true
+  } catch {
+    deferred = false
+  }
+  if (!deferred) await task()
+}
+
+/**
+ * Background step of strict verification: asks each checkout supplier that did
+ * not give a definite answer in the main check and has no fresh saved verdict,
+ * and saves definite answers. Never throws; logs no phone numbers.
+ */
+async function askRemainingSuppliers(
+  phones: string[],
+  providers: string[],
+  mainAnswers: Array<{ phone: string; supplier: string }>,
+  db: SupabaseClient,
+  ask: (supplier: string, phone: string) => Promise<"yes" | "no" | "no_answer">
+): Promise<void> {
+  try {
+    const rows: Array<{ phone: string; supplier: string; verdict: "yes" | "no" }> = []
+    for (const phone of phones) {
+      const norm = normalizeGhanaPhone(phone)
+      if (!norm) continue
+      const answered = new Set(mainAnswers.filter((a) => a.phone === norm).map((a) => a.supplier))
+      const candidates = providers.filter((s) => !answered.has(s))
+      if (candidates.length === 0) continue
+      const fresh = await getFreshVerdicts(db, norm, candidates, new Date())
+      const toAsk = candidates.filter((s) => !fresh.has(s))
+      const results = await Promise.all(toAsk.map(async (s) => ({ s, a: await ask(s, norm) })))
+      for (const { s, a } of results) if (a === "yes" || a === "no") rows.push({ phone: norm, supplier: s, verdict: a })
+    }
+    await saveVerdicts(db, rows, new Date())
+  } catch (err) {
+    console.error("[CUSTOMER-VERIFICATION] strict background check failed:", errName(err))
   }
 }
 
@@ -246,6 +304,9 @@ export async function verifyRecipientsForOrder(
     context?: BlockContext | (() => Promise<BlockContext | null>)
     /** Run the recording out of band instead of awaiting it. Defaults to next/server after() when a context is given. */
     defer?: (task: () => Promise<unknown>) => void
+    /** Test seams for the strict per-supplier recording. */
+    strictDb?: SupabaseClient
+    ask?: typeof askSupplier
   } = {}
 ): Promise<OrderVerification> {
   try {
@@ -255,7 +316,11 @@ export async function verifyRecipientsForOrder(
     const cacheOn = settings.enabled && !opts.registry
     const cached = cacheOn ? await getCachedVerdicts(phones, settings.providers) : new Map<string, boolean>()
     const toCheck = [...new Set(phones)].filter(p => !cached.has(p))
+    const strictDb = opts.strictDb ?? (supabase as unknown as SupabaseClient)
+    const strict = settings.providers.length > 0 && await isStrictVerifyOn(strictDb)
+    const answers: Array<{ phone: string; supplier: string; verdict: "yes" | "no" }> = []
     const fresh = await resolveVerdicts(toCheck, {
+      onAnswer: strict ? (supplier, phone, verdict) => { answers.push({ phone, supplier, verdict }) } : undefined,
       settings: async () => settings,
       registry: opts.registry ?? WHITELIST_REGISTRY,
       check: (p, reg, s) => checkCustomerFacingVerification(p, reg, s),
@@ -265,6 +330,15 @@ export async function verifyRecipientsForOrder(
       const definite = new Map<string, boolean>()
       for (const [p, v] of fresh) if (v !== null) definite.set(p, v)
       await setCachedVerdicts(definite, settings.providers)
+    }
+    if (strict) {
+      try {
+        await saveVerdicts(strictDb, answers, new Date())
+        const task = () => askRemainingSuppliers([...new Set(phones)], settings.providers, answers, strictDb, opts.ask ?? ((s, p) => askSupplier(s, p, { registry: opts.registry })))
+        await runDeferred(opts.defer, task)
+      } catch (err) {
+        console.error("[CUSTOMER-VERIFICATION] strict recording failed:", errName(err))
+      }
     }
     const verdicts = new Map<string, boolean | null>(phones.map(p => [p, cached.get(p) ?? fresh.get(p) ?? null]))
     const blocking = isBlockingOn(settings)
@@ -283,18 +357,7 @@ export async function verifyRecipientsForOrder(
         }
       }
       try {
-        if (opts.defer) opts.defer(task)
-        else {
-          // Default: off the response path via after(); outside a request scope after() throws, so await as before.
-          let deferred = false
-          try {
-            after(task)
-            deferred = true
-          } catch {
-            deferred = false
-          }
-          if (!deferred) await task()
-        }
+        await runDeferred(opts.defer, task)
       } catch (err) {
         console.error("[CUSTOMER-VERIFICATION] blocked-number record failed:", errName(err))
       }
