@@ -69,7 +69,7 @@ interface CatalogEntry {
 
 Plus one `pages.ts` guide: for each of the 59 pages, what it is for and its main tasks in 2-5 lines, so the assistant can explain pages and point to them.
 
-**Coverage test:** a test walks `app/api/admin/**/route.ts`, lists every exported method, and fails if a route+method is neither in the catalog nor in `excluded.ts` with a reason. Excluded (builder's call per route, each with a written reason): routes that return secrets (`ai-config`, key listings), one-off maintenance and debug routes (`debug-*`, `setup-rls`, `backfill`, `fix-*`), file/stream routes, cron-only routes.
+**Coverage test:** a test walks `app/api/admin/**/route.ts`, lists every exported method, and fails if a route+method is neither in the catalog nor in `excluded.ts` with a reason. Excluded (builder's call per route, each with a written reason): routes that return secrets in their response (`ai-config` GET, key listings; their secret-INPUT siblings are in scope via the secure box, 5.8), one-off maintenance and debug routes (`debug-*`, `setup-rls`, `backfill`, `fix-*`), file/stream routes, cron-only routes.
 
 **Side-effect GETs:** some GET routes write (sync, verify, trigger). The builder reads each GET handler; any GET that writes is `kind: "change"`.
 
@@ -115,6 +115,31 @@ Anything the assistant reads from lookups is data, fenced and labelled as such (
 ### 5.7 Migration
 
 One migration (next free number, ~0196): widen `ai_drafts.action` CHECK to include `admin_route_call`. Self-test proves the old actions still work and a bad action is refused. No data change.
+
+### 5.8 Secrets as input: the secure box (owner decision, 2026-11-23)
+
+Routes that take a password, API key, webhook secret or similar as INPUT are in scope, but the secret never goes through chat:
+- The entry marks such fields `secret: true`. Its schema for the model omits them; `prepare_admin_change` refuses if the model supplies one, and the system prompt tells the assistant never to ask the admin to type a secret in chat.
+- The card renders a hidden-text box per secret field ("Type the new password here", show/hide toggle).
+- On Confirm the browser sends the typed value(s) in the confirm request body over HTTPS. The confirm route validates them against the entry's field rules, merges them into that ONE outgoing request, and discards them. They are never written to `ai_drafts` (params, outcome) nor logged nor returned, and the result note given to the model says only that the field was set.
+- Confirm with an empty required secret box is refused before claiming the draft (the card stays pending).
+- If the admin types a secret in chat anyway, nothing extra is done with it (it has already reached the model); the assistant replies that it should be typed into the card box instead. Transcripts are not recorded for admin chat.
+
+### 5.9 Roles (owner decision)
+
+Role and permission management (create, edit permissions, move members, archive) is in scope as `danger` cards, like everything else.
+
+### 5.10 Builder-check rulings (controller calls, 2026-11-23)
+
+- **Auth per route.** "Same JWT, same checks" holds, but the builder audits each handler's auth (verifyAdminAccess, requireSupportAdmin, others) and records it on the entry (`auth` field). Routes reachable only by cron secret are excluded.
+- **Background runs and the cron secret.** `admin_lookup` and `prepare_admin_change` refuse when the caller token is the cron secret or there is no admin user id. Background admin runs keep only their existing read tools; generic lookups are interactive-only. (A background-prepared change card is therefore not available for catalog entries in this release.)
+- **Acting tools to remove.** "Acting" = registry entries with `acts` other than read/draft in the admin context. The plan lists the exact before/after admin tool names; the registry snapshot test is updated deliberately in one reviewed task. Any cron or background test relying on an acting admin tool is updated in the same task.
+- **Input shape.** `input` is `{ params?, query?, body? }`, each with its own strict schema. Path params must match the entry's declared pattern (uuid, or a slug of `[a-z0-9_-]{1,64}`) and are `encodeURIComponent`-substituted; query is built with `URLSearchParams`; body is JSON. The stored request is the fully resolved `{method, path, query, body}`; confirm re-resolves it from the current entry and refuses if it differs.
+- **Card display.** A new generic display type (`lines` + risk + secret fields) is added to the card component and `outcome-notes.ts`; chat UI changes are in scope.
+- **`unknown` result.** Shown as "We couldn't confirm the result" with a link to the entry's page. Recheck returns `check_manually` for this action.
+- **Timeouts.** Entries may set `timeoutMs` (default 15 s, max 60 s). Routes that routinely run longer (broadcast, provider batch jobs) are either set to 60 s or, if they exceed it, excluded with "use the page".
+- **Result filtering.** `resultKeep` is REQUIRED for every lookup (allowlist first). Name-based hiding is only a backstop with an exact list (`password`, `secret`, `api_key`, `*_api_key`, `*_secret`, `access_token`, `refresh_token`, `service_role_key`, `webhook_secret`), so fields like `token_count` are not hidden.
+- **Migration number.** The plan takes the next free number on origin/main at build time; 0195 is already applied (API rebuild).
 
 ## 6. Building it (left to the builder unless noted)
 
