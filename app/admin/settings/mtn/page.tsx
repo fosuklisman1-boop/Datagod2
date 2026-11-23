@@ -22,6 +22,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { KuntaniiCard } from "@/components/admin/kuntanii-card"
+import { strictSaveErrorMessage } from "@/lib/strict-verify/settings-messages"
 
 interface MTNSettings {
   enabled: boolean
@@ -935,7 +936,7 @@ export default function MTNSettingsPage() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify({ enabled }),
       })
-      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "Failed") }
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(strictSaveErrorMessage(res.status, d.error)) }
       const d = await res.json()
       setStrictEnabled(d.enabled === true)
       setStrictWarnings(Array.isArray(d.warnings) ? d.warnings : [])

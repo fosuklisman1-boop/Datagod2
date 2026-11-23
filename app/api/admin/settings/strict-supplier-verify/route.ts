@@ -54,6 +54,25 @@ export async function PUT(request: NextRequest) {
   const enabled = (body as { enabled?: unknown } | null)?.enabled
   if (typeof enabled !== "boolean") return fail("'enabled' must be a boolean", 400)
 
+  // Deploy order: migration 0194 must exist before the switch can go on (turning OFF is always allowed).
+  if (enabled) {
+    let readError: { code?: string } | null = null
+    try {
+      const { error: holdsError } = await supabase.from("mtn_strict_holds").select("order_id").limit(1)
+      readError = holdsError
+    } catch {
+      readError = { code: "thrown" }
+    }
+    if (readError) {
+      if (readError.code === "42P01" || readError.code === "PGRST205") {
+        console.error(`${TAG} refused enable: strict tables missing`)
+        return fail("strict_tables_missing", 409)
+      }
+      console.error(`${TAG} refused enable: holds table read failed`)
+      return fail("Could not confirm the strict-verification tables; try again", 503)
+    }
+  }
+
   const { error } = await supabase.from("admin_settings").upsert(
     { key: STRICT_VERIFY_KEY, value: { enabled }, description: DESCRIPTION, updated_at: new Date().toISOString(), updated_by: userId },
     { onConflict: "key" },

@@ -105,4 +105,37 @@ describe("/api/admin/settings/strict-supplier-verify", () => {
     const text = JSON.stringify(await r.json())
     expect(text).not.toContain("secret detail")
   })
+
+  const switchRow = () => db.tables.admin_settings.find((x) => x.key === "mtn_strict_supplier_verification")
+
+  it("PUT enabled:true reads mtn_strict_holds first", async () => {
+    await PUT(put({ enabled: true }))
+    expect(db.calls.some((c) => c.table === "mtn_strict_holds" && c.kind === "select")).toBe(true)
+  })
+
+  for (const code of ["42P01", "PGRST205"]) {
+    it(`PUT enabled:true is 409 strict_tables_missing when mtn_strict_holds is missing (${code}); nothing written`, async () => {
+      db.failSelect = (t) => (t === "mtn_strict_holds" ? ({ code, message: "relation does not exist" } as any) : null)
+      const r = await PUT(put({ enabled: true }))
+      expect(r.status).toBe(409)
+      expect(await r.json()).toEqual({ error: "strict_tables_missing" })
+      expect(switchRow()).toBeUndefined()
+      expect(db.calls.filter((c) => c.kind === "upsert")).toEqual([])
+    })
+  }
+
+  it("PUT enabled:true is a generic 503 on any other holds read error; nothing written", async () => {
+    db.failSelect = (t) => (t === "mtn_strict_holds" ? ({ code: "57014", message: "secret timeout detail" } as any) : null)
+    const r = await PUT(put({ enabled: true }))
+    expect(r.status).toBe(503)
+    expect(JSON.stringify(await r.json())).not.toContain("secret")
+    expect(switchRow()).toBeUndefined()
+  })
+
+  it("PUT enabled:false is always allowed, even when the holds table is missing", async () => {
+    db.failSelect = (t) => (t === "mtn_strict_holds" ? ({ code: "42P01", message: "missing" } as any) : null)
+    const r = await PUT(put({ enabled: false }))
+    expect(r.status).toBe(200)
+    expect(switchRow()?.value).toEqual({ enabled: false })
+  })
 })
