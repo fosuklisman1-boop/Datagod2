@@ -37,6 +37,8 @@ export interface CardView {
   warnings: string[]
   /** Admin cards only (null otherwise). */
   risk: AdminRisk | null
+  /** "Change" | "Money" | "Danger" for admin cards, null otherwise. */
+  riskBadge: string | null
   summary: string | null
   /** "This cannot be undone." on danger cards. */
   dangerNote: string | null
@@ -78,7 +80,13 @@ function readAdminDisplay(display: unknown) {
     summary: typeof d.summary === "string" && d.summary.trim() ? d.summary.trim() : null,
     risk,
     secretFields,
+    page: safePageLink(d.page),
   }
+}
+
+/** Typed secrets are dropped once a confirm or cancel attempt resolves. */
+export function clearsSecrets(action: "confirm" | "recheck" | "cancel"): boolean {
+  return action === "confirm" || action === "cancel"
 }
 
 /** Confirm stays disabled until every secret box meets its min (and does not exceed max). */
@@ -240,6 +248,7 @@ export function draftCardView(state: CardViewState, nowMs: number): CardView {
     topUpHref: null,
     warnings: [],
     risk: admin ? admin.risk : null,
+    riskBadge: admin ? (admin.risk === "danger" ? "Danger" : admin.risk === "money" ? "Money" : "Change") : null,
     summary: admin ? admin.summary : null,
     dangerNote: admin?.risk === "danger" ? DANGER_NOTE : null,
     secretFields: admin ? admin.secretFields : [],
@@ -300,7 +309,7 @@ export function draftCardView(state: CardViewState, nowMs: number): CardView {
     }
     case "unknown":
       // An admin route has no generic recheck: the page itself is the truth, so link to it instead.
-      if (admin) return { ...view, variant: "unknown", message: unknownMessage(o), pageLink: safePageLink(o.pageLink) }
+      if (admin) return { ...view, variant: "unknown", message: unknownMessage(o), pageLink: safePageLink(o.pageLink) ?? admin.page }
       return { ...view, variant: "unknown", message: unknownMessage(o), showCheckAgain: true }
     case "expired":
       return { ...view, variant: "expired", greyed: true, showPrepareAgain: true, message: "This card has expired." }

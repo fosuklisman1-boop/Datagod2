@@ -5,6 +5,7 @@ import Link from "next/link"
 import {
   adminCardTone,
   buildConfirmSecrets,
+  clearsSecrets,
   confirmErrorMessage,
   draftCardView,
   secretsReady,
@@ -165,8 +166,8 @@ export function DraftCard({ draftId, initial, getToken, onPrepareAgain }: DraftC
         }
       } finally {
         busyRef.current = false
-        if (action === "confirm" && mounted.current) {
-          // Typed secrets are dropped once the attempt resolves, success or failure.
+        if (clearsSecrets(action) && mounted.current) {
+          // Typed secrets are dropped once a confirm or cancel attempt resolves, success or failure.
           setSecrets({})
           setRevealed({})
         }
@@ -196,13 +197,13 @@ export function DraftCard({ draftId, initial, getToken, onPrepareAgain }: DraftC
     >
       <p className="font-semibold text-primary">{view.title}</p>
 
-      {view.risk && view.risk !== "normal" && (
+      {view.riskBadge && view.risk && (
         <span
           className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-            view.risk === "danger" ? "bg-destructive/10 text-destructive" : "bg-amber-500/15 text-amber-700 dark:text-amber-400"
+            view.risk === "danger" ? "bg-destructive/10 text-destructive" : view.risk === "money" ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" : "bg-primary/10 text-primary"
           }`}
         >
-          {view.risk === "danger" ? "Danger" : "Money"}
+          {view.riskBadge}
         </span>
       )}
 

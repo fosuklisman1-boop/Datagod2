@@ -288,7 +288,7 @@ describe("state_changed_message", () => {
 })
 
 // ---- admin_route cards (Task 7) ----
-import { adminCardTone, buildConfirmSecrets, confirmErrorMessage, safePageLink, secretsReady } from "./draft-card-view"
+import { clearsSecrets, adminCardTone, buildConfirmSecrets, confirmErrorMessage, safePageLink, secretsReady } from "./draft-card-view"
 
 const adminDisplay = (over: Record<string, unknown> = {}) => ({
   kind: "admin_route",
@@ -389,5 +389,26 @@ describe("admin_route cards", () => {
     expect(confirmErrorMessage(400, { code: "bad_body", error: "Invalid request body" })).toBe("")
     expect(confirmErrorMessage(413, null)).toBe("That value is too long.")
     expect(confirmErrorMessage(400, { code: "missing_secret", error: 5 })).toBe("Please fill in the secure box.")
+  })
+})
+
+describe("admin card fix round 1", () => {
+  it("unknown without an outcome pageLink falls back to the entry's page", () => {
+    const v = adminView({ page: "/admin/users" }, { status: "unknown", outcome: { code: "no_response", message: "x" } })
+    expect(v.pageLink).toBe("/admin/users")
+    expect(adminView({ page: "https://evil.com" }, { status: "unknown", outcome: { code: "no_response" } }).pageLink).toBeNull()
+  })
+
+  it("every admin card has a risk badge; other cards none", () => {
+    expect(adminView({ risk: "normal" }).riskBadge).toBe("Change")
+    expect(adminView({ risk: "money" }).riskBadge).toBe("Money")
+    expect(adminView({ risk: "danger" }).riskBadge).toBe("Danger")
+    expect(view().riskBadge).toBeNull()
+  })
+
+  it("secrets are cleared after confirm and cancel, not after recheck", () => {
+    expect(clearsSecrets("confirm")).toBe(true)
+    expect(clearsSecrets("cancel")).toBe(true)
+    expect(clearsSecrets("recheck")).toBe(false)
   })
 })
