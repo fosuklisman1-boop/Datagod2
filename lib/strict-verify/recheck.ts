@@ -25,6 +25,8 @@ export const UNANSWERED_EVERY_MS = 5 * 60_000
 export const REJECTED_EVERY_MS = 24 * 3_600_000
 /** No new phone is checked after this much real time (the route's maxDuration is 300 s). */
 const RUN_BUDGET_MS = 240_000
+/** Hubnet's rate limit trips a shared cooldown that also blocks live sends: cap its asks per run. */
+export const HUBNET_ASKS_PER_RUN = 8
 const CHUNK = 100
 const TAG = "[STRICT-RECHECK]"
 
@@ -323,6 +325,7 @@ export async function runStrictRecheck(db: SupabaseClient, now: Date): Promise<R
     for (const h of due) byPhone.set(h.phone, [...(byPhone.get(h.phone) ?? []), h])
 
     let hubnetStopped = false
+    let hubnetAsks = 0
     for (const [phone, group] of ready ? byPhone : new Map<string, StrictHoldRow[]>()) {
       if (Date.now() - started >= RUN_BUDGET_MS) break
       summary.checked += group.length
@@ -341,8 +344,9 @@ export async function runStrictRecheck(db: SupabaseClient, now: Date): Promise<R
         for (const supplier of candidates) {
           let answer: Answer
           if (fresh.has(supplier)) answer = fresh.get(supplier)!
-          else if (supplier === "hubnet" && hubnetStopped) answer = "no_answer"
+          else if (supplier === "hubnet" && (hubnetStopped || hubnetAsks >= HUBNET_ASKS_PER_RUN)) answer = "no_answer"
           else {
+            if (supplier === "hubnet") hubnetAsks++
             try {
               answer = await askSupplier(supplier, phone)
             } catch {

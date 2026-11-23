@@ -278,6 +278,23 @@ describe("runStrictRecheck: switch on", () => {
     expect(holdOf(db, "orders", "o2").reason).toBe("unanswered")
   })
 
+  it("asks Hubnet at most 8 times per run; other suppliers are still asked for every phone", async () => {
+    vi.mocked(buildCandidates).mockResolvedValue({ candidates: ["hubnet", "xpress"], disabled: new Set<string>() })
+    vi.mocked(askSupplier).mockImplementation(async () => "no")
+    const ids = Array.from({ length: 12 }, (_, i) => `o${i}`)
+    const db = world({
+      on: true,
+      holds: ids.map((id, i) => hold("orders", id, `05590003${String(i).padStart(2, "0")}`)),
+      tables: { orders: ids.map((id) => ({ id, status: "held_registration" })) },
+    })
+    await runStrictRecheck(db as any, NOW)
+    expect(vi.mocked(askSupplier).mock.calls.filter((c) => c[0] === "hubnet")).toHaveLength(8)
+    expect(vi.mocked(askSupplier).mock.calls.filter((c) => c[0] === "xpress")).toHaveLength(12)
+    // A phone Hubnet was not asked about is unanswered (Hubnet gave no answer), never "rejected".
+    expect(holdOf(db, "orders", "o11").reason).toBe("unanswered")
+    expect(holdOf(db, "orders", "o0").reason).toBe("rejected")
+  })
+
   it("after 72 h: order back to pending, hold expired, nothing dispatched, one push with no phone", async () => {
     const db = world({
       on: true,
