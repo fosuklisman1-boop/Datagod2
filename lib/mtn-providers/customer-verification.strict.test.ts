@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
 vi.mock("@/lib/supabase", () => ({ supabaseAdmin: { from: vi.fn() } }))
-vi.mock("next/server", async (orig) => ({ ...(await orig<typeof import("next/server")>()), after: () => { throw new Error("outside request scope") } }))
+vi.mock("next/server", async (orig) => ({ ...(await orig<typeof import("next/server")>()), after: (t: any) => afterMock.fn(t) }))
 vi.mock("@/lib/blocked-numbers/record", () => ({ recordBlockedRecipients: vi.fn(async () => ({ recorded: 0, deduped: 0 })) }))
 
+const afterMock = vi.hoisted(() => ({ fn: (() => { throw new Error("outside request scope") }) as any }))
 const state = vi.hoisted(() => ({
   on: true,
   fresh: new Map<string, Map<string, "yes" | "no">>(),
@@ -19,6 +20,11 @@ import { verifyRecipientsForOrder } from "./customer-verification"
 import type { WhitelistEntry } from "./provider-whitelist"
 
 const PHONE = "0551111111"
+function dbWith(disabled: string[] | "error") {
+  return {
+    from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => (disabled === "error" ? { data: null, error: { message: "x" } } : { data: { value: { providers: disabled } }, error: null }) }) }) }),
+  } as never
+}
 const calls: string[] = []
 
 function entry(name: string, answer: boolean | "throw" | "missing" | "echo233"): WhitelistEntry {
@@ -40,7 +46,7 @@ function run(registry: WhitelistEntry[], opts: Record<string, unknown> = {}) {
   const p = verifyRecipientsForOrder([PHONE], {
     registry,
     settings: settings(registry.map((r) => r.name)),
-    strictDb: {} as never,
+    strictDb: dbWith([]),
     defer: (t: () => Promise<unknown>) => { deferred.push(t) },
     ask,
     ...opts,
@@ -136,5 +142,70 @@ describe("verifyRecipientsForOrder strict recording", () => {
     await p
     await expect(deferred[0]()).resolves.toBeUndefined()
     expect(JSON.stringify(spy.mock.calls)).not.toContain(PHONE)
+  })
+})
+
+describe("strict background limits", () => {
+  beforeEach(() => { state.on = true; state.fresh.clear(); state.saved.length = 0; calls.length = 0 })
+
+  it("production path: returns before the after() task runs", async () => {
+    const captured: Array<() => Promise<unknown>> = []
+    afterMock.fn = (t: () => Promise<unknown>) => { captured.push(t) }
+    try {
+      const ask = vi.fn(async () => "yes" as const)
+      const r = await verifyRecipientsForOrder([PHONE], { registry: [entry("a", true), entry("b", true)], settings: settings(["a", "b"]), strictDb: dbWith([]), ask } as never)
+      expect(r.blocked).toEqual([])
+      expect(captured).toHaveLength(1)
+      expect(ask).not.toHaveBeenCalled()
+      expect(state.saved).toEqual([])
+      await captured[0]()
+      expect(ask).toHaveBeenCalledTimes(1)
+      expect(state.saved).toContainEqual({ phone: PHONE, supplier: "a", verdict: "yes" })
+    } finally {
+      afterMock.fn = () => { throw new Error("outside request scope") }
+    }
+  })
+
+  it("asks at most 20 phones, 3 at a time, saving after each phone", async () => {
+    const phones = Array.from({ length: 30 }, (_, i) => "05511111" + String(10 + i))
+    let active = 0
+    let peak = 0
+    const asked = new Set<string>()
+    const ask = vi.fn(async (_s: string, p: string) => { active++; peak = Math.max(peak, active); asked.add(p); await new Promise((r) => setTimeout(r, 2)); active--; return "yes" as const })
+    const deferred: Array<() => Promise<unknown>> = []
+    await verifyRecipientsForOrder(phones, { registry: [entry("a", "throw")], settings: settings(["a"]), strictDb: dbWith([]), ask, defer: (t: () => Promise<unknown>) => { deferred.push(t) } } as never)
+    state.saved.length = 0
+    await deferred[0]()
+    expect(asked.size).toBe(20)
+    expect(peak).toBeLessThanOrEqual(3)
+    expect(peak).toBeGreaterThan(1)
+    expect(state.saved).toHaveLength(20)
+  })
+
+  it("stops asking hubnet after its first no_answer", async () => {
+    const phones = ["0551111101", "0551111102", "0551111103", "0551111104"]
+    const ask = vi.fn(async (s: string) => (s === "hubnet" ? "no_answer" : "yes") as "yes" | "no_answer")
+    const deferred: Array<() => Promise<unknown>> = []
+    await verifyRecipientsForOrder(phones, { registry: [entry("hubnet", "throw")], settings: settings(["hubnet"]), strictDb: dbWith([]), ask, defer: (t: () => Promise<unknown>) => { deferred.push(t) } } as never)
+    await deferred[0]()
+    expect(ask.mock.calls.filter((c) => c[0] === "hubnet").length).toBeLessThanOrEqual(3)
+  })
+
+  it("skips disabled suppliers; unreadable disabled list asks nobody", async () => {
+    for (const [db, expected] of [[dbWith(["b"]), ["a"]], [dbWith("error"), []]] as const) {
+      const ask = vi.fn(async () => "yes" as const)
+      const deferred: Array<() => Promise<unknown>> = []
+      await verifyRecipientsForOrder([PHONE], { registry: [entry("a", "throw"), entry("b", "throw")], settings: settings(["a", "b"]), strictDb: db, ask, defer: (t: () => Promise<unknown>) => { deferred.push(t) } } as never)
+      await deferred[0]()
+      expect(ask.mock.calls.map((c: any[]) => c[0])).toEqual(expected)
+    }
+  })
+
+  it("saves main-check answers only in the deferred task, not on the response path", async () => {
+    const deferred: Array<() => Promise<unknown>> = []
+    await verifyRecipientsForOrder([PHONE], { registry: [entry("a", true)], settings: settings(["a"]), strictDb: dbWith([]), ask: async () => "yes", defer: (t: () => Promise<unknown>) => { deferred.push(t) } } as never)
+    expect(state.saved).toEqual([])
+    await deferred[0]()
+    expect(state.saved).toContainEqual({ phone: PHONE, supplier: "a", verdict: "yes" })
   })
 })

@@ -249,32 +249,66 @@ async function runDeferred(defer: ((task: () => Promise<unknown>) => void) | und
   if (!deferred) await task()
 }
 
+export const STRICT_BACKGROUND_MAX_PHONES = 20
+const STRICT_BACKGROUND_CONCURRENCY = 3
+
+/** Suppliers switched off by the admin; null when the read fails (then nobody is asked). */
+async function readDisabledSuppliers(db: SupabaseClient): Promise<Set<string> | null> {
+  try {
+    const { data, error } = await db.from("admin_settings").select("value").eq("key", "mtn_disabled_providers").maybeSingle()
+    if (error) return null
+    const list = (data as { value?: { providers?: unknown } } | null)?.value?.providers
+    return new Set(Array.isArray(list) ? list.filter((x): x is string => typeof x === "string") : [])
+  } catch {
+    return null
+  }
+}
+
 /**
- * Background step of strict verification: asks each checkout supplier that did
- * not give a definite answer in the main check and has no fresh saved verdict,
- * and saves definite answers. Never throws; logs no phone numbers.
+ * Background step of strict verification. Saves the main-check answers, then
+ * asks each checkout supplier that did not answer a phone and has no fresh
+ * saved verdict, saving definite answers after every phone. At most 20 phones
+ * per checkout (the send step asks the rest), 3 at a time; once Hubnet gives
+ * no_answer it is not asked again. Never throws; logs no phone numbers.
  */
-async function askRemainingSuppliers(
+async function strictBackground(
   phones: string[],
   providers: string[],
-  mainAnswers: Array<{ phone: string; supplier: string }>,
+  mainAnswers: Array<{ phone: string; supplier: string; verdict: "yes" | "no" }>,
   db: SupabaseClient,
   ask: (supplier: string, phone: string) => Promise<"yes" | "no" | "no_answer">
 ): Promise<void> {
   try {
-    const rows: Array<{ phone: string; supplier: string; verdict: "yes" | "no" }> = []
-    for (const phone of phones) {
-      const norm = normalizeGhanaPhone(phone)
-      if (!norm) continue
-      const answered = new Set(mainAnswers.filter((a) => a.phone === norm).map((a) => a.supplier))
-      const candidates = providers.filter((s) => !answered.has(s))
-      if (candidates.length === 0) continue
-      const fresh = await getFreshVerdicts(db, norm, candidates, new Date())
-      const toAsk = candidates.filter((s) => !fresh.has(s))
-      const results = await Promise.all(toAsk.map(async (s) => ({ s, a: await ask(s, norm) })))
-      for (const { s, a } of results) if (a === "yes" || a === "no") rows.push({ phone: norm, supplier: s, verdict: a })
+    await saveVerdicts(db, mainAnswers, new Date())
+    const disabled = await readDisabledSuppliers(db)
+    if (!disabled) return
+    const suppliers = providers.filter((s) => !disabled.has(s))
+    if (suppliers.length === 0) return
+    const queue = phones.slice(0, STRICT_BACKGROUND_MAX_PHONES)
+    let hubnetStopped = false
+    const worker = async () => {
+      for (let phone = queue.shift(); phone !== undefined; phone = queue.shift()) {
+        try {
+          const norm = normalizeGhanaPhone(phone)
+          if (!norm) continue
+          const answered = new Set(mainAnswers.filter((a) => a.phone === norm).map((a) => a.supplier))
+          const candidates = suppliers.filter((s) => !answered.has(s))
+          if (candidates.length === 0) continue
+          const fresh = await getFreshVerdicts(db, norm, candidates, new Date())
+          const rows: Array<{ phone: string; supplier: string; verdict: "yes" | "no" }> = []
+          for (const s of candidates) {
+            if (fresh.has(s) || (s === "hubnet" && hubnetStopped)) continue
+            const a = await ask(s, norm)
+            if (a === "yes" || a === "no") rows.push({ phone: norm, supplier: s, verdict: a })
+            else if (s === "hubnet") hubnetStopped = true
+          }
+          await saveVerdicts(db, rows, new Date())
+        } catch (err) {
+          console.error("[CUSTOMER-VERIFICATION] strict background phone failed:", errName(err))
+        }
+      }
     }
-    await saveVerdicts(db, rows, new Date())
+    await Promise.all(Array.from({ length: STRICT_BACKGROUND_CONCURRENCY }, worker))
   } catch (err) {
     console.error("[CUSTOMER-VERIFICATION] strict background check failed:", errName(err))
   }
@@ -314,10 +348,13 @@ export async function verifyRecipientsForOrder(
     // Definite verdicts from a recent check (possibly one that finished after an
     // earlier USSD screen gave up waiting) answer instantly; only the rest are checked.
     const cacheOn = settings.enabled && !opts.registry
-    const cached = cacheOn ? await getCachedVerdicts(phones, settings.providers) : new Map<string, boolean>()
-    const toCheck = [...new Set(phones)].filter(p => !cached.has(p))
     const strictDb = opts.strictDb ?? (supabase as unknown as SupabaseClient)
-    const strict = settings.providers.length > 0 && await isStrictVerifyOn(strictDb)
+    // The switch read runs alongside the cache read: no extra sequential round trip.
+    const [cached, strict] = await Promise.all([
+      cacheOn ? getCachedVerdicts(phones, settings.providers) : Promise.resolve(new Map<string, boolean>()),
+      settings.providers.length > 0 ? isStrictVerifyOn(strictDb) : Promise.resolve(false),
+    ])
+    const toCheck = [...new Set(phones)].filter(p => !cached.has(p))
     const answers: Array<{ phone: string; supplier: string; verdict: "yes" | "no" }> = []
     const fresh = await resolveVerdicts(toCheck, {
       onAnswer: strict ? (supplier, phone, verdict) => { answers.push({ phone, supplier, verdict }) } : undefined,
@@ -333,9 +370,9 @@ export async function verifyRecipientsForOrder(
     }
     if (strict) {
       try {
-        await saveVerdicts(strictDb, answers, new Date())
-        const task = () => askRemainingSuppliers([...new Set(phones)], settings.providers, answers, strictDb, opts.ask ?? ((s, p) => askSupplier(s, p, { registry: opts.registry })))
-        await runDeferred(opts.defer, task)
+        // Saving + asking happen out of band; answers that land after the race timeout are captured too.
+        const ask = opts.ask ?? ((sup: string, p: string) => askSupplier(sup, p, { registry: opts.registry }))
+        await runDeferred(opts.defer, () => strictBackground([...new Set(phones)], settings.providers, answers, strictDb, ask))
       } catch (err) {
         console.error("[CUSTOMER-VERIFICATION] strict recording failed:", errName(err))
       }
