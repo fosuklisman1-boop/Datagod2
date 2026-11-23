@@ -369,10 +369,11 @@ describe("admin_route cards", () => {
   it("only /admin links are kept", () => {
     expect(safePageLink("/admin/users?x=1")).toBe("/admin/users?x=1")
     expect(safePageLink("/admin")).toBe("/admin")
-    for (const bad of ["https://evil.com", "//evil.com", "/administrator", "/dashboard", "javascript:alert(1)", "/admin\evil", 5, null, undefined])
+    for (const bad of ["https://evil.com", "//evil.com", "/administrator", "/dashboard", "javascript:alert(1)", "/admin\\evil", 5, null, undefined])
       expect(safePageLink(bad)).toBeNull()
+    // A bad outcome link is dropped; the entry's own page is used instead.
     const v = adminView({}, { status: "unknown", outcome: { code: "no_response", pageLink: "https://evil.com" } })
-    expect(v.pageLink).toBeNull()
+    expect(v.pageLink).toBe("/admin/users")
   })
 
   it("non-admin cards are unchanged", () => {
