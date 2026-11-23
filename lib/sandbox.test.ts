@@ -286,3 +286,16 @@ describe("sandbox read helpers apply the marker", () => {
     h.state.single = null
   })
 })
+
+describe("v1 sandbox is unaffected", () => {
+  it("a v1 placement stores no sandbox_outcome, and a v1-shaped past row reads completed even with a reserved-looking recipient", async () => {
+    h.state.inserts = []
+    h.state.insertError = null
+    h.state.balance = 100
+    const r = await placeSandboxOrder({ ...base, apiKeyId: "v1key", orderFields: { ...base.orderFields, recipient: "0240000404" } })
+    expect(r.success).toBe(true)
+    const ins = h.state.inserts.find((i) => i.table === "sandbox_orders")!.row
+    expect("sandbox_outcome" in (ins.response as object)).toBe(false)
+    expect(deriveSandboxOrderStatus({ resolves_at: PAST, response: ins.response })).toBe("completed")
+  })
+})
