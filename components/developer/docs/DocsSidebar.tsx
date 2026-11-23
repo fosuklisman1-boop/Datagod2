@@ -8,7 +8,14 @@ import { Menu } from "lucide-react"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { cn } from "@/lib/utils"
 import { DOCS_HEADER_PX, activeNavHref, type NavGroup, type NavItem } from "@/lib/api-v2/docs/nav"
+import { CopyForAi } from "./CopyForAi"
 import { useScrollSpy } from "./useScrollSpy"
+
+const FOOTER_LINKS = [
+  { label: "OpenAPI", href: "/developers/openapi.json" },
+  { label: "Markdown", href: "/developers/api.md" },
+  { label: "Postman", href: "/developers/postman/collection" },
+]
 
 /** Files and downloads are plain links; everything else is a docs page. */
 const isFileHref = (href: string) => /\.json$|\/postman\//.test(href)
@@ -69,14 +76,31 @@ function NavTree({
   }
 
   return (
-    <nav aria-label="Developer docs" className="space-y-5">
-      {nav.map((g) => (
-        <div key={g.label}>
-          <p className="px-3 pb-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">{g.label}</p>
-          <ul className="space-y-0.5">{g.items.map(renderItem)}</ul>
-        </div>
-      ))}
-    </nav>
+    <div className="space-y-5">
+      <nav aria-label="Developer docs" className="space-y-5">
+        {nav.map((g) => (
+          <div key={g.label}>
+            <p className="px-3 pb-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">{g.label}</p>
+            <ul className="space-y-0.5">{g.items.map(renderItem)}</ul>
+          </div>
+        ))}
+      </nav>
+      <div className="space-y-2 border-t border-border px-3 pt-4">
+        <CopyForAi />
+        <ul className="space-y-0.5">
+          {FOOTER_LINKS.map((l) => (
+            <li key={l.href}>
+              <a
+                href={l.href}
+                className="flex min-h-9 items-center rounded-lg text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {l.label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
   )
 }
 

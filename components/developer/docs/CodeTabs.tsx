@@ -14,7 +14,7 @@ const LANGS: { id: DocLang; label: string; header: string }[] = [
   { id: "python", label: "Python", header: "Python" },
 ]
 
-async function writeClipboard(text: string): Promise<boolean> {
+export async function writeClipboard(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text)
     return true

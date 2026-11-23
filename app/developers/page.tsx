@@ -2,6 +2,7 @@ import Link from "next/link"
 import type { Metadata } from "next"
 import { KeyRound } from "lucide-react"
 import { DocsPage } from "@/components/developer/docs/DocsPage"
+import { CopyForAi } from "@/components/developer/docs/CopyForAi"
 import { PostmanButtons } from "@/components/developer/docs/PostmanButtons"
 import { QuickStart } from "@/components/developer/docs/QuickStart"
 import { v2DocsRegistry, V2_BASE_URL } from "@/lib/api-v2/docs/registry"
@@ -32,6 +33,7 @@ export default async function DevelopersPage() {
         </div>
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
           <PostmanButtons />
+          <CopyForAi />
           <Link
             href="/dashboard/developer"
             className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl px-2 text-sm font-semibold text-primary underline-offset-4 hover:underline"
