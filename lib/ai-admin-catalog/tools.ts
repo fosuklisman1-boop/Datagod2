@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import type { ZodType } from "zod"
 import { prepareAdminRouteCall } from "@/lib/ai-drafts/prepare-admin-route"
 import type { DraftToolResult } from "@/lib/ai-drafts/types"
+import { MAX_TOOL_RESULT_CHARS } from "@/lib/ai-tool-result-limit"
 import { filterLookupResult } from "./filter"
 import { getEntry, searchCatalog } from "./index"
 import { resolveRequest } from "./resolve"
@@ -14,6 +15,7 @@ import type { CatalogEntry, EntryInput } from "./types"
 
 export const FIND_LIMIT = 8
 const MAX_ERROR = 200
+const RESULT_WRAPPER_ROOM = 400
 const DEFAULT_TIMEOUT_MS = 15_000
 const MAX_TIMEOUT_MS = 60_000
 
@@ -204,8 +206,9 @@ export async function adminLookup(
       headers: { Authorization: `Bearer ${ctx.jwtToken}` },
       signal: AbortSignal.timeout(timeoutMs),
     })
-  } catch {
-    return { error: "The page did not answer in time. Try again." }
+  } catch (err) {
+    const timedOut = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")
+    return { error: timedOut ? "The page did not answer in time. Try again." : "The page could not be reached. Try again." }
   }
 
   let body: unknown = null
@@ -221,7 +224,9 @@ export async function adminLookup(
     return { error: text.slice(0, MAX_ERROR) }
   }
   // The agentic loop wraps this result in the <data> fence like every other tool result.
-  return filterLookupResult(entry, body)
+  // The loop cuts any tool result at MAX_TOOL_RESULT_CHARS, so filter to a budget that leaves room for the
+  // {"data":...,"truncated":...} wrapper: the model gets valid JSON with truncated:true, never a mid-JSON cut.
+  return filterLookupResult(entry, body, MAX_TOOL_RESULT_CHARS - RESULT_WRAPPER_ROOM)
 }
 
 // ── prepare_admin_change ─────────────────────────────────────────────────────

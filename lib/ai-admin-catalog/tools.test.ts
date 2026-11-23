@@ -15,7 +15,7 @@ import {
   type CatalogToolCtx,
 } from "./tools"
 import { aiTools, adminToolNames, executeToolCall } from "@/lib/ai-tools"
-import { runAgenticLoop } from "@/lib/ai-agentic-loop"
+import { MAX_TOOL_RESULT_CHARS, runAgenticLoop } from "@/lib/ai-agentic-loop"
 import { buildAdminPrompt } from "@/lib/ai-prompts"
 import { adminCatalogBlock } from "@/lib/ai-prompts/admin-catalog-block"
 
@@ -127,6 +127,49 @@ describe("admin_lookup", () => {
     expect(await adminLookup({ id: "orders.get", input: { params: { id: UUID } } }, { ...ctx, userId: undefined })).toMatchObject({ refused: true, code: "interactive_only" })
     expect(await adminLookup({ id: "orders.get", input: { params: { id: UUID } } }, { ...ctx, background: true })).toMatchObject({ refused: true, code: "interactive_only" })
     expect(f).not.toHaveBeenCalled()
+  })
+
+  it("a large lookup reaches the model as valid JSON inside the fence, within the loop limit, with truncated:true", async () => {
+    add(entry({ resultKeep: ["rows[].id", "rows[].note"] }))
+    const rows = Array.from({ length: 400 }, (_, i) => ({ id: `row-${i}`, note: "n".repeat(60) }))
+    okFetch({ rows })
+    let seen: { content: string }[] = []
+    const provider = {
+      createMessage: vi
+        .fn()
+        .mockResolvedValueOnce({
+          text: "", stopReason: "tool_use", anthropicContent: [],
+          toolCalls: [{ id: "t1", name: "admin_lookup", input: { id: "orders.get", input: { params: { id: UUID } } } }],
+        })
+        .mockImplementationOnce(async (a: { messages: { content: { content: string }[] }[] }) => {
+          seen = a.messages[a.messages.length - 1].content
+          return { text: "done", stopReason: "end_turn", anthropicContent: [], toolCalls: [] }
+        }),
+    }
+    await runAgenticLoop({
+      provider: provider as never, model: "m", system: { stable: "s", volatile: "v" } as never, context: "admin",
+      messages: [], toolCtx: { userId: ADMIN, jwtToken: "jwt-abc", userRole: "admin", baseUrl: "http://app.test" },
+      adminCatalog: true,
+    })
+    const content = seen[0].content
+    expect(content.startsWith("<data>\n")).toBe(true)
+    expect(content.endsWith("\n</data>")).toBe(true)
+    const inner = content.slice("<data>\n".length, -"\n</data>".length)
+    expect(inner.length).toBeLessThanOrEqual(MAX_TOOL_RESULT_CHARS)
+    expect(inner).not.toContain("…[truncated]")
+    const parsed = JSON.parse(inner)
+    expect(parsed.truncated).toBe(true)
+    expect(parsed.data.rows.length).toBeGreaterThan(0)
+  })
+
+  it("says 'in time' only for a timeout", async () => {
+    add(entry())
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new DOMException("t", "TimeoutError") }))
+    const t = (await adminLookup({ id: "orders.get", input: { params: { id: UUID } } }, ctx)) as { error: string }
+    expect(t.error).toContain("in time")
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("fetch failed") }))
+    const n = (await adminLookup({ id: "orders.get", input: { params: { id: UUID } } }, ctx)) as { error: string }
+    expect(n.error).not.toContain("in time")
   })
 
   it("refuses a change entry without calling the route", async () => {

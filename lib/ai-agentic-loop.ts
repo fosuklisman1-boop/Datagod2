@@ -1,7 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk"
 import type { AIProvider, SystemPrompt } from "@/lib/ai-providers"
+import { MAX_TOOL_RESULT_CHARS } from "@/lib/ai-tool-result-limit"
 import { aiTools, executeToolCall } from "@/lib/ai-tools"
 import type { AIChatContext, StorefrontServiceFlags, ToolContext } from "@/lib/ai-tools"
+
+export { MAX_TOOL_RESULT_CHARS }
 
 export interface AgenticToolCtx {
   userId?: string
@@ -129,7 +132,7 @@ export async function runAgenticLoop({
         // at most 200 non-newline chars, and end-of-string only terminates a SHORT unterminated tag, so a stray
         // "<data-x" can never swallow real data up to the end. A tag with no bounded end is replaced on its own.
         const resultStr = (JSON.stringify(result) ?? "null").replace(/<\s*(\/?)\s*data\b(?:[^>\n]{0,200}>|[^>\n]{0,200}$)?/gi, (_m, slash: string) => (slash ? "[/data]" : "[data]"))
-        const truncated = resultStr.length > 3000 ? resultStr.slice(0, 3000) + "…[truncated]" : resultStr
+        const truncated = resultStr.length > MAX_TOOL_RESULT_CHARS ? resultStr.slice(0, MAX_TOOL_RESULT_CHARS) + "…[truncated]" : resultStr
         toolResults.push({
           type: "tool_result",
           tool_use_id: tc.id,

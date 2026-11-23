@@ -98,10 +98,11 @@ function largestArray(v: unknown): unknown[] | null {
 export function filterLookupResult(
   entry: CatalogEntry,
   body: unknown,
+  maxBytes: number = MAX_LOOKUP_BYTES,
 ): { data: unknown; truncated: boolean } {
   const selected = entry.resultKeep ? keep(body, entry.resultKeep) : body
   const data = hide(selected)
-  if (size(data) <= MAX_LOOKUP_BYTES) return { data, truncated: false }
+  if (size(data) <= maxBytes) return { data, truncated: false }
 
   // Drop trailing array items until it fits (halving first, then one by one).
   for (;;) {
@@ -109,7 +110,7 @@ export function filterLookupResult(
     if (!arr) return { data: null, truncated: true }
     const drop = Math.max(1, Math.floor(arr.length / 2))
     arr.length = arr.length - drop
-    if (size(data) <= MAX_LOOKUP_BYTES) {
+    if (size(data) <= maxBytes) {
       return { data, truncated: true }
     }
   }
