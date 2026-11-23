@@ -1,4 +1,4 @@
-import { isSafeAdminPath, type CatalogEntry, type EntryInput, type ResolvedRequest } from "./types"
+import { isSafeAdminPath, ResolvedRequestSchema, type CatalogEntry, type EntryInput, type ResolvedRequest } from "./types"
 
 export type ResolveResult =
   | { ok: true; req: ResolvedRequest }
@@ -92,4 +92,73 @@ function deepEqual(a: unknown, b: unknown): boolean {
 
 export function sameRequest(a: ResolvedRequest, b: ResolvedRequest): boolean {
   return a.method === b.method && a.path === b.path && a.query === b.query && deepEqual(a.body, b.body)
+}
+
+/** String values come back from a query string: try them as-is, then with numbers/booleans restored. */
+function queryObjects(query: string): Record<string, unknown>[] | null {
+  const raw: Record<string, string> = {}
+  for (const [k, v] of new URLSearchParams(query)) {
+    if (Object.hasOwn(raw, k)) return null // a duplicated key is never produced by resolveRequest
+    raw[k] = v
+  }
+  const typed: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(raw)) {
+    if (v === "true") typed[k] = true
+    else if (v === "false") typed[k] = false
+    else if (v !== "" && /^-?\d+(\.\d+)?$/.test(v)) typed[k] = Number(v)
+    else typed[k] = v
+  }
+  return [raw, typed]
+}
+
+/**
+ * Re-check of a STORED request against the CURRENT catalog entry (the original input is not kept). True only when the
+ * request is a shape resolveRequest could still produce for this entry: same method, safe path, the entry's path
+ * template with params matching their declared pattern, query and body valid for the entry's schemas, and no secret
+ * field stored in the body (secrets are merged in at send time only).
+ */
+export function matchesEntry(entry: CatalogEntry, req: ResolvedRequest): boolean {
+  const shape = ResolvedRequestSchema.safeParse(req)
+  if (!shape.success) return false
+  const r = shape.data
+  if (r.method !== entry.method) return false
+
+  const tpl = entry.path.split("/")
+  const got = r.path.split("/")
+  if (tpl.length !== got.length) return false
+  const declared = entry.params ?? {}
+  for (let i = 0; i < tpl.length; i++) {
+    const seg = tpl[i]
+    if (seg.startsWith(":") && Object.hasOwn(declared, seg.slice(1))) {
+      let value: string
+      try {
+        value = decodeURIComponent(got[i])
+      } catch {
+        return false
+      }
+      const kind = declared[seg.slice(1)]
+      if (!(kind === "uuid" ? UUID_RE.test(value) : SLUG_RE.test(value))) return false
+      if (encodeURIComponent(value) !== got[i]) return false
+    } else if (seg !== got[i]) {
+      return false
+    }
+  }
+
+  if (entry.query) {
+    const candidates = queryObjects(r.query)
+    if (!candidates || !candidates.some((c) => entry.query!.safeParse(c).success)) return false
+  } else if (r.query !== "") {
+    return false
+  }
+
+  if (entry.body) {
+    if (r.body === null) return false
+    for (const s of entry.secretFields ?? []) {
+      if (Object.prototype.hasOwnProperty.call(r.body, s.name)) return false
+    }
+    if (!entry.body.safeParse(r.body).success) return false
+  } else if (r.body !== null) {
+    return false
+  }
+  return true
 }

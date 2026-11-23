@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { after } from "next/server"
 import { flagCardFailure } from "@/lib/ai-console/transcripts"
+import { getEntry } from "@/lib/ai-admin-catalog/index"
 import { claimDraft, expireIfDue, finishDraft, getOwnDraft, recoverStaleExecuting } from "./repo"
 import type { AiDraft, DraftStatus } from "./types"
 import {
@@ -57,7 +58,48 @@ function resultState(d: AiDraft, status: ExecStatus, outcome: Record<string, unk
 
 const adminRequired = (d: AiDraft): CardState => ({ status: "failed", outcome: { code: "admin_required" }, display: d.display })
 
-export async function confirmDraft(db: SupabaseClient, id: string, caller: ConfirmCaller): Promise<CardState | null> {
+/** A request the route answers with 400 and leaves the draft pending (secure-box input that cannot be used). */
+export interface ConfirmRefusal {
+  refused: true
+  code: "missing_secret" | "bad_secret"
+  message: string
+}
+
+/**
+ * Secure-box check (spec 5.8), run BEFORE the claim so a refused confirm leaves the card pending. Messages never
+ * contain a typed value. An entry that no longer exists is not judged here: revalidation fails it as entry_changed.
+ */
+function checkSecrets(draft: AiDraft, secrets: Record<string, unknown> | undefined): ConfirmRefusal | null {
+  const entryId = (draft.params as Record<string, any>)?.entryId
+  const entry = typeof entryId === "string" ? getEntry(entryId) : undefined
+  if (!entry) return null
+  const declared = entry.secretFields ?? []
+  const given = secrets && typeof secrets === "object" && !Array.isArray(secrets) ? secrets : {}
+  for (const name of Object.keys(given)) {
+    if (!declared.some((f) => f.name === name)) return { refused: true, code: "bad_secret", message: "Unexpected secret field." }
+  }
+  for (const f of declared) {
+    const v = Object.hasOwn(given, f.name) ? given[f.name] : undefined
+    if (typeof v !== "string" || v.length < f.min || v.length > f.max) {
+      return { refused: true, code: "missing_secret", message: `Enter ${f.label} (${f.min}-${f.max} characters) in the box on the card.` }
+    }
+  }
+  return null
+}
+
+export async function confirmDraft(db: SupabaseClient, id: string, caller: ConfirmCaller): Promise<CardState | null>
+export async function confirmDraft(
+  db: SupabaseClient,
+  id: string,
+  caller: ConfirmCaller,
+  secrets: Record<string, string> | undefined,
+): Promise<CardState | ConfirmRefusal | null>
+export async function confirmDraft(
+  db: SupabaseClient,
+  id: string,
+  caller: ConfirmCaller,
+  secrets?: Record<string, string>,
+): Promise<CardState | ConfirmRefusal | null> {
   // 2. Own draft only (anything else reads as not found).
   const loaded = await getOwnDraft(db, id, caller.userId)
   if (!loaded) return null
@@ -72,6 +114,13 @@ export async function confirmDraft(db: SupabaseClient, id: string, caller: Confi
 
   // Admin actions need an admin caller. Refused before the claim, so the draft stays pending.
   if (ADMIN_ACTIONS.has(draft.action) && !caller.isAdmin) return adminRequired(draft)
+
+  // Secrets (admin_route_call only; every other action ignores them) are validated before the claim.
+  const isRoute = draft.action === "admin_route_call"
+  if (isRoute) {
+    const refusal = checkSecrets(draft, secrets)
+    if (refusal) return refusal
+  }
 
   // 5. Atomic claim. Zero rows: someone else claimed, cancelled or expired it. Report what it is now.
   const claimed = await claimDraft(db, id, caller.userId)
@@ -104,6 +153,8 @@ export async function confirmDraft(db: SupabaseClient, id: string, caller: Confi
       fetchImpl: caller.fetchImpl,
       timeoutMs: caller.timeoutMs,
       skipped: typeof rev.extra?.skipped === "number" ? rev.extra.skipped : 0,
+      // Held only for this call; executeDraft merges them into the one outgoing body.
+      ...(isRoute && secrets ? { secrets } : {}),
     })
   } catch {
     result = { status: "unknown", outcome: { code: "no_response", message: "We couldn't confirm the result." } }
@@ -289,6 +340,12 @@ async function recheckResult(db: SupabaseClient, draft: AiDraft): Promise<ExecRe
       }
     }
 
+    case "admin_route_call": {
+      // No generic recheck exists: the route's own page is the truth. Stay unknown, send nothing.
+      const o = (draft.outcome ?? {}) as Record<string, unknown>
+      return { status: "unknown", outcome: { code: "check_manually", ...(typeof o.pageLink === "string" ? { pageLink: o.pageLink } : {}) } }
+    }
+
     default:
       return { status: "unknown", outcome: { code: "check_manually" } }
   }
@@ -310,7 +367,8 @@ export async function recheckDraft(db: SupabaseClient, id: string, caller: Confi
   }
 
   // Still-checking is not written: rewriting would restart the settle clock (executed_at) and lose claimed_at.
-  if (result.status === "unknown" && result.outcome.code === "still_checking") {
+  // check_manually (admin_route_call) is the same: nothing new was learned, so nothing is rewritten.
+  if (result.status === "unknown" && (result.outcome.code === "still_checking" || result.outcome.code === "check_manually")) {
     return { status: "unknown", outcome: result.outcome, display: draft.display }
   }
 

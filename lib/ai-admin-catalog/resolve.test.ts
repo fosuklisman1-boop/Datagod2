@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { z } from "zod"
-import { resolveRequest, sameRequest } from "./resolve"
+import { matchesEntry, resolveRequest, sameRequest } from "./resolve"
 import { ResolvedRequestSchema, type CatalogEntry } from "./types"
 
 const UUID = "123e4567-e89b-12d3-a456-426614174000"
@@ -155,5 +155,65 @@ describe("sameRequest", () => {
     expect(sameRequest(base, { ...base, query: "x=2" })).toBe(false)
     expect(sameRequest(base, { ...base, body: { a: 1 } })).toBe(false)
     expect(sameRequest(base, { ...base, body: null })).toBe(false)
+  })
+})
+
+describe("matchesEntry", () => {
+  const good = () => {
+    const r = resolveRequest(entry(), { params: { id: UUID }, query: { page: 2, q: "a b" }, body: { note: "hi" } })
+    if (!r.ok) throw new Error("setup")
+    return r.req
+  }
+
+  it("accepts a request resolved from the same entry", () => {
+    expect(matchesEntry(entry(), good())).toBe(true)
+  })
+
+  it("rejects a different method", () => {
+    expect(matchesEntry(entry(), { ...good(), method: "DELETE" })).toBe(false)
+    expect(matchesEntry(entry({ method: "PATCH" }), good())).toBe(false)
+  })
+
+  it("rejects an unsafe or wrong-shaped path", () => {
+    expect(matchesEntry(entry(), { ...good(), path: "/api/other/x" })).toBe(false)
+    expect(matchesEntry(entry(), { ...good(), path: `/api/admin/users/${UUID}/extra` })).toBe(false)
+    expect(matchesEntry(entry(), { ...good(), path: `/api/admin/accounts/${UUID}` })).toBe(false)
+    expect(matchesEntry(entry(), { ...good(), path: "/api/admin/users/../x" })).toBe(false)
+  })
+
+  it("rejects a param that fails the declared pattern, and accepts an encoded slug", () => {
+    expect(matchesEntry(entry(), { ...good(), path: "/api/admin/users/not-a-uuid" })).toBe(false)
+    expect(matchesEntry(entry(), { ...good(), path: "/api/admin/users/%2e%2e" })).toBe(false)
+    const e = entry({ path: "/api/admin/shops/:slug", params: { slug: "slug" } })
+    expect(matchesEntry(e, { ...good(), path: "/api/admin/shops/my-shop_1" })).toBe(true)
+    expect(matchesEntry(e, { ...good(), path: "/api/admin/shops/" + "a".repeat(65) })).toBe(false)
+  })
+
+  it("parses query back through the entry schema (numbers included) and rejects unknown keys", () => {
+    expect(matchesEntry(entry(), { ...good(), query: "page=3" })).toBe(true)
+    expect(matchesEntry(entry(), { ...good(), query: "page=abc" })).toBe(false)
+    expect(matchesEntry(entry(), { ...good(), query: "evil=1" })).toBe(false)
+    expect(matchesEntry(entry(), { ...good(), query: "q=a&q=b" })).toBe(false)
+  })
+
+  it("requires an empty query when the entry has none, and no body when the entry has none", () => {
+    expect(matchesEntry(entry({ query: undefined }), { ...good(), query: "" })).toBe(true)
+    expect(matchesEntry(entry({ query: undefined }), { ...good(), query: "a=1" })).toBe(false)
+    expect(matchesEntry(entry({ body: undefined }), { ...good(), body: null })).toBe(true)
+    expect(matchesEntry(entry({ body: undefined }), good())).toBe(false)
+  })
+
+  it("parses the body against the entry schema and rejects secret fields stored in it", () => {
+    expect(matchesEntry(entry(), { ...good(), body: { note: 5 } })).toBe(false)
+    expect(matchesEntry(entry(), { ...good(), body: { note: "a", extra: 1 } })).toBe(false)
+    expect(matchesEntry(entry(), { ...good(), body: null })).toBe(false)
+    const withSecret = entry({ secretFields: [{ name: "pw", label: "Password", min: 8, max: 64 }] })
+    expect(matchesEntry(withSecret, good())).toBe(true)
+    expect(matchesEntry(withSecret, { ...good(), body: { note: "a", pw: "hunter2hunter2" } })).toBe(false)
+  })
+
+  it("rejects a request that fails the resolved-request schema", () => {
+    expect(matchesEntry(entry(), { ...good(), extra: 1 } as never)).toBe(false)
+    expect(matchesEntry(entry(), null as never)).toBe(false)
   })
 })
