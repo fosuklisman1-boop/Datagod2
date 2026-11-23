@@ -447,6 +447,7 @@ export async function POST(req: NextRequest) {
         lastName: userContext.lastName,
         today,
         cardNonce,
+        adminCatalog: assistantSettings.adminCatalog,
       })
       break
     default:
@@ -528,6 +529,7 @@ export async function POST(req: NextRequest) {
           storefrontServices: context === "storefront"
             ? { sellsData, sellsAirtime, sellsResultsChecker: sellsRC }
             : undefined,
+          adminCatalog: context === "admin" && assistantSettings.adminCatalog,
           maxTokens: context === "admin" ? 2048 : 1500,
           maxIterations: maxIterationsFor(context, assistantSettings),
           onEvent: (e: Record<string, unknown>) => {

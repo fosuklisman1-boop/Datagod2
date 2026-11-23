@@ -29,6 +29,8 @@ export interface RunAgenticLoopParams {
   toolCtx: AgenticToolCtx
   /** context === "storefront" only: which services this shop/domain actually sells, gating the tool list to match. */
   storefrontServices?: StorefrontServiceFlags
+  /** Admin context only: the admin catalog switch (default off = today's tool list). */
+  adminCatalog?: boolean
   maxIterations?: number
   maxTokens?: number
   /** Called for each SSE-style event (text, tool_call, action_buttons, etc.) — omit for silent/cron runs */
@@ -56,6 +58,7 @@ export async function runAgenticLoop({
   messages,
   toolCtx,
   storefrontServices,
+  adminCatalog,
   maxIterations = 10,
   maxTokens = 1500,
   onEvent,
@@ -63,7 +66,7 @@ export async function runAgenticLoop({
   executeTool = executeToolCall,
 }: RunAgenticLoopParams): Promise<AgenticLoopResult> {
   const emit = onEvent ?? (() => {})
-  const allTools = aiTools(context, storefrontServices)
+  const allTools = aiTools(context, storefrontServices, adminCatalog)
   const tools = toolFilter ? toolFilter(allTools) : allTools
   const allowedNames = new Set(tools.map((t) => t.name))
   const currentMessages: Anthropic.MessageParam[] = [...messages]
@@ -102,7 +105,7 @@ export async function runAgenticLoop({
         // A filtered run never executes a tool it was not offered (a model can name one anyway).
         const result = toolFilter && !allowedNames.has(tc.name)
           ? { error: "This tool is not available in this run." }
-          : await executeTool(tc.name, tc.input, { ...toolCtx, context, storefrontServices })
+          : await executeTool(tc.name, tc.input, { ...toolCtx, context, storefrontServices, ...(adminCatalog ? { adminCatalog: true } : {}) })
 
         if (tc.name === "prepare_checkout") {
           emit({ type: "checkout_prefill", data: result })

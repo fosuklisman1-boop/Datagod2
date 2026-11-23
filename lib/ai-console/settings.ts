@@ -19,6 +19,8 @@ export interface AssistantSettings {
   audiences: Audiences
   /** null = today's defaults (admin 20, others 10). */
   maxToolSteps: number | null
+  /** Admin assistant: the route catalog tools replace the acting admin tools. Default off. */
+  adminCatalog: boolean
 }
 
 const nameSchema = z.string().refine((v) => normaliseAssistantName(v) === v.trim(), {
@@ -36,6 +38,7 @@ export const assistantSettingsInputSchema = z.object({
     publicVisitors: z.boolean(),
   }).strict().optional(),
   max_tool_steps: z.number().int().min(MIN_TOOL_STEPS).max(MAX_TOOL_STEPS).nullable().optional(),
+  admin_catalog_enabled: z.boolean().optional(),
 }).strict()
 
 export type AssistantSettingsInput = z.infer<typeof assistantSettingsInputSchema>
@@ -45,6 +48,7 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   tone: "default",
   audiences: { admins: true, signedIn: true, shopVisitors: true, publicVisitors: true },
   maxToolSteps: null,
+  adminCatalog: false,
 }
 
 /** Lenient reader: anything missing or invalid in the stored config falls back to its default. */
@@ -58,6 +62,7 @@ export function resolveAssistantSettings(cfg: unknown): AssistantSettings {
     tone: (TONES as readonly string[]).includes(c.tone as string) ? (c.tone as AssistantTone) : "default",
     audiences: { admins: flag("admins"), signedIn: flag("signedIn"), shopVisitors: flag("shopVisitors"), publicVisitors: flag("publicVisitors") },
     maxToolSteps: typeof steps === "number" && Number.isInteger(steps) && steps >= MIN_TOOL_STEPS && steps <= MAX_TOOL_STEPS ? steps : null,
+    adminCatalog: c.admin_catalog_enabled === true,
   }
 }
 

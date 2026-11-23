@@ -22,6 +22,8 @@ export interface ToolEntry {
   acts: ActsKind
   /** Cron background runs: 'deny' drops the tool from the background tool list (nobody is there to tap a confirm card). */
   background?: "allow" | "deny"
+  /** Offered (and callable) only in the admin context while the admin catalog switch is on. */
+  catalogOnly?: boolean
   /** Storefront only: offered when ANY of these services is sold by the shop/domain (default: always offered). */
   storefrontNeeds?: StorefrontService[]
 }
