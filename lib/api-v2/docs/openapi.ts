@@ -31,7 +31,8 @@ export function schemaForParamType(type: string): { schema: Record<string, unkno
 }
 
 export function inferSchema(example: unknown): Record<string, unknown> {
-  if (example === null || example === undefined) return { type: "null" }
+  // null carries no type information (the real field may be an object), so leave it unconstrained.
+  if (example === null || example === undefined) return {}
   if (Array.isArray(example)) {
     return example.length > 0 ? { type: "array", items: inferSchema(example[0]) } : { type: "array", items: {} }
   }
@@ -41,13 +42,12 @@ export function inferSchema(example: unknown): Record<string, unknown> {
     case "boolean":
       return { type: "boolean" }
     case "number":
-      return { type: Number.isInteger(example) ? "integer" : "number" }
+      return { type: "number" }
     case "object": {
       const entries = Object.entries(example as Json).filter(([, v]) => v !== undefined)
       return {
         type: "object",
         properties: Object.fromEntries(entries.map(([k, v]) => [k, inferSchema(v)])),
-        required: entries.map(([k]) => k),
       }
     }
     default:
@@ -123,6 +123,9 @@ function buildOperation(ep: V2Endpoint, section: V2DocSection): Json {
 
   const responses: Json = {}
   const successSchema = inferSchema(ep.successExample)
+  // Only the response envelope is guaranteed; inferred fields stay optional.
+  const envelopeRequired = ["success", "data"].filter((k) => k in (ep.successExample as Json))
+  if (envelopeRequired.length > 0) successSchema.required = envelopeRequired
   for (const status of successStatuses(ep)) {
     responses[status] = {
       description: status === "201" ? "Created." : "Success.",

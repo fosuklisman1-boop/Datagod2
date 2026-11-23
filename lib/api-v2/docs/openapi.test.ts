@@ -105,9 +105,9 @@ describe("buildOpenApi", () => {
 
   it("infers schemas from examples", () => {
     const s = inferSchema({ a: 1, b: ["x"], c: null, d: 1.5, e: true }) as Json
-    expect(s.properties.a.type).toBe("integer")
+    expect(s.properties.a.type).toBe("number")
     expect(s.properties.b).toMatchObject({ type: "array", items: { type: "string" } })
-    expect(s.properties.c.type).toBe("null")
+    expect(s.properties.c).toEqual({})
     expect(s.properties.d.type).toBe("number")
     expect(s.properties.e.type).toBe("boolean")
   })
@@ -163,5 +163,25 @@ describe("buildOpenApi", () => {
         expect((op as Json).responses).toBeTruthy()
       }
     }
+  })
+})
+
+describe("inferSchema accuracy", () => {
+  it("leaves a null example unconstrained so a real object is accepted", () => {
+    const s = inferSchema({ order: null, claim: null }) as Json
+    expect(s.properties.claim).toEqual({})
+    const lookup = doc.paths["/airtime/orders/{reference}"].get.responses["200"].content["application/json"].schema
+    expect(lookup.properties.data.properties.claim).toEqual({})
+  })
+  it("types every number as number, never integer", () => {
+    expect((inferSchema({ cashback: 0 }) as Json).properties.cashback.type).toBe("number")
+    const lookup = doc.paths["/airtime/orders/{reference}"].get.responses["200"].content["application/json"].schema
+    expect(JSON.stringify(lookup)).not.toContain('"integer"')
+  })
+  it("requires only the envelope keys, not inferred fields", () => {
+    expect((inferSchema({ a: 1 }) as Json).required).toBeUndefined()
+    const lookup = doc.paths["/orders/{reference}"].get.responses["200"].content["application/json"].schema
+    expect(lookup.required).toEqual(["success", "data"])
+    expect(lookup.properties.data.required).toBeUndefined()
   })
 })
