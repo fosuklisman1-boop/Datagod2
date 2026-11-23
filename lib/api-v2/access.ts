@@ -35,9 +35,9 @@ export const MSG_PENDING = "This API key is awaiting approval"
 export const MSG_REVOKED = "This API key has been revoked"
 export const MSG_ROLE_NOT_ALLOWED = "Your account is not permitted to use this API"
 export const MSG_RATE_LIMITED = "Rate limit exceeded"
-export const MSG_PAUSED = "API access is paused for this account"
+export const MSG_PAUSED = "API access paused by Datagod"
 /** Default body for a paused service when the admin gave no message; also the fixed marker logged for service_paused. */
-export const MSG_SERVICE_PAUSED_DEFAULT = "This service is temporarily paused"
+export const MSG_SERVICE_PAUSED_DEFAULT = "This service is temporarily unavailable"
 export const msgWrongKeyType = (required: string) => `This endpoint requires a ${required} key`
 
 /**
