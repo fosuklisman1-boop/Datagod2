@@ -126,6 +126,39 @@ describe("strictSend", () => {
     }
   })
 
+  it("pinned supplier with no check at all: says it can't check numbers (not 'right now')", async () => {
+    for (const t of [
+      mk({ candidates: ["sykes"], pinned: true }),
+      mk({ candidates: ["xpress"], pinned: true, disabled: new Set(["xpress"]) }),
+    ]) {
+      const r = await strictSend(order, t.deps)
+      expect(r.error_type).toBe("SUPPLIER_CHECK_UNAVAILABLE")
+      expect(r.message).toMatch(/ can't check numbers, so it can't receive MTN orders in strict mode$/)
+      expect(r.message).not.toContain("right now")
+    }
+  })
+
+  it("pinned no_answer keeps the 'couldn't check this number right now' message", async () => {
+    const t = mk({ candidates: ["xpress"], pinned: true, answers: { xpress: "no_answer" } })
+    const r = await strictSend(order, t.deps)
+    expect(r.message).toMatch(/ couldn't check this number right now$/)
+  })
+
+  it("a throwing send logs the error class only (no message, no phone)", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const u = mk({ answers: { codecraft: "yes" } })
+      u.send.mockRejectedValueOnce(new TypeError("fetch failed for 0551234567"))
+      await strictSend(order, u.deps)
+      const logged = spy.mock.calls.map((c) => c.map(String).join(" ")).join("\n")
+      expect(logged).toContain("TypeError")
+      expect(logged).not.toContain("0551234567")
+      expect(logged).not.toContain("fetch failed")
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
   it("pinned approved send fails: that failure is returned, nobody else tried", async () => {
     const t = mk({ candidates: ["xpress"], pinned: true, answers: { xpress: "yes" }, sends: { xpress: fail("down") } })
     const r = await strictSend(order, t.deps)

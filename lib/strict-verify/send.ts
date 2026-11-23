@@ -48,14 +48,18 @@ export async function strictSend(order: MTNOrderRequest, deps: StrictSendDeps): 
   const phone = order.recipient_phone
   const traceId = order.traceId
 
-  const refuse = (supplier: string, kind: "SUPPLIER_NOT_APPROVED" | "SUPPLIER_CHECK_UNAVAILABLE"): MTNOrderResponse => ({
+  // "no_check": the supplier has no usable check at all (none, unconfigured or switched off);
+  // "unavailable": it has one but gave no answer this time.
+  const refuse = (supplier: string, kind: "not_approved" | "unavailable" | "no_check"): MTNOrderResponse => ({
     success: false,
     message:
-      kind === "SUPPLIER_NOT_APPROVED"
+      kind === "not_approved"
         ? `${label(supplier)} hasn't approved this number`
-        : `${label(supplier)} couldn't check this number right now`,
+        : kind === "no_check"
+          ? `${label(supplier)} can't check numbers, so it can't receive MTN orders in strict mode`
+          : `${label(supplier)} couldn't check this number right now`,
     traceId,
-    error_type: kind,
+    error_type: kind === "not_approved" ? "SUPPLIER_NOT_APPROVED" : "SUPPLIER_CHECK_UNAVAILABLE",
   })
 
   const checkable = deps.candidates.filter((s) => canCheck(s, deps.disabled))
@@ -77,7 +81,7 @@ export async function strictSend(order: MTNOrderRequest, deps: StrictSendDeps): 
     let answer: Answer
     if (!canCheck(supplier, deps.disabled)) {
       // Strict mode: a supplier without a working check never receives the order.
-      if (deps.pinned) return refuse(supplier, "SUPPLIER_CHECK_UNAVAILABLE")
+      if (deps.pinned) return refuse(supplier, "no_check")
       continue
     } else if (saved.has(supplier)) {
       answer = saved.get(supplier)!
@@ -99,11 +103,11 @@ export async function strictSend(order: MTNOrderRequest, deps: StrictSendDeps): 
     }
 
     if (answer === "no") {
-      if (deps.pinned) return refuse(supplier, "SUPPLIER_NOT_APPROVED")
+      if (deps.pinned) return refuse(supplier, "not_approved")
       continue
     }
     if (answer === "no_answer") {
-      if (deps.pinned) return refuse(supplier, "SUPPLIER_CHECK_UNAVAILABLE")
+      if (deps.pinned) return refuse(supplier, "unavailable")
       unanswered = true
       continue
     }
@@ -111,9 +115,12 @@ export async function strictSend(order: MTNOrderRequest, deps: StrictSendDeps): 
     let result: MTNOrderResponse
     try {
       result = { ...(await deps.send(supplier, order)), provider: supplier }
-    } catch {
+    } catch (err) {
       // A throw (timeout, abort, network) can come after the supplier already
       // created the order. Never try anyone else: that is the double-delivery path.
+      // Log the error class only: messages can carry the phone number.
+      const errClass = err instanceof Error ? err.name || "Error" : typeof err
+      console.error(`[STRICT-VERIFY] send to ${supplier} threw ${errClass}; outcome unknown, stopping`)
       return {
         success: false,
         message: `${label(supplier)} did not confirm the order — outcome unknown`,
