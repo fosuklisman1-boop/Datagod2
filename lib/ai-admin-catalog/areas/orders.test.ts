@@ -268,6 +268,39 @@ describe("orders change cards", () => {
     expect(text).toMatch(/pending/)
   })
 
+  it("says in plain words what completing a payment attempt does", async () => {
+    const c = await byKey("PATCH /api/admin/payment-attempts").card!(CARD_INPUTS["PATCH /api/admin/payment-attempts"], { db: fakeDb(tables), adminId: ADMIN })
+    const text = JSON.stringify(c).toLowerCase()
+    expect(text).toContain("credits the wallet")
+    expect(text).toContain("profit")
+    expect(text).toContain("supplier")
+    expect(byKey("PATCH /api/admin/payment-attempts").summary.toLowerCase()).toContain("supplier")
+  })
+
+  it("shows the real order type on a single re-verify, and flags a missing one", async () => {
+    const e = byKey("POST /api/admin/payment-reverify")
+    const air = await e.card!({ body: { orderId: U1, orderType: "airtime" } }, { db: fakeDb(tables), adminId: ADMIN })
+    expect(JSON.stringify(air)).toContain("airtime")
+    expect(JSON.stringify(air)).toContain("AT-1")
+    const none = await e.card!({ body: { orderId: U1 } }, { db: fakeDb(tables), adminId: ADMIN })
+    expect(JSON.stringify(none)).toMatch(/No order type given/)
+  })
+
+  it("accepts onlyPending in the bulk status filters", () => {
+    const e = byKey("POST /api/admin/orders/bulk-update-status")
+    expect(e.body!.safeParse({ status: "failed", filters: { date: "2026-11-01", onlyPending: true } }).success).toBe(true)
+  })
+
+  it("sync card counts only the networks the handler checks", async () => {
+    const db = fakeDb({
+      orders: [{ id: "1", status: "processing", network: "MTN" }, { id: "2", status: "processing", network: "Telecel" }],
+      shop_orders: [{ id: "3", order_status: "processing", network: "AT - iShare" }, { id: "4", order_status: "processing", network: "MTN" }],
+      api_orders: [{ id: "5", status: "processing", network: "MTN" }],
+    })
+    const c = await byKey("POST /api/admin/sync-orders").card!({}, { db, adminId: ADMIN })
+    expect(c.lines.find((l) => l.label === "Orders to check")?.value).toBe("2")
+  })
+
   it("masks the registrant's phone on an AFA card", async () => {
     const e = byKey("POST /api/admin/afa-update-status")
     const c = await e.card!(CARD_INPUTS["POST /api/admin/afa-update-status"], { db: fakeDb(tables), adminId: ADMIN })

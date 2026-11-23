@@ -146,7 +146,10 @@ async function paymentAttemptCard(i: EntryInput, ctx: CardCtx): Promise<Card> {
   if (row && row.amount != null) lines.push({ label: "Amount", value: ghs(row.amount) })
   lines.push({ label: "Status", value: row ? `${row.status} -> ${status}` : `-> ${status}` })
   if (status === "completed") {
-    lines.push({ label: "Money", value: "Credits the wallet or releases the shop order if that has not happened yet" })
+    lines.push({
+      label: "Money",
+      value: "For a wallet top-up, credits the wallet. For a shop order, marks it paid, credits the shop's profit and sends the order to the supplier for delivery. Only if not already done.",
+    })
   }
   return { summary: `Mark a payment attempt as ${status}`, lines }
 }
@@ -168,8 +171,8 @@ async function reverifyCard(i: EntryInput, ctx: CardCtx): Promise<Card> {
     return { summary: "Re-check pending payments with the payment provider", lines }
   }
   const orderId = typeof b.orderId === "string" ? b.orderId : ""
-  const orderType = b.orderType === "airtime" ? "airtime" : "data"
-  const row = orderId
+  const orderType = b.orderType === "airtime" ? "airtime" : b.orderType === "data" ? "data" : ""
+  const row = orderId && orderType
     ? await readRow(() =>
         orderType === "airtime"
           ? ctx.db.from("airtime_orders").select("id, reference_code, total_paid, payment_status").eq("id", orderId).maybeSingle()
@@ -179,7 +182,7 @@ async function reverifyCard(i: EntryInput, ctx: CardCtx): Promise<Card> {
   const amount = row ? (orderType === "airtime" ? row.total_paid : row.total_price) : null
   const lines: CardLine[] = [
     { label: "Order", value: row ? String(row.reference_code) : orderId ? short(orderId) : "No order id given" },
-    { label: "Type", value: orderType },
+    { label: "Type", value: orderType || "No order type given, the request will be refused" },
   ]
   if (amount != null) lines.push({ label: "Amount", value: ghs(amount) })
   if (row) lines.push({ label: "Payment status now", value: String(row.payment_status) })
@@ -227,16 +230,27 @@ async function xpressCronCard(): Promise<Card> {
 }
 
 async function syncOrdersCard(_i: EntryInput, ctx: CardCtx): Promise<Card> {
-  const [a, b, c] = await Promise.all([
-    readCount(() => ctx.db.from("orders").select("id", { count: "exact", head: true }).eq("status", "processing")),
-    readCount(() => ctx.db.from("shop_orders").select("id", { count: "exact", head: true }).eq("order_status", "processing")),
-    readCount(() => ctx.db.from("api_orders").select("id", { count: "exact", head: true }).eq("status", "processing")),
-  ])
+  // Same network test as the handler: only AT-iShare, Telecel and BigTime orders are checked, MTN is skipped.
+  const CODECRAFT = ["at-ishare", "at - ishare", "telecel", "at-bigtime", "at - bigtime", "at - big time"]
+  const checked = (rows: Obj[] | null): number | null =>
+    rows == null
+      ? null
+      : rows.filter((r) => {
+          const n = String(r.network ?? "").toLowerCase().trim()
+          return CODECRAFT.some((k) => n.includes(k.replace("-", " ")) || n.includes(k))
+        }).length
+  const [a, b, c] = (
+    await Promise.all([
+      readRows(() => ctx.db.from("orders").select("network").eq("status", "processing")),
+      readRows(() => ctx.db.from("shop_orders").select("network").eq("order_status", "processing")),
+      readRows(() => ctx.db.from("api_orders").select("network").eq("status", "processing")),
+    ])
+  ).map(checked)
   const known = [a, b, c].every((n) => n != null)
   return {
     summary: "Check processing AT-iShare, Telecel and BigTime orders with their supplier",
     lines: [
-      { label: "Processing orders", value: known ? String((a as number) + (b as number) + (c as number)) : "Count unavailable" },
+      { label: "Orders to check", value: known ? String((a as number) + (b as number) + (c as number)) : "Count unavailable" },
       { label: "What it does", value: "Delivered orders are marked completed and failed ones are marked failed. MTN orders are skipped." },
     ],
   }
@@ -597,7 +611,7 @@ export const ORDERS_ENTRIES: CatalogEntry[] = [
     id: "payment_attempts.mark",
     area: "orders",
     ...where("/admin/payment-attempts"),
-    summary: "Manually set a payment attempt to completed, failed, pending or abandoned. Completed credits the wallet or releases the shop order.",
+    summary: "Manually set a payment attempt to completed, failed, pending or abandoned. Completed credits the wallet, or for a shop order marks it paid, credits shop profit and sends it to the supplier.",
     method: "PATCH",
     path: "/api/admin/payment-attempts",
     body: z
@@ -689,6 +703,7 @@ export const ORDERS_ENTRIES: CatalogEntry[] = [
             network: z.enum(["MTN", "AirtelTigo", "Telecel", "all"]).optional(),
             startTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
             endTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+            onlyPending: z.boolean().optional(),
           })
           .strict()
           .optional(),
