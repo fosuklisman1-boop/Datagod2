@@ -17,6 +17,7 @@ vi.mock("@/lib/strict-verify/verdicts", () => ({
 }))
 
 import { verifyRecipientsForOrder } from "./customer-verification"
+import { saveVerdicts } from "@/lib/strict-verify/verdicts"
 import type { WhitelistEntry } from "./provider-whitelist"
 
 const PHONE = "0551111111"
@@ -67,11 +68,11 @@ describe("verifyRecipientsForOrder strict recording", () => {
     const r = await p
     expect(r.blocked).toEqual([])
     expect(calls).toEqual(["a"])
-    expect(state.saved).toEqual([])
+    // The main-check yes is saved before returning; the second supplier is only asked later.
+    expect(state.saved).toEqual([{ phone: PHONE, supplier: "a", verdict: "yes" }])
     expect(ask).not.toHaveBeenCalled()
     expect(deferred).toHaveLength(1)
     await deferred[0]()
-    expect(state.saved[0]).toEqual({ phone: PHONE, supplier: "a", verdict: "yes" })
     expect(ask).toHaveBeenCalledTimes(1)
     expect(ask.mock.calls[0].slice(0, 2)).toEqual(["b", PHONE])
     expect(state.saved).toContainEqual({ phone: PHONE, supplier: "b", verdict: "yes" })
@@ -86,11 +87,14 @@ describe("verifyRecipientsForOrder strict recording", () => {
     const { p, deferred, ask } = run([entry("a", false), entry("b", false)])
     const r = await p
     expect(r.blocked).toEqual([PHONE])
-    await deferred[0]()
-    expect(state.saved).toEqual([
+    const noNo = [
       { phone: PHONE, supplier: "a", verdict: "no" },
       { phone: PHONE, supplier: "b", verdict: "no" },
-    ])
+    ]
+    expect(state.saved).toEqual(noNo) // saved before returning
+    await deferred[0]()
+    // The deferred task upserts the same rows again (harmless).
+    expect(state.saved).toEqual([...noNo, ...noNo])
     await deferred[0]?.()
     expect(ask).not.toHaveBeenCalled()
   })
@@ -109,8 +113,9 @@ describe("verifyRecipientsForOrder strict recording", () => {
   it("matches a supplier echoing 233 format", async () => {
     const { p, deferred } = run([entry("a", "echo233")])
     await p
-    await deferred[0]()
     expect(state.saved).toEqual([{ phone: PHONE, supplier: "a", verdict: "yes" }])
+    await deferred[0]()
+    expect(new Set(state.saved.map((x) => JSON.stringify(x)))).toEqual(new Set([JSON.stringify({ phone: PHONE, supplier: "a", verdict: "yes" })]))
   })
 
   it("does not re-ask a supplier with a fresh saved verdict", async () => {
@@ -160,10 +165,10 @@ describe("strict background limits", () => {
       expect(r.blocked).toEqual([])
       expect(captured).toHaveLength(1)
       expect(ask).not.toHaveBeenCalled()
-      expect(state.saved).toEqual([])
+      expect(state.saved).toEqual([{ phone: PHONE, supplier: "a", verdict: "yes" }]) // main answer, before returning
       await captured[0]()
       expect(ask).toHaveBeenCalledTimes(1)
-      expect(state.saved).toContainEqual({ phone: PHONE, supplier: "a", verdict: "yes" })
+      expect(state.saved).toContainEqual({ phone: PHONE, supplier: "b", verdict: "yes" })
     } finally {
       afterMock.fn = () => { throw new Error("outside request scope") }
     }
@@ -204,11 +209,42 @@ describe("strict background limits", () => {
     }
   })
 
-  it("saves main-check answers only in the deferred task, not on the response path", async () => {
+  it("saves main-check answers before returning when the upsert is fast", async () => {
     const deferred: Array<() => Promise<unknown>> = []
     await verifyRecipientsForOrder([PHONE], { registry: [entry("a", true)], settings: settings(["a"]), strictDb: dbWith([]), ask: async () => "yes", defer: (t: () => Promise<unknown>) => { deferred.push(t) } } as never)
+    expect(state.saved).toEqual([{ phone: PHONE, supplier: "a", verdict: "yes" }])
+    expect(deferred).toHaveLength(1)
+  })
+
+  it("slow upsert: returns within about 1 s and the deferred task saves the answers", async () => {
+    vi.mocked(saveVerdicts).mockImplementationOnce(() => new Promise<void>(() => {}))
+    const deferred: Array<() => Promise<unknown>> = []
+    const t0 = Date.now()
+    await verifyRecipientsForOrder([PHONE], { registry: [entry("a", true)], settings: settings(["a"]), strictDb: dbWith([]), ask: async () => "yes", defer: (t: () => Promise<unknown>) => { deferred.push(t) } } as never)
+    const took = Date.now() - t0
+    expect(took).toBeGreaterThanOrEqual(900)
+    expect(took).toBeLessThan(1_600)
     expect(state.saved).toEqual([])
     await deferred[0]()
     expect(state.saved).toContainEqual({ phone: PHONE, supplier: "a", verdict: "yes" })
+  }, 10_000)
+
+  it("a throwing upsert on the response path never throws", async () => {
+    vi.mocked(saveVerdicts).mockImplementationOnce(async () => { throw new Error("db down") })
+    const deferred: Array<() => Promise<unknown>> = []
+    const r = await verifyRecipientsForOrder([PHONE], { registry: [entry("a", true)], settings: settings(["a"]), strictDb: dbWith([]), ask: async () => "yes", defer: (t: () => Promise<unknown>) => { deferred.push(t) } } as never)
+    expect(r.verdicts.get(PHONE)).toBe(true)
+    await deferred[0]()
+    expect(state.saved).toContainEqual({ phone: PHONE, supplier: "a", verdict: "yes" })
+  })
+
+  it("asks hubnet at most 5 times per background task", async () => {
+    const phones = Array.from({ length: 10 }, (_, i) => "05511112" + String(10 + i))
+    const ask = vi.fn(async () => "no" as const)
+    const deferred: Array<() => Promise<unknown>> = []
+    await verifyRecipientsForOrder(phones, { registry: [entry("hubnet", "throw"), entry("a", "throw")], settings: settings(["hubnet", "a"]), strictDb: dbWith([]), ask, defer: (t: () => Promise<unknown>) => { deferred.push(t) } } as never)
+    await deferred[0]()
+    expect(ask.mock.calls.filter((c: any[]) => c[0] === "hubnet")).toHaveLength(5)
+    expect(ask.mock.calls.filter((c: any[]) => c[0] === "a")).toHaveLength(10)
   })
 })

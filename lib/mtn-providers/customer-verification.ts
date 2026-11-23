@@ -251,6 +251,27 @@ async function runDeferred(defer: ((task: () => Promise<unknown>) => void) | und
 
 export const STRICT_BACKGROUND_MAX_PHONES = 20
 const STRICT_BACKGROUND_CONCURRENCY = 3
+/** Hubnet's rate limit trips a shared cooldown that also blocks live sends: cap its asks per background task. */
+export const STRICT_BACKGROUND_HUBNET_MAX = 5
+/** Longest the response path waits for the main-check answers to be saved. */
+export const STRICT_MAIN_SAVE_WAIT_MS = 1_000
+
+/** Saves the main-check answers, waiting at most STRICT_MAIN_SAVE_WAIT_MS. Never throws; the deferred task saves again. */
+async function saveMainAnswersBounded(db: SupabaseClient, rows: Array<{ phone: string; supplier: string; verdict: "yes" | "no" }>): Promise<void> {
+  if (rows.length === 0) return
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const save = saveVerdicts(db, [...rows], new Date()).catch((err) => {
+      console.error("[CUSTOMER-VERIFICATION] strict main-answer save failed:", errName(err))
+    })
+    const wait = new Promise<void>((resolve) => { timer = setTimeout(resolve, STRICT_MAIN_SAVE_WAIT_MS) })
+    await Promise.race([save, wait])
+  } catch (err) {
+    console.error("[CUSTOMER-VERIFICATION] strict main-answer save failed:", errName(err))
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
 
 /** Suppliers switched off by the admin; null when the read fails (then nobody is asked). */
 async function readDisabledSuppliers(db: SupabaseClient): Promise<Set<string> | null> {
@@ -286,6 +307,7 @@ async function strictBackground(
     if (suppliers.length === 0) return
     const queue = phones.slice(0, STRICT_BACKGROUND_MAX_PHONES)
     let hubnetStopped = false
+    let hubnetAsks = 0
     const worker = async () => {
       for (let phone = queue.shift(); phone !== undefined; phone = queue.shift()) {
         try {
@@ -297,7 +319,11 @@ async function strictBackground(
           const fresh = await getFreshVerdicts(db, norm, candidates, new Date())
           const rows: Array<{ phone: string; supplier: string; verdict: "yes" | "no" }> = []
           for (const s of candidates) {
-            if (fresh.has(s) || (s === "hubnet" && hubnetStopped)) continue
+            if (fresh.has(s)) continue
+            if (s === "hubnet") {
+              if (hubnetStopped || hubnetAsks >= STRICT_BACKGROUND_HUBNET_MAX) continue
+              hubnetAsks++ // counted before the await: the 3 workers share the cap
+            }
             const a = await ask(s, norm)
             if (a === "yes" || a === "no") rows.push({ phone: norm, supplier: s, verdict: a })
             else if (s === "hubnet") hubnetStopped = true
@@ -369,8 +395,10 @@ export async function verifyRecipientsForOrder(
       await setCachedVerdicts(definite, settings.providers)
     }
     if (strict) {
+      // The main-check answers are saved before returning (so an immediate send finds them), bounded to 1 s.
+      await saveMainAnswersBounded(strictDb, answers)
       try {
-        // Saving + asking happen out of band; answers that land after the race timeout are captured too.
+        // Asking happens out of band; the task saves the answers again, including any that land after the race timeout.
         const ask = opts.ask ?? ((sup: string, p: string) => askSupplier(sup, p, { registry: opts.registry }))
         await runDeferred(opts.defer, () => strictBackground([...new Set(phones)], settings.providers, answers, strictDb, ask))
       } catch (err) {
