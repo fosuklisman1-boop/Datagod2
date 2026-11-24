@@ -8,6 +8,7 @@ const h = vi.hoisted(() => ({
   push: vi.fn(),
   sms: vi.fn(),
   fetch: vi.fn(),
+  configFail: null as null | "error" | "throw",
 }))
 
 function makeDb() {
@@ -28,7 +29,10 @@ function makeDb() {
         select() { return b },
         eq(c: string, v: unknown) { filters.push((r) => r[c] === v); return b },
         lte(c: string, v: string) { filters.push((r) => r[c] <= v); return b },
-        maybeSingle() { const x = run(); return Promise.resolve({ data: x.data[0] ?? null, error: null }) },
+        maybeSingle() {
+          if (table === "admin_settings" && h.configFail === "error") return Promise.resolve({ data: null, error: { message: "boom" } })
+          if (table === "admin_settings" && h.configFail === "throw") return Promise.reject(new Error("boom"))
+          const x = run(); return Promise.resolve({ data: x.data[0] ?? null, error: null }) },
         then(res: any, rej: any) { return Promise.resolve(run()).then(res, rej) },
       }
       return b
@@ -81,6 +85,7 @@ function draftRow(key: unknown, over: Row = {}): Row {
 }
 
 beforeEach(() => {
+  h.configFail = null
   h.runLoop.mockReset()
   h.push.mockReset()
   h.sms.mockReset()
@@ -184,6 +189,26 @@ describe("run-ai-tasks admin cards", () => {
     for (const n of acting) expect(list).not.toContain(n)
     for (const n of ["prepare_withdrawal_action", "prepare_wallet_adjustment", "get_all_orders"]) expect(list).toContain(n)
   })
+
+  for (const mode of ["error", "throw"] as const) {
+    it(`config read ${mode}: admin task is skipped untouched (fail closed), no tool runs, next tick retries`, async () => {
+      seed("admin")
+      h.configFail = mode
+      const before = { ...h.tables.ai_scheduled_tasks[0] }
+      await GET(req())
+      expect(h.runLoop).not.toHaveBeenCalled()
+      expect(h.fetch).not.toHaveBeenCalled()
+      expect(h.tables.ai_scheduled_tasks[0]).toEqual(before) // not stamped, not rescheduled
+    })
+
+    it(`config read ${mode}: non-admin task runs exactly as before`, async () => {
+      seed("user", { context: "dashboard", user_role: "user" })
+      h.configFail = mode
+      await GET(req())
+      expect(h.runLoop).toHaveBeenCalledTimes(1)
+      expect(h.runLoop.mock.calls[0][0].context).toBe("dashboard")
+    })
+  }
 
   it("switch OFF: admin background run is unchanged (no adminCatalog flag)", async () => {
     seed("admin")

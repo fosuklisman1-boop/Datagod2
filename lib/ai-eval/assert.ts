@@ -31,7 +31,7 @@ export const notCalledToolPrefix = (prefix: string): Check => (r) => {
 export const noToolInputMatches = (re: RegExp): Check => (r) =>
   out(!r.toolCalls.some((t) => re.test(JSON.stringify(t.input ?? {}))), `a tool call input should not match ${re}`)
 
-export const noToolCalls =(): Check => (r) =>
+export const noToolCalls = (): Check => (r) =>
   out(r.toolCalls.length === 0, `expected no tool calls, got ${r.toolCalls.map((t) => t.name).join(", ")}`)
 
 export const replyMatches = (re: RegExp): Check => (r) => out(re.test(r.replyText), `reply should match ${re}`)

@@ -217,16 +217,18 @@ async function processStandingOrder(
 
 // ─── Load AI config from DB (same as chat route) ─────────────────────────────
 
-async function loadAIConfig(): Promise<AIProviderConfig> {
+/** `failed` is true when the read errored or threw: the config then falls back to defaults, but admin runs must not trust it. */
+async function loadAIConfig(): Promise<{ config: AIProviderConfig; failed: boolean }> {
   try {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("admin_settings")
       .select("value")
       .eq("key", "ai_provider_config")
       .maybeSingle()
-    return (data?.value as AIProviderConfig) ?? DEFAULT_CONFIG
+    if (error) return { config: DEFAULT_CONFIG, failed: true }
+    return { config: (data?.value as AIProviderConfig) ?? DEFAULT_CONFIG, failed: false }
   } catch {
-    return DEFAULT_CONFIG
+    return { config: DEFAULT_CONFIG, failed: true }
   }
 }
 
@@ -280,7 +282,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Load AI config from DB — same as the chat route, so custom keys/providers are respected
-    const aiConfig = await loadAIConfig()
+    const { config: aiConfig, failed: aiConfigFailed } = await loadAIConfig()
     const today = new Date().toISOString().split("T")[0]
     const cronSecret = process.env.CRON_SECRET!
     const baseUrl = getBaseUrl()
@@ -288,6 +290,13 @@ export async function GET(request: NextRequest) {
     let processed = 0
 
     for (const task of tasks) {
+      // Fail closed: without a trustworthy config the admin catalog switch is unknown, so an admin task could get acting
+      // tools with no card. Leave it untouched (not stamped, not rescheduled) so the next tick retries.
+      if (aiConfigFailed && task.context === "admin") {
+        console.error("[CRON-AI-TASKS] AI config read failed; admin task skipped this tick")
+        continue
+      }
+
       const runAt = new Date().toISOString()
 
       // Optimistically stamp last_run_at to prevent double-execution on slow tasks
