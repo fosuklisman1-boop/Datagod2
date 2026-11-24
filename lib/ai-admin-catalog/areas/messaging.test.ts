@@ -174,7 +174,7 @@ describe("messaging catalog rules", () => {
   it("risk tiers: sends to many, switches, approvals and moderation are danger; prices and credits are money", () => {
     const rank: Record<Risk, number> = { normal: 0, money: 1, danger: 2 }
     const danger = [
-      "POST /api/admin/broadcast", "POST /api/admin/broadcast/retry", "POST /api/admin/notify",
+      "POST /api/admin/broadcast", "POST /api/admin/broadcast/retry",
       "POST /api/admin/sms-sender-ids/approve", "POST /api/admin/sms-sender-ids/reject", "POST /api/admin/sms-platform/sender-ids/:id",
       "POST /api/admin/sms-platform/business-reviews/:id", "PATCH /api/admin/sms-platform/settings", "PATCH /api/admin/sms-platform/accounts/:id",
       "POST /api/admin/sms-platform/flags/:id", "PATCH /api/admin/sms-settings", "PATCH /api/admin/shop-sms", "POST /api/admin/shop-sms",
@@ -236,7 +236,9 @@ describe("messaging catalog rules", () => {
     expect(bc.safeParse({ ...base, recipients: { type: "shop_buyers", shopIds: [], sinceDays: 30 } }).success).toBe(false)
     expect(bc.safeParse({ ...base, recipients: { type: "specific", users: [{ phone: "0241234567" }] } }).success).toBe(true)
     expect(bc.safeParse({ ...base, recipients: { type: "specific", users: [] } }).success).toBe(false)
-    expect(byKey("POST /api/admin/notify").body!.safeParse({ target: "all_users", channels: ["push"], title: "T", body: "B" }).success).toBe(true)
+    for (const t of ["all_users", "all_dealers", "all_admins"]) expect(byKey("POST /api/admin/notify").body!.safeParse({ target: t, channels: ["push"], title: "T", body: "B" }).success, t).toBe(false)
+    expect(byKey("POST /api/admin/notify").body!.safeParse({ target: "specific_user", title: "T", body: "B" }).success).toBe(false)
+    expect(byKey("POST /api/admin/notify").summary).toMatch(/use Broadcast \(queued and logged\)/)
     expect(byKey("POST /api/admin/notify").body!.safeParse({ target: "everyone", title: "T", body: "B" }).success).toBe(false)
     expect(byKey("POST /api/admin/notify").body!.safeParse({ target: "specific_user", user_id: U1, title: "T", body: "B" }).success).toBe(true)
     expect(byKey("POST /api/admin/notify").body!.safeParse({ target: "specific_user", user_id: "abc", title: "T", body: "B" }).success).toBe(false)
@@ -448,6 +450,22 @@ describe("messaging cards", () => {
     expect(t).toContain("0241234567")
     expect(t).toContain("x@y.co")
     expect(t).toMatch(/Recipients: 2\b/)
+  })
+
+  it("broadcast always says to check history before sending again", async () => {
+    const t = await card("POST /api/admin/broadcast", { body: { action: "init", channels: ["sms"], message: "Hi", recipients: { type: "roles", roles: ["dealer"] } } })
+    expect(t).toContain("If the result can't be confirmed, check Broadcast history before sending again")
+  })
+
+  it("reply cards show the text as the handler trims it, and the support reply states the script-pattern refusal", async () => {
+    const wa = await card("POST /api/admin/whatsapp-inbox/send", { body: { phone: "233241234567", message: "   padded hello   " } })
+    expect(wa).toContain("Message (sent exactly like this): padded hello\n")
+    const sup = await card("POST /api/admin/support/threads/:id", { params: { id: U1 }, body: { action: "reply", message: "  trimmed reply  " } })
+    expect(sup).toContain("Reply (sent exactly like this): trimmed reply\n")
+    const bad = await card("POST /api/admin/support/threads/:id", { params: { id: U1 }, body: { action: "reply", message: "click javascript:alert(1)" } })
+    expect(bad).toMatch(/not allowed.*refused|refused.*not allowed/i)
+    const ok = await card("POST /api/admin/support/threads/:id", { params: { id: U1 }, body: { action: "reply", message: "we only do this once" } })
+    expect(ok).not.toMatch(/not allowed/i)
   })
 
   it("broadcast says when it cannot send (a bad action or missing subject) instead of promising", async () => {

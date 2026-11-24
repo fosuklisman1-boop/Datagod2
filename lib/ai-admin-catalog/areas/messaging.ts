@@ -716,6 +716,7 @@ const broadcastCard = async (i: EntryInput, ctx: CardCtx): Promise<Card> => {
   }
   if (rec.type === "group") lines.push({ label: "Merge fields", value: b.mergeFields === false ? "[FirstName], [LastName] and [Phone] will NOT be filled in: they go out as typed" : "[FirstName], [LastName] and [Phone] are filled in for each person" })
   if (rec.type === "shop_buyers") lines.push({ label: "Shop fields", value: "[ShopName], [ShopLink], [ShopCode] and [Phone] are filled in for each person; with [ShopCode] in the text, buyers of shops with no active code are skipped" })
+  lines.push({ label: "Before repeating", value: "If the result can't be confirmed, check Broadcast history before sending again — it may already be going out." })
   lines.push({ label: "How it is sent", value: `The recipients are queued, the first ${FIRST_BATCH} recipients are sent right now and the rest is sent by the broadcast job in batches, even if nobody keeps the page open. It cannot be recalled once sent; failed ones can be retried from the history.` })
   return { summary: "Send a broadcast message", lines }
 }
@@ -815,8 +816,11 @@ const supportThreadCard = async (i: EntryInput, ctx: CardCtx): Promise<Card> => 
   if (row) lines.push({ label: "Customer", value: await customerName(ctx, str(row.user_id)) })
   const closed = row ? row.status !== "open" : false
   if (b.action === "reply") {
-    if (!str(b.message).trim()) lines.push(problem("A reply needs a message: the request will be refused."))
-    lines.push({ label: "Reply (sent exactly like this)", value: str(b.message) })
+    const msg = str(b.message).trim()
+    if (!msg) lines.push(problem("A reply needs a message: the request will be refused."))
+    // Same patterns as adminText in lib/support-validation (not exported).
+    if ([/javascript:/i, /<script/i, /\bon(?!(?:ly|ce|e|es|line|to|going)\b)\w+\s*=/i].some((re) => re.test(msg))) lines.push(problem("The text contains characters that are not allowed (a script-like pattern), so the reply will be refused."))
+    lines.push({ label: "Reply (sent exactly like this)", value: msg })
     if (closed) lines.push(problem("This thread is already closed, so the reply will be refused."))
     lines.push({ label: "What happens", value: "The reply is added to the customer's support chat and the chat is handed to a human (the AI stops answering it)." })
     lines.push({ label: "Notices", value: "The customer gets an in-app notice and a push notification that there is a reply." })
@@ -1250,10 +1254,11 @@ export const MESSAGING_ENTRIES: CatalogEntry[] = [
     kind: "change", risk: "danger", auth: "admin", timeoutMs: 60000, card: broadcastRetryCard,
   }),
   mk({
-    id: "notify.send", page: BROADCAST, summary: "Send a push, SMS and/or email notification to one user, or to every dealer, user or admin.",
+    id: "notify.send", page: BROADCAST, summary: "Send a push, SMS and/or email notification to ONE user. To message a whole group, use Broadcast (queued and logged).",
     method: "POST", path: "/api/admin/notify",
-    body: z.object({ target: z.enum(["specific_user", "all_dealers", "all_users", "all_admins"]), user_id: uuid.optional(), channels: z.array(z.enum(["push", "sms", "email"])).min(1).max(3).optional(), title: nonBlank(200), body: nonBlank(2000), email_html: optText(20000).optional() }).strict(),
-    kind: "change", risk: "danger", auth: "admin", timeoutMs: 60000, card: notifyCard,
+    // Role-wide targets (all_users / all_dealers / all_admins) are left out on purpose: the handler loops over every user inline with no queue and no log.
+    body: z.object({ target: z.literal("specific_user"), user_id: uuid, channels: z.array(z.enum(["push", "sms", "email"])).min(1).max(3).optional(), title: nonBlank(200), body: nonBlank(2000), email_html: optText(20000).optional() }).strict(),
+    kind: "change", risk: "normal", auth: "admin", timeoutMs: 60000, card: notifyCard,
   }),
   mk({
     id: "test_email.config", page: SETTINGS, summary: "Show which email provider and sender are configured and whether each provider's key is set (never the key).",
