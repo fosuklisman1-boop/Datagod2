@@ -48,4 +48,7 @@ export const EXCLUDED: ExcludedRoute[] = [
   { path: "/api/admin/users/export", method: "GET", reason: "returns up to 5000 users' contact details in one reply, the same data as users list but unpaged for the model; use the page, or the users list lookup" },
   { path: "/api/admin/withdrawals/bulk-approve", method: "POST", reason: "long-running (up to 300 s: serial real payouts, one Moolre or Paystack transfer per withdrawal); use prepare_withdrawal_action, which approves each withdrawal under one confirm card, or the page" },
   { path: "/api/admin/withdrawals/list", method: "GET", reason: "returns a bare JSON array (every withdrawal with the shop's balance), which the lookup filter cannot select fields from; use the list_withdrawals tool or the page" },
+  { path: "/api/admin/packages", method: "GET", reason: "returns every package's supplier cost as one map keyed by package id (up to 1000 entries), which the lookup filter cannot narrow and which is margin data; use the packages page" },
+  { path: "/api/admin/airtime/digiwapy-debug", method: "GET", reason: "temporary debug endpoint (provider key prefixes and raw toggles), diagnostic dump not meant for assistant use" },
+  { path: "/api/admin/ussd-hubtel/sessions/:sessionId", method: "GET", reason: "returns the full transcript of what a caller typed on USSD (numbers, codes, free text) from an untrusted source; use the page, or the sessions list for outcomes" },
 ]
