@@ -8,6 +8,7 @@ import type { Environment, KeyType } from "@/lib/api-v2/keys"
 import type { AccessSummary, DashboardAccessState } from "@/lib/api-v2/key-issue"
 import type { V2KeySummary } from "@/lib/api-v2/key-slots"
 import { GenerateKeyDialog, type IssuedKey } from "./GenerateKeyDialog"
+import { DailyLimits } from "./SpendCapControl"
 import { KeysExplainer, LoadErrorCallout, V2KeysCard } from "./V2KeysCard"
 import { slotId, type SlotRejection } from "./V2KeyBlock"
 import type { ApprovalInfo } from "./approval/MessageAdminButton"
@@ -212,6 +213,7 @@ export function V2KeysPanel({ onAccessStateChange }: { onAccessStateChange?: (st
           onCancelAccess={() => void cancelAccess()}
         />
       )}
+      {state !== "error" && <DailyLimits keys={keys} />}
       <GenerateKeyDialog issued={issued} onClose={() => setIssued(null)} approval={approval} />
     </div>
   )
