@@ -16,7 +16,8 @@ import { z } from "zod"
 import { terminalDraftsSince } from "@/lib/ai-drafts/repo"
 import { buildOutcomeNote, cardResultsBlock, OUTCOME_LOOKBACK_MS, stripClientCardNotes } from "@/lib/ai-drafts/outcome-notes"
 import { buildAdminPrompt, buildDashboardPrompt, buildHomePrompt, buildStorefrontPrompt } from "@/lib/ai-prompts"
-import { knowledgeLabelFor, loadKnowledge, renderKnowledge } from "@/lib/ai-prompts/knowledge"
+import { buildKnowledgeSection, knowledgeLabelFor, loadKnowledge } from "@/lib/ai-prompts/knowledge"
+import { audiencesFor, isShopOwnerFor } from "@/lib/ai-site-guide"
 import { randomBytes } from "crypto"
 import { suspensionStatus } from "@/lib/auth/suspension"
 import { normaliseHistory } from "@/lib/ai-history"
@@ -418,7 +419,16 @@ export async function POST(req: NextRequest) {
   // verified user id, everything else (guests, home, storefront) 'storefront'.
   const knowledgeContext: "home" | "dashboard" | "admin" =
     context === "admin" ? "admin" : context === "dashboard" && userId ? "dashboard" : "home"
-  const knowledge = renderKnowledge(await loadKnowledge(supabaseAdmin, knowledgeLabelFor(knowledgeContext)))
+  // Site guide audiences come from the same verified identity (users.role read from the DB above, the bearer-verified
+  // user id): never user_metadata or client input. Shop ownership is one extra read, dashboard only, fails closed.
+  const isShopOwner = userId && context === "dashboard" ? await isShopOwnerFor(supabaseAdmin, userId) : false
+  const siteAudiences = audiencesFor({
+    context,
+    role: context === "admin" ? "admin" : userContext.role,
+    isShopOwner,
+    signedIn: !!userId,
+  })
+  const knowledge = buildKnowledgeSection(siteAudiences, await loadKnowledge(supabaseAdmin, knowledgeLabelFor(knowledgeContext)))
   let systemPrompt: ReturnType<typeof buildHomePrompt>
   switch (context) {
     case "home":
@@ -523,6 +533,7 @@ export async function POST(req: NextRequest) {
           shopSlug,
           baseUrl: getBaseUrl(),
           conversationKey,
+          isShopOwner,
         }
 
         await runAgenticLoop({

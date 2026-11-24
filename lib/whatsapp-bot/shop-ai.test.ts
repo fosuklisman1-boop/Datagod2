@@ -9,6 +9,14 @@ vi.mock("@/lib/whatsapp-bot/shop-prefs", () => ({ getShopPref: vi.fn() }))
 vi.mock("@/lib/shop-commerce/shop-code", () => ({ resolveShopCode: vi.fn() }))
 vi.mock("@/lib/whatsapp-bot/shop-session", () => ({ getSession: vi.fn() }))
 vi.mock("@/lib/whatsapp-bot/log-message", () => ({ logMessage: vi.fn() }))
+// Real guide engine, fake content (the shipped content arrives in later tasks).
+vi.mock("@/lib/ai-site-guide/pages", () => ({
+  SITE_PAGES: [
+    { path: "/pub", title: "PubPageTitle", audiences: ["public"], purpose: "p", tasks: ["t"] },
+    { path: "/cust", title: "CustPageTitle", audiences: ["customer"], purpose: "p", tasks: ["t"] },
+    { path: "/adm", title: "AdminPageTitle", audiences: ["admin"], purpose: "p", tasks: ["t"] },
+  ],
+}))
 
 const fakeMessages: Array<{ direction: string; message: string }> = []
 vi.mock("@supabase/supabase-js", () => ({
@@ -66,6 +74,17 @@ describe("handleShopWithAI", () => {
     expect(reply).toBe("Hi! What's your shop code?")
     const call = vi.mocked(runAgenticLoop).mock.calls[0][0]
     expect(call.system).not.toContain("Kofi's Data Hub")
+  })
+
+  it("adds the public site guide only (never customer or admin pages) to the shop bot prompt", async () => {
+    vi.mocked(getShopPref).mockResolvedValue(null)
+    vi.mocked(runAgenticLoop).mockResolvedValue({ text: "ok", toolsUsed: [] })
+    await handleShopWithAI("233559919037", "hi", "wamid.g")
+    const system = vi.mocked(runAgenticLoop).mock.calls[0][0].system as string
+    expect(system).toContain("## Site guide")
+    expect(system).toContain("PubPageTitle")
+    expect(system).not.toContain("CustPageTitle")
+    expect(system).not.toContain("AdminPageTitle")
   })
 
   it("includes the shop name in the system prompt for a known shop", async () => {

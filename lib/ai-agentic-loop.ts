@@ -21,6 +21,8 @@ export interface AgenticToolCtx {
   conversationKey?: string
   /** Set by background (cron) runs: drafts live 12 h. */
   background?: boolean
+  /** Dashboard chat: the verified user owns a shop (server-derived); scopes get_knowledge_base site articles. */
+  isShopOwner?: boolean
 }
 
 export interface RunAgenticLoopParams {

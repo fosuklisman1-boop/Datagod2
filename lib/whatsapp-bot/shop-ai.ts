@@ -1,5 +1,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { runAgenticLoop } from "@/lib/ai-agentic-loop"
+import { withSiteGuide } from "@/lib/ai-prompts/knowledge"
+import { audiencesFor } from "@/lib/ai-site-guide"
 import { resolveProviderForContext, DEFAULT_CONFIG, AIProviderConfig } from "@/lib/ai-providers"
 import { getShopPref } from "@/lib/whatsapp-bot/shop-prefs"
 import { resolveShopCode } from "@/lib/shop-commerce/shop-code"
@@ -64,13 +66,15 @@ export async function handleShopWithAI(phone: string, text: string, _messageId: 
     .map(m => ({ role: m.direction === "inbound" ? "user" : "assistant", content: m.message! }))
   messages.push({ role: "user", content: text })
 
-  const system = `You are a friendly WhatsApp ordering assistant for a Datagod shop storefront. This is a dedicated shop number — every customer here is shopping at ONE specific shop.
+  const baseSystem = `You are a friendly WhatsApp ordering assistant for a Datagod shop storefront. This is a dedicated shop number — every customer here is shopping at ONE specific shop.
 ${shopSystemBlock}
 IF NO SHOP IS KNOWN YET: warmly explain this is a shop ordering line and ask for their shop code. The moment they send something that looks like a code, call resolve_shop_code with it.
 
 ORDERING: use get_shop_packages to see real prices/availability (data bundles by network, airtime limits, results-checker boards) — NEVER invent a price. Once you have everything needed (service, network/board, size/qty, recipient number where relevant, and the MoMo number to charge), and the customer has confirmed, call place_shop_order. It stages a confirm screen where THEY tap to pay or cancel — never say an order is paid before that.
 
 STYLE: short, warm, WhatsApp-appropriate replies. Currency is always GHS. One idea per line, *bold* sparingly for prices. Never mention tools or internal details. Don't ask for details the customer already gave.`
+  // Shop-line customers are always the public audience, whoever they are.
+  const system = withSiteGuide(baseSystem, audiencesFor({ context: "whatsapp_shop" }))
 
   let result: { text: string; toolsUsed: string[] }
   try {

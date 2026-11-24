@@ -39,6 +39,14 @@ vi.mock("next/server", async (orig) => ({
   after: (fn: () => Promise<unknown>) => { h.pending.push(fn()) },
 }))
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => h.db }))
+// Real guide engine, fake content (the shipped content arrives in later tasks).
+vi.mock("@/lib/ai-site-guide/pages", () => ({
+  SITE_PAGES: [
+    { path: "/pub", title: "PubPageTitle", audiences: ["public"], purpose: "p", tasks: ["t"] },
+    { path: "/cust", title: "CustPageTitle", audiences: ["customer"], purpose: "p", tasks: ["t"] },
+    { path: "/adm", title: "AdminPageTitle", audiences: ["admin"], purpose: "p", tasks: ["t"] },
+  ],
+}))
 vi.mock("@/lib/whatsapp-bot/session", () => ({ getWaSession: h.getWaSession, setWaSession: vi.fn() }))
 vi.mock("@/lib/whatsapp-bot/router", () => ({ waRouter: h.waRouter }))
 vi.mock("@/lib/whatsapp-bot/admin-router", () => ({
@@ -128,6 +136,19 @@ describe("main number: no-session OTP fallback", () => {
     await inbound("hello there")
     expect(h.runAgenticLoop).toHaveBeenCalledTimes(1)
     expect(sentTexts()).toEqual(["AI-REPLY"])
+  })
+})
+
+describe("main number: site guide in the AI prompt", () => {
+  it("an unlinked number gets the public guide only, never admin pages", async () => {
+    await inbound("hello there")
+    expect(h.runAgenticLoop).toHaveBeenCalledTimes(1)
+    const args = h.runAgenticLoop.mock.calls[0] as unknown as [{ system: string }]
+    const system = args[0].system
+    expect(system).toContain("## Site guide")
+    expect(system).toContain("PubPageTitle")
+    expect(system).not.toContain("CustPageTitle")
+    expect(system).not.toContain("AdminPageTitle")
   })
 })
 

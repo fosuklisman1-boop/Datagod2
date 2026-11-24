@@ -22,6 +22,14 @@ function tokens(text: string): string[] {
     .map(stem)
 }
 
+/**
+ * Distinct stemmed search tokens of a free-text query (same tokenizer as searchSite), at most `max`.
+ * Every token is [a-z0-9] only, so it is safe to put inside an ILIKE pattern.
+ */
+export function queryTokens(query: string, max = 6): string[] {
+  return Array.from(new Set(tokens(query))).slice(0, max)
+}
+
 /** Keyword search over help articles the audience may see. Best match first, ties by id. */
 export function searchSite(
   query: string,
