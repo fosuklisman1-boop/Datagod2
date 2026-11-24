@@ -122,7 +122,7 @@ describe("route files export only handlers", () => {
   const files: [string, string[]][] = [
     ["developers/[userId]/pause/route.ts", ["POST"]],
     ["services/[service]/route.ts", ["PUT"]],
-    ["announcements/route.ts", ["POST"]],
+    ["announcements/route.ts", ["GET", "POST"]],
     ["announcements/[id]/route.ts", ["PUT", "DELETE"]],
   ]
   it.each(files)("%s", async (file, expected) => {

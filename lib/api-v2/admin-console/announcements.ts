@@ -1,5 +1,6 @@
 // Admin console: announcements (write half). Text is stored as typed and only ever rendered as text.
 import { bad, callWrite, charLen, NO_ADMIN, REFUSED_MULTI_LINE, REFUSED_SINGLE_LINE, UUID_RE, type RpcClient, type WriteResult } from "./write-common"
+import { readFailure } from "./read-common"
 
 // Date AND time AND an explicit timezone (Z or +-HH:MM): a timezone-less time would silently mean server-local time.
 const ISO_RE = /^(\d{4})-(\d{2})-(\d{2})[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/
@@ -51,4 +52,53 @@ export async function deleteAnnouncement(client: RpcClient, p: { id: string; act
   const out = await callWrite(client, "api_v2_announcement_delete", { p_id: p.id, p_actor: p.actorId })
   if (!out.ok) return out.result
   return { status: 200, body: { ...out.data, ok: true } }
+}
+
+// ---------------- read half ----------------
+
+export interface AdminAnnouncement {
+  id: string
+  title: string
+  body: string
+  severity: string
+  startsAt: string
+  endsAt: string
+  state: "active" | "scheduled" | "ended"
+}
+
+const STATE_ORDER = { active: 0, scheduled: 1, ended: 2 } as const
+
+/** Every announcement (at most 50 exist: the SQL caps creation), active first, then scheduled, then ended. */
+export async function listAnnouncements(client: RpcClient, now: Date): Promise<WriteResult> {
+  let res: { data: unknown; error: unknown }
+  try {
+    res = (await client
+      .from("api_v2_announcements")
+      .select("id, title, body, severity, starts_at, ends_at")
+      .order("starts_at", { ascending: false })
+      .limit(60)) as typeof res
+  } catch {
+    return readFailure("api_v2_announcements", null)
+  }
+  if (res.error) return readFailure("api_v2_announcements", res.error)
+  const t = now.getTime()
+  const announcements: AdminAnnouncement[] = []
+  for (const x of Array.isArray(res.data) ? res.data : []) {
+    const o = x as Record<string, unknown>
+    if (!o || typeof o.id !== "string") continue
+    const starts = Date.parse(String(o.starts_at))
+    const ends = Date.parse(String(o.ends_at))
+    if (Number.isNaN(starts) || Number.isNaN(ends)) continue
+    announcements.push({
+      id: o.id,
+      title: typeof o.title === "string" ? o.title : "",
+      body: typeof o.body === "string" ? o.body : "",
+      severity: typeof o.severity === "string" ? o.severity : "info",
+      startsAt: new Date(starts).toISOString(),
+      endsAt: new Date(ends).toISOString(),
+      state: t < starts ? "scheduled" : t < ends ? "active" : "ended",
+    })
+  }
+  announcements.sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state] || Date.parse(b.startsAt) - Date.parse(a.startsAt))
+  return { status: 200, body: { announcements } }
 }
