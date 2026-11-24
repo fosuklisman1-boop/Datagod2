@@ -17,6 +17,7 @@ import type { BundleNetwork } from "@/lib/standard-bundles/categories"
 import { readApiSurface } from "@/lib/api-v1/surface"
 import { catalogBuyer, priceCatalog } from "@/lib/api-v1/bundles"
 import { getAdminClient, type SupabaseLike } from "../store"
+import { defaultSpendHook } from "../spend"
 import {
   claimRequest,
   completeClaim,
@@ -159,5 +160,6 @@ export function realBundleDeps(): BundlesV2Deps {
       place: async (p) => (await import("@/lib/sandbox")).placeSandboxOrder(p),
     },
     now: () => Date.now(),
+    spend: defaultSpendHook(),
   }
 }

@@ -13,6 +13,7 @@
 import { submitAfaOrder } from "@/lib/afa-fulfillment"
 import { parseGhanaCardNumber } from "@/lib/ghana-card"
 import { getAdminClient, type SupabaseLike } from "../store"
+import { defaultSpendHook } from "../spend"
 import {
   claimRequest,
   completeClaim,
@@ -159,5 +160,6 @@ export function realAfaDeps(): AfaDeps {
       place: async (p) => (await import("@/lib/sandbox")).placeSandboxOrder(p),
     },
     now: () => Date.now(),
+    spend: defaultSpendHook(),
   }
 }

@@ -161,7 +161,14 @@ const SPEND_UNAVAILABLE = "UNAVAILABLE: the daily spending limit could not be ch
  * Live keys only, caps on only; a settings failure reads as caps off (never blocks). A refused request has charged
  * nothing; the caller releases its claim (commission) before returning the result.
  */
-export async function guardSpend(hook: SpendHook | undefined, ctx: V2Context, kind: SpendKind, reference: string, amount: number): Promise<GuardResult> {
+export async function guardSpend(
+  hook: SpendHook | undefined,
+  ctx: V2Context,
+  kind: SpendKind,
+  reference: string,
+  /** A number, or a reader called only when caps are on for a live key (so caps-off adds no query). */
+  amountOrRead: number | (() => Promise<number>),
+): Promise<GuardResult> {
   if (!hook || ctx.environment !== "live") return { proceed: true, owned: false }
   let settings: MoneySettings
   try {
@@ -170,6 +177,15 @@ export async function guardSpend(hook: SpendHook | undefined, ctx: V2Context, ki
     return { proceed: true, owned: false }
   }
   if (!spendGuard(ctx, settings)) return { proceed: true, owned: false }
+  let amount: number
+  try {
+    amount = typeof amountOrRead === "number" ? amountOrRead : await amountOrRead()
+  } catch {
+    amount = NaN
+  }
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return { proceed: false, result: { status: 503, error: { status: 503, message: SPEND_UNAVAILABLE } } }
+  }
   const r = await hook.reserve({ userId: ctx.userId, keyId: ctx.keyId, kind, reference, amount })
   switch (r.kind) {
     case "reserved":

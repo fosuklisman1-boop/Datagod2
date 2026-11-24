@@ -33,6 +33,7 @@
 import type { V2Context, V2HandlerResult } from "../handler"
 import type { V2ErrorStatus } from "../envelope"
 import type { ClaimOutcome } from "../idempotency"
+import { guardSpend, settleOwned, type SpendHook } from "../spend"
 import { mapClaimState, mapCommissionStatus } from "../commission"
 import { normalizeRecipient, parseReference } from "../data-orders"
 import {
@@ -148,6 +149,8 @@ export interface BundlesV2Deps {
     place(p: BundleSandboxPlaceParams): Promise<BundleSandboxPlaceResult>
   }
   now(): number
+  /** Release 5 daily spending limit (absent in unit tests that do not exercise it). */
+  spend?: SpendHook
 }
 
 // ---------------------------------------------------------------- messages
@@ -364,6 +367,15 @@ async function livePurchase(deps: BundlesV2Deps, input: BundlePurchaseInput, ctx
     return fail(403, MSG_PHONE_GATE)
   }
 
+  // 3b. Daily spending limit (live, caps on): the signed token's face amount is reserved; a refusal frees the reference.
+  const face = input.identity ? input.identity.pesewas / 100 : NaN
+  // No hook (unit tests): no await at all, so the request's timing is exactly as before.
+  const spend = deps.spend ? await guardSpend(deps.spend, ctx, "bundle", input.reference, face) : ({ proceed: true, owned: false } as const)
+  if (!spend.proceed) {
+    await safeRelease(deps, claimId, ctx.userId)
+    return spend.result
+  }
+
   // 4. The engine.
   let result: BuyResult
   try {
@@ -383,6 +395,7 @@ async function livePurchase(deps: BundlesV2Deps, input: BundlePurchaseInput, ctx
     const c = classifyBundleRefusal(result, input.expectedPay)
     if (c.kind === "no_charge") {
       await safeRelease(deps, claimId, ctx.userId)
+      await settleOwned(deps.spend, spend.owned, ctx, "bundle", input.reference, "released")
       return fail(c.status, c.message)
     }
     return ambiguous(deps, claimId, ctx, input.reference, engineOrderRef(result))
@@ -394,6 +407,8 @@ async function livePurchase(deps: BundlesV2Deps, input: BundlePurchaseInput, ctx
   if (!isObject(order) || typeof code !== "string" || !code || order.payment_status !== "paid") {
     return ambiguous(deps, claimId, ctx, input.reference, engineOrderRef(result))
   }
+
+  await settleOwned(deps.spend, spend.owned, ctx, "bundle", input.reference, "spent")
 
   // 5. Success: store the engine code as order_ref and the allow-listed order as the response.
   const pub = mapBundleOrder(order, input.reference)

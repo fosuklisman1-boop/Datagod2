@@ -758,3 +758,29 @@ describe("bundleListHandler", () => {
     expect((await bundleListHandler(deps)(TEST)).status).toBe(503)
   })
 })
+
+describe("POST /bundles/purchase (live): daily spending limit", () => {
+  const spendHook = (reserve: { kind: string; scope?: "key" | "user" }, caps = true) => ({
+    settings: vi.fn(async () => ({ capsEnabled: caps, alertsEnabled: false, at: 0 })),
+    reserve: vi.fn(async () => reserve as any),
+    settle: vi.fn(async () => {}),
+  })
+  it("reserves the token's face amount before the engine and settles spent; cap -> 402, released, no engine", async () => {
+    const { deps } = makeDeps()
+    const h = spendHook({ kind: "reserved" })
+    const r = await purchaseBundleHandler({ ...deps, spend: h })(body(), LIVE)
+    expect(r.status).toBe(201)
+    expect(h.reserve).toHaveBeenCalledWith({ userId: "user-1", keyId: "key-live-1", kind: "bundle", reference: "BND-001", amount: 5.5 })
+    expect(h.settle).toHaveBeenCalledWith({ keyId: "key-live-1", kind: "bundle", reference: "BND-001", state: "spent" })
+    const c = makeDeps().deps
+    const rc = await purchaseBundleHandler({ ...c, spend: spendHook({ kind: "cap", scope: "user" }) })(body(), LIVE)
+    expect(rc.status).toBe(402)
+    expect(c.release).toHaveBeenCalledTimes(1)
+    expect(c.buy).not.toHaveBeenCalled()
+  })
+  it("caps off -> no reserve", async () => {
+    const h = spendHook({ kind: "reserved" }, false)
+    await purchaseBundleHandler({ ...makeDeps().deps, spend: h })(body(), LIVE)
+    expect(h.reserve).not.toHaveBeenCalled()
+  })
+})

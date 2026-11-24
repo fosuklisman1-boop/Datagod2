@@ -149,6 +149,19 @@ describe("guardSpend / settleOwned (request-path helpers)", () => {
     expect(await guardSpend(h, ctx("live"), "data", "R", 1)).toEqual({ proceed: true, owned: false })
     expect(h.reserve).not.toHaveBeenCalled()
   })
+  it("a lazy amount is read only when caps are on for a live key; a failed or bad read is 503 with no reserve", async () => {
+    const amount = vi.fn(async () => 25)
+    expect(await guardSpend(hook({ kind: "reserved" }, false), ctx("live"), "afa", "R", amount)).toEqual({ proceed: true, owned: false })
+    expect(amount).not.toHaveBeenCalled()
+    const h = hook({ kind: "reserved" })
+    expect(await guardSpend(h, ctx("live"), "afa", "R", amount)).toEqual({ proceed: true, owned: true })
+    expect(h.reserve).toHaveBeenCalledWith({ userId: "u1", keyId: "k1", kind: "afa", reference: "R", amount: 25 })
+    for (const bad of [async () => { throw new Error("x") }, async () => 0, async () => NaN]) {
+      const hb = hook({ kind: "reserved" })
+      expect(await guardSpend(hb, ctx("live"), "afa", "R", bad)).toMatchObject({ proceed: false, result: { status: 503 } })
+      expect(hb.reserve).not.toHaveBeenCalled()
+    }
+  })
   it("settleOwned settles only when owned", async () => {
     const h = hook({ kind: "reserved" })
     await settleOwned(h, false, ctx("live"), "data", "R", "spent")
