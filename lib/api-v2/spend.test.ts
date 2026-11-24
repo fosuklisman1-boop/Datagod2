@@ -86,6 +86,10 @@ describe("reserveSpend / settleSpend", () => {
     expect(await reserveSpend(rpcClient(() => { throw new Error("x") }).client, p)).toEqual({ kind: "error" })
     spy.mockRestore()
   })
+  it("an existing reserved/spent row maps to 'existing' (owned by another request: the caller must never settle it)", async () => {
+    expect(await reserveSpend(rpcClient({ data: { ok: true, ledger_id: "L", existing: true, state: "reserved" }, error: null }).client, p)).toEqual({ kind: "existing" })
+    expect(await reserveSpend(rpcClient({ data: { ok: true, ledger_id: "L", existing: true, state: "spent" }, error: null }).client, p)).toEqual({ kind: "existing" })
+  })
   it("passes the exact rpc arguments", async () => {
     const r = rpcClient({ data: { ok: true, ledger_id: "L" }, error: null })
     await reserveSpend(r.client, p)

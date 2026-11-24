@@ -66,7 +66,9 @@ AS $fn$
 DECLARE
   v_day date := (now() AT TIME ZONE 'UTC')::date;
   v_caps boolean;
+  v_amt numeric := round(p_amount, 2);
   v_existing uuid;
+  v_state text;
   v_key_cap numeric;
   v_user_cap numeric;
   v_key_sum numeric;
@@ -74,7 +76,7 @@ DECLARE
   v_id uuid;
 BEGIN
   IF p_user IS NULL OR p_key IS NULL OR p_reference IS NULL OR char_length(p_reference) NOT BETWEEN 1 AND 200
-     OR p_amount IS NULL OR p_amount <= 0 OR p_amount > 1000000
+     OR v_amt IS NULL OR v_amt <= 0 OR v_amt > 1000000
      OR p_kind IS NULL OR p_kind NOT IN ('data', 'data_bulk', 'airtime', 'bill', 'bundle', 'results', 'afa') THEN
     RETURN jsonb_build_object('ok', false, 'code', 'bad_input');
   END IF;
@@ -90,10 +92,12 @@ BEGIN
   -- One person's reserves run one at a time: parallel requests can never together pass a cap.
   PERFORM pg_advisory_xact_lock(hashtextextended('api_v2_spend:' || p_user::text, 0));
 
-  SELECT l.id INTO v_existing FROM public.api_v2_spend_ledger l
+  -- A reserved or spent row for this reference is handed back as `existing` (another request owns it: the caller must
+  -- never settle it). A RELEASED row is not a free pass: it is re-checked against the caps below and revived.
+  SELECT l.id, l.state INTO v_existing, v_state FROM public.api_v2_spend_ledger l
    WHERE l.key_id = p_key AND l.kind = p_kind AND l.reference = p_reference;
-  IF v_existing IS NOT NULL THEN
-    RETURN jsonb_build_object('ok', true, 'ledger_id', v_existing, 'existing', true);
+  IF v_existing IS NOT NULL AND v_state IN ('reserved', 'spent') THEN
+    RETURN jsonb_build_object('ok', true, 'ledger_id', v_existing, 'existing', true, 'state', v_state);
   END IF;
 
   SELECT c.daily_cap INTO v_key_cap FROM public.api_v2_spend_caps c WHERE c.scope = 'key' AND c.scope_id = p_key;
@@ -104,15 +108,23 @@ BEGIN
     FROM public.api_v2_spend_ledger l
    WHERE l.user_id = p_user AND l.day = v_day AND l.state IN ('reserved', 'spent');
 
-  IF v_key_cap IS NOT NULL AND v_key_sum + p_amount > v_key_cap THEN
+  IF v_key_cap IS NOT NULL AND v_key_sum + v_amt > v_key_cap THEN
     RETURN jsonb_build_object('ok', false, 'code', 'cap_reached', 'scope', 'key');
   END IF;
-  IF v_user_cap IS NOT NULL AND v_user_sum + p_amount > v_user_cap THEN
+  IF v_user_cap IS NOT NULL AND v_user_sum + v_amt > v_user_cap THEN
     RETURN jsonb_build_object('ok', false, 'code', 'cap_reached', 'scope', 'user');
   END IF;
 
+  IF v_existing IS NOT NULL THEN
+    -- revive a released row: it counts again from today, for this amount
+    UPDATE public.api_v2_spend_ledger
+       SET state = 'reserved', amount = v_amt, day = v_day, updated_at = now()
+     WHERE id = v_existing AND state = 'released';
+    RETURN jsonb_build_object('ok', true, 'ledger_id', v_existing);
+  END IF;
+
   INSERT INTO public.api_v2_spend_ledger(user_id, key_id, day, kind, reference, amount, state)
-  VALUES (p_user, p_key, v_day, p_kind, p_reference, round(p_amount, 2), 'reserved')
+  VALUES (p_user, p_key, v_day, p_kind, p_reference, v_amt, 'reserved')
   RETURNING id INTO v_id;
   RETURN jsonb_build_object('ok', true, 'ledger_id', v_id);
 END;
@@ -160,7 +172,7 @@ DECLARE
   v_old numeric;
 BEGIN
   IF p_actor IS NULL OR p_scope_id IS NULL OR p_scope IS NULL OR p_scope NOT IN ('key', 'user')
-     OR (p_cap IS NOT NULL AND (p_cap <= 0 OR p_cap > 1000000)) THEN
+     OR (p_cap IS NOT NULL AND (round(p_cap, 2) <= 0 OR p_cap > 1000000)) THEN
     RETURN jsonb_build_object('ok', false, 'code', 'bad_input');
   END IF;
   IF p_scope = 'key' THEN
@@ -223,8 +235,19 @@ BEGIN
   IF p_actor IS NULL OR (p_thresholds IS NOT NULL AND jsonb_typeof(p_thresholds) <> 'object') THEN
     RETURN jsonb_build_object('ok', false, 'code', 'bad_input');
   END IF;
+  -- Thresholds: only the known keys, each a positive number (a string or null would break or silence a risk signal).
+  IF p_thresholds IS NOT NULL AND EXISTS (
+       SELECT 1 FROM jsonb_each(p_thresholds) e
+        WHERE e.key NOT IN ('spike_multiplier', 'spike_min_ghs', 'new_key_hours', 'new_key_min_ghs', 'fanout_recipients',
+                            'fanout_minutes', 'cap_hits', 'cap_hits_minutes', 'failure_min_orders', 'failure_ratio', 'failure_minutes')
+           OR jsonb_typeof(e.value) <> 'number' OR (e.value)::text::numeric <= 0) THEN
+    RETURN jsonb_build_object('ok', false, 'code', 'bad_input');
+  END IF;
   SELECT s.caps_enabled, s.alerts_enabled, s.thresholds INTO v_old_caps, v_old_alerts, v_old_t
     FROM public.api_v2_money_settings s WHERE s.id = 1 FOR NO KEY UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'code', 'not_found');
+  END IF;
   v_new_caps := coalesce(p_caps, v_old_caps);
   v_new_alerts := coalesce(p_alerts, v_old_alerts);
   v_new_t := v_old_t || coalesce(p_thresholds, '{}'::jsonb);
@@ -250,7 +273,6 @@ LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = public, pg_temp
-SET statement_timeout = '10s'
 AS $fn$
 DECLARE
   v_day date := (now() AT TIME ZONE 'UTC')::date;
@@ -288,7 +310,6 @@ LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = public, pg_temp
-SET statement_timeout = '20s'
 AS $fn$
 DECLARE
   v_now timestamptz := coalesce(p_now, now());
@@ -328,15 +349,19 @@ BEGIN
     SELECT jsonb_agg(jsonb_build_object('user_id', y.user_id, 'signal', 'new_key_big_spend', 'bucket', v_day_start,
              'details', jsonb_build_object('key_age_hours', y.age_h, 'spent_ghs', y.spent)))
       FROM (
-        SELECT DISTINCT ON (k.user_id) k.user_id,
-               round(extract(epoch FROM (v_now - k.created_at)) / 3600.0, 1) AS age_h,
-               (SELECT coalesce(sum(o.price), 0) FROM public.api_orders o
-                 WHERE o.api_v2_key_id = k.id AND o.status NOT IN ('failed', 'refunded') AND o.created_at <= v_now) AS spent
-          FROM public.api_v2_keys k
-         WHERE k.environment = 'live' AND k.created_at > v_now - make_interval(hours => (t->>'new_key_hours')::int)
-         ORDER BY k.user_id, k.created_at DESC
+        -- the threshold is applied per key BEFORE picking one key per person, so a newer unspent key cannot hide it
+        SELECT DISTINCT ON (s.user_id) s.user_id, s.age_h, s.spent
+          FROM (
+            SELECT k.user_id,
+                   round(extract(epoch FROM (v_now - k.created_at)) / 3600.0, 1) AS age_h,
+                   (SELECT coalesce(sum(o.price), 0) FROM public.api_orders o
+                     WHERE o.api_v2_key_id = k.id AND o.status NOT IN ('failed', 'refunded') AND o.created_at <= v_now) AS spent
+              FROM public.api_v2_keys k
+             WHERE k.environment = 'live' AND k.created_at > v_now - make_interval(hours => (t->>'new_key_hours')::int)
+          ) s
+         WHERE s.spent > (t->>'new_key_min_ghs')::numeric
+         ORDER BY s.user_id, s.spent DESC
       ) y
-     WHERE y.spent > (t->>'new_key_min_ghs')::numeric
   ), '[]'::jsonb);
 
   -- recipient_fanout: more distinct recipients than the limit within fanout_minutes.

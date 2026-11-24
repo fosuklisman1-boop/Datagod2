@@ -263,6 +263,8 @@ describe.skipIf(!PGliteCtor)("0198 in PGlite", () => {
     expect((await reserve(db, u, k, "d", 10)).ok).toBe(true)
   }, 60_000)
 
+  // PGlite runs one statement at a time on one connection, so this is NOT a real race: it pins the arithmetic only.
+  // The lock itself is pinned by the text test above (lock before sum) and must be checked with two sessions in the dry run.
   it("concurrency: 20 reserves of 1.00 against a 10.00 cap leave exactly 10 reserved", async () => {
     const db = await fresh98({ caps: true })
     const u = await mkUser(db)
@@ -446,6 +448,85 @@ describe.skipIf(!PGliteCtor)("0198 in PGlite", () => {
     await db.exec(ins)
     expect((await one(db, "SELECT count(*)::int AS n FROM api_v2_risk_alerts")).n).toBe(1)
   }, 60_000)
+
+  // ---- review fixes (Task 1 gate) ----
+  it("C1: a released reference is re-checked against the cap and counted again; never handed back as 'existing'", async () => {
+    const db = await fresh98({ caps: true })
+    const u = await mkUser(db)
+    const k = await mkKey(db, u)
+    await capKey(db, k, 10)
+    await reserve(db, u, k, "R", 4)
+    await call(db, "api_v2_spend_settle", k, "airtime", "R", "released", null)
+    await reserve(db, u, k, "fill", 10)
+    expect(await reserve(db, u, k, "R", 4)).toEqual({ ok: false, code: "cap_reached", scope: "key" })
+    await call(db, "api_v2_spend_settle", k, "airtime", "fill", "released", null)
+    const again = await reserve(db, u, k, "R", 7)
+    expect(again.ok).toBe(true)
+    expect(again.existing).toBeUndefined()
+    const r = await one(db, "SELECT state, amount FROM api_v2_spend_ledger WHERE reference = 'R'")
+    expect(r.state).toBe("reserved")
+    expect(Number(r.amount)).toBe(7)
+    expect(await call(db, "api_v2_spend_settle", k, "airtime", "R", "spent", null)).toEqual({ ok: true, changed: true })
+  }, 60_000)
+
+  it("C1: an existing reserved or spent row comes back as existing with its state (the caller must not settle it)", async () => {
+    const db = await fresh98({ caps: true })
+    const u = await mkUser(db)
+    const k = await mkKey(db, u)
+    await reserve(db, u, k, "R", 4)
+    expect(await reserve(db, u, k, "R", 4)).toMatchObject({ ok: true, existing: true, state: "reserved" })
+    await call(db, "api_v2_spend_settle", k, "airtime", "R", "spent", null)
+    expect(await reserve(db, u, k, "R", 4)).toMatchObject({ ok: true, existing: true, state: "spent" })
+  }, 60_000)
+
+  it("I1: new_key_big_spend fires for an older new key even when the person has a newer unspent key", async () => {
+    const db = await fresh98({ alerts: true })
+    const u = await mkUser(db)
+    const older = await mkKey(db, u, { at: "now() - interval '2 hours'" })
+    await mkKey(db, u, { type: "commission", at: "now() - interval '1 hour'" })
+    await mkOrder(db, { user: u, key: older, price: 150 })
+    const sig = ((await call(db, "api_v2_risk_scan", null)) as any[]).filter((a) => a.user_id === u).map((a) => a.signal)
+    expect(sig).toContain("new_key_big_spend")
+  }, 60_000)
+
+  it("M1/M2: an amount or cap that rounds to 0.00 is bad_input, never a raised error", async () => {
+    const db = await fresh98({ caps: true })
+    const u = await mkUser(db)
+    const k = await mkKey(db, u)
+    expect(await reserve(db, u, k, "tiny", 0.004)).toEqual({ ok: false, code: "bad_input" })
+    expect(await call(db, "api_v2_set_spend_cap", "key", k, 0.001, u)).toEqual({ ok: false, code: "bad_input" })
+  }, 60_000)
+
+  it("M3/M4: settings row missing -> not_found; thresholds must be known keys with positive numbers", async () => {
+    const db = await fresh98()
+    expect(await call(db, "api_v2_set_money_settings", null, null, '{"cap_hits": "three"}', ACTOR)).toEqual({ ok: false, code: "bad_input" })
+    expect(await call(db, "api_v2_set_money_settings", null, null, '{"cap_hits": null}', ACTOR)).toEqual({ ok: false, code: "bad_input" })
+    expect(await call(db, "api_v2_set_money_settings", null, null, '{"made_up": 1}', ACTOR)).toEqual({ ok: false, code: "bad_input" })
+    expect(await call(db, "api_v2_set_money_settings", null, null, '{"cap_hits": 0}', ACTOR)).toEqual({ ok: false, code: "bad_input" })
+    expect(await call(db, "api_v2_set_money_settings", null, null, '{"cap_hits": 4}', ACTOR)).toEqual({ ok: true, changed: true })
+    await db.exec("DELETE FROM api_v2_money_settings")
+    expect(await call(db, "api_v2_set_money_settings", true, null, null, ACTOR)).toEqual({ ok: false, code: "not_found" })
+  }, 60_000)
+
+  it("M6: spend_spike boundaries: exactly the GHS 200 floor and exactly 3x the average do not fire", async () => {
+    const db = await fresh98({ alerts: true })
+    const spikes = async (u: string) => ((await call(db, "api_v2_risk_scan", null)) as any[]).filter((a) => a.user_id === u && a.signal === "spend_spike").length
+    const a = await mkUser(db)
+    const ak = await mkKey(db, a, { at: "now() - interval '30 days'" })
+    await mkOrder(db, { user: a, key: ak, price: 200 })
+    expect(await spikes(a)).toBe(0) // at the floor, no history
+    const b = await mkUser(db)
+    const bk = await mkKey(db, b, { at: "now() - interval '30 days'" })
+    for (let d = 1; d <= 7; d++) await mkOrder(db, { user: b, key: bk, price: 70, at: `now() - interval '${d} days'` })
+    await mkOrder(db, { user: b, key: bk, price: 210 })
+    expect(await spikes(b)).toBe(0) // exactly 3 x 70
+  }, 60_000)
+
+  it("I2: functions do not pretend to bound their own runtime (a function-level statement_timeout does not apply to the running call)", () => {
+    const c = code(migration())
+    const fns = c.slice(c.indexOf("CREATE OR REPLACE FUNCTION"), c.indexOf("CREATE TABLE IF NOT EXISTS"))
+    expect(fns).not.toMatch(/SET statement_timeout/)
+  })
 
   it("selftest: raises SELFTEST_OK 0198 and leaves no table or function behind", async () => {
     const db = await fresh()

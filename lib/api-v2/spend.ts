@@ -73,7 +73,17 @@ export function getMoneySettings(): ReturnType<typeof createMoneySettings> {
   return defaultSettings
 }
 
-export type ReserveResult = { kind: "skipped" } | { kind: "reserved" } | { kind: "cap"; scope: "key" | "user" } | { kind: "error" }
+/**
+ * `reserved`: this request owns the ledger row and MUST settle it (spent or released).
+ * `existing`: another request already owns a reserved/spent row for this reference: proceed, but NEVER settle it
+ * (settling would release or overwrite someone else's reservation).
+ */
+export type ReserveResult =
+  | { kind: "skipped" }
+  | { kind: "reserved" }
+  | { kind: "existing" }
+  | { kind: "cap"; scope: "key" | "user" }
+  | { kind: "error" }
 
 export async function reserveSpend(
   client: RpcClient,
@@ -91,8 +101,8 @@ export async function reserveSpend(
       console.error("[api-v2 spend] api_v2_spend_reserve", (res.error as { code?: string }).code ?? "unknown")
       return { kind: "error" }
     }
-    const d = (res.data ?? {}) as { ok?: unknown; skipped?: unknown; code?: unknown; scope?: unknown }
-    if (d.ok === true) return d.skipped === true ? { kind: "skipped" } : { kind: "reserved" }
+    const d = (res.data ?? {}) as { ok?: unknown; skipped?: unknown; existing?: unknown; code?: unknown; scope?: unknown }
+    if (d.ok === true) return d.skipped === true ? { kind: "skipped" } : d.existing === true ? { kind: "existing" } : { kind: "reserved" }
     if (d.code === "cap_reached" && (d.scope === "key" || d.scope === "user")) return { kind: "cap", scope: d.scope }
     console.error("[api-v2 spend] api_v2_spend_reserve", typeof d.code === "string" ? d.code : "unexpected")
     return { kind: "error" }
