@@ -1,24 +1,18 @@
 /**
- * Release 5 money protection on the request path: a 10 s snapshot of the money switches and thin wrappers around the
- * spend-ledger SQL (migration 0198). Only live keys with caps switched on ever reserve; with caps off nothing here calls
- * the database except the cached settings read.
+ * Release 5 money protection, SERVER side: a 10 s snapshot of the money switches, thin wrappers around the spend-ledger
+ * SQL (migration 0198) and the default hook the production deps wire in. The pure request-path guard lives in
+ * ./spend-guard.ts (browser-safe) and is re-exported here.
  *
  * Settings failure rules (same shape as controls.ts): a missing table means the migration is not applied, so caps are
  * off; any other read error keeps the last snapshot; with no snapshot yet the answer is "caps off" — the dark default,
  * never "everyone blocked".
  */
+import { createHash } from "node:crypto"
 import { getAdminClient, type SupabaseLike } from "./store"
 import type { RpcClient } from "./approvals"
-import type { V2Context } from "./handler"
-import { MSG_DAILY_LIMIT, MSG_DAILY_LIMIT_ADMIN } from "./access"
+import type { MoneySettings, ReserveResult, SpendHook, SpendKind } from "./spend-guard"
 
-export type SpendKind = "data" | "data_bulk" | "airtime" | "bill" | "bundle" | "results" | "afa"
-
-export interface MoneySettings {
-  capsEnabled: boolean
-  alertsEnabled: boolean
-  at: number
-}
+export * from "./spend-guard"
 
 export const MONEY_SETTINGS_TTL_MS = 10_000
 
@@ -73,17 +67,13 @@ export function getMoneySettings(): ReturnType<typeof createMoneySettings> {
   return defaultSettings
 }
 
-/**
- * `reserved`: this request owns the ledger row and MUST settle it (spent or released).
- * `existing`: another request already owns a reserved/spent row for this reference: proceed, but NEVER settle it
- * (settling would release or overwrite someone else's reservation).
- */
-export type ReserveResult =
-  | { kind: "skipped" }
-  | { kind: "reserved" }
-  | { kind: "existing" }
-  | { kind: "cap"; scope: "key" | "user" }
-  | { kind: "error" }
+const HASHED_BULK = /^bulk:[0-9a-f]{64}$/
+
+/** A data_bulk reference reaches the ledger as bulk:<sha256> (stable, <= 200 characters); other kinds pass through. */
+export function ledgerReference(kind: SpendKind, reference: string): string {
+  if (kind !== "data_bulk" || HASHED_BULK.test(reference)) return reference
+  return "bulk:" + createHash("sha256").update(reference, "utf8").digest("hex")
+}
 
 export async function reserveSpend(
   client: RpcClient,
@@ -94,7 +84,7 @@ export async function reserveSpend(
       p_user: p.userId,
       p_key: p.keyId,
       p_kind: p.kind,
-      p_reference: p.reference,
+      p_reference: ledgerReference(p.kind, p.reference),
       p_amount: p.amount,
     })
     if (res.error) {
@@ -121,7 +111,7 @@ export async function settleSpend(
     const res = await client.rpc("api_v2_spend_settle", {
       p_key: p.keyId,
       p_kind: p.kind,
-      p_reference: p.reference,
+      p_reference: ledgerReference(p.kind, p.reference),
       p_state: p.state,
       p_amount: p.amount ?? null,
     })
@@ -131,96 +121,10 @@ export async function settleSpend(
   }
 }
 
-export function capMessage(scope: "key" | "user"): string {
-  return scope === "user" ? MSG_DAILY_LIMIT_ADMIN : MSG_DAILY_LIMIT
-}
-
-// ---------------------------------------------------------------- request-path helpers (Tasks 3 and 4)
-
-/** What an endpoint needs; injected through each endpoint's Deps so tests never touch the database. */
-export interface SpendHook {
-  settings(): Promise<MoneySettings>
-  reserve(p: { userId: string; keyId: string; kind: SpendKind; reference: string; amount: number }): Promise<ReserveResult>
-  settle(p: { keyId: string; kind: SpendKind; reference: string; state: "spent" | "released"; amount?: number }): Promise<void>
-}
-
 export function defaultSpendHook(): SpendHook {
   return {
     settings: () => getMoneySettings().read(),
     reserve: (p) => reserveSpend(getAdminClient() as unknown as RpcClient, p),
     settle: (p) => settleSpend(getAdminClient() as unknown as RpcClient, p),
   }
-}
-
-export type GuardResult = { proceed: true; owned: boolean } | { proceed: false; result: { status: 402 | 503; error: { status: 402 | 503; message: string } } }
-
-const SPEND_UNAVAILABLE = "UNAVAILABLE: the daily spending limit could not be checked; nothing was charged. Retry with the same reference"
-
-/**
- * Before anything that can charge. `owned: true` means this request holds the reservation and MUST settle it.
- * Live keys only, caps on only; a settings failure reads as caps off (never blocks). A refused request has charged
- * nothing; the caller releases its claim (commission) before returning the result.
- */
-export async function guardSpend(
-  hook: SpendHook | undefined,
-  ctx: V2Context,
-  kind: SpendKind,
-  reference: string,
-  /** A number, or a reader called only when caps are on for a live key (so caps-off adds no query). */
-  amountOrRead: number | (() => Promise<number>),
-): Promise<GuardResult> {
-  if (!hook || ctx.environment !== "live") return { proceed: true, owned: false }
-  let settings: MoneySettings
-  try {
-    settings = await hook.settings()
-  } catch {
-    return { proceed: true, owned: false }
-  }
-  if (!spendGuard(ctx, settings)) return { proceed: true, owned: false }
-  let amount: number
-  try {
-    amount = typeof amountOrRead === "number" ? amountOrRead : await amountOrRead()
-  } catch {
-    amount = NaN
-  }
-  if (!Number.isFinite(amount) || amount <= 0) {
-    return { proceed: false, result: { status: 503, error: { status: 503, message: SPEND_UNAVAILABLE } } }
-  }
-  const r = await hook.reserve({ userId: ctx.userId, keyId: ctx.keyId, kind, reference, amount })
-  switch (r.kind) {
-    case "reserved":
-      return { proceed: true, owned: true }
-    case "existing":
-    case "skipped":
-      return { proceed: true, owned: false }
-    case "cap": {
-      const message = capMessage(r.scope)
-      return { proceed: false, result: { status: 402, error: { status: 402, message } } }
-    }
-    default:
-      return { proceed: false, result: { status: 503, error: { status: 503, message: SPEND_UNAVAILABLE } } }
-  }
-}
-
-/** Settles only a reservation this request owns (never someone else's `existing` row). Never throws. */
-export async function settleOwned(
-  hook: SpendHook | undefined,
-  owned: boolean,
-  ctx: V2Context,
-  kind: SpendKind,
-  reference: string,
-  state: "spent" | "released",
-  amount?: number,
-): Promise<void> {
-  if (!hook || !owned) return
-  try {
-    await hook.settle({ keyId: ctx.keyId, kind, reference, state, ...(amount !== undefined ? { amount } : {}) })
-  } catch {
-    // a failed settle leaves the row reserved (counted): the safe side
-  }
-}
-
-/** True only for live keys while caps are switched on. Test keys never reserve. */
-export function spendGuard(ctx: V2Context, settings: MoneySettings): boolean {
-  return ctx.environment === "live" && settings.capsEnabled
 }

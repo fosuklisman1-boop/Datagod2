@@ -48,6 +48,8 @@ import {
   type PlaceResult,
 } from "../order-store"
 import type { FulfillmentTarget } from "../fulfillment"
+// Browser-safe on purpose: the docs registry (client components) imports values from this file.
+import { bulkReference, guardSpend, settleOwned, type GuardResult, type SpendHook } from "../spend-guard"
 
 // ---------------------------------------------------------------- deps
 
@@ -130,7 +132,11 @@ export interface DataDeps {
    */
   scheduleBatch(targets: FulfillmentTarget[]): void
   now(): Date
+  /** Release 5 daily spending limit (absent in unit tests that do not exercise it). */
+  spend?: SpendHook
 }
+
+const NO_SPEND: GuardResult = { proceed: true, owned: false }
 
 // ---------------------------------------------------------------- messages
 
@@ -421,23 +427,34 @@ async function livePurchase(deps: DataDeps, input: PurchaseInput, ctx: V2Context
     if (verdicts.get(input.local) === false && (await safeBlocking(deps))) return fail(409, await notRegisteredMessage(deps))
   }
 
+  // 4b. Daily spending limit (live, caps on): the server-side price is reserved before anything can charge.
+  const spend = deps.spend ? await guardSpend(deps.spend, ctx, "data", input.reference, p.price) : NO_SPEND
+  if (!spend.proceed) return spend.result
+
   // 5. Atomic placement.
   const res = await deps.store.placeV2Order(placeParams(ctx, p))
   if (!res.ok) {
     switch (res.code) {
       case "INSUFFICIENT_BALANCE":
+        await settleOwned(deps.spend, spend.owned, ctx, "data", input.reference, "released")
         return fail(402, insufficient(res.required ?? p.price, false))
       case "WALLET_NOT_FOUND":
+        await settleOwned(deps.spend, spend.owned, ctx, "data", input.reference, "released")
         return fail(402, insufficient(p.price, false))
       case "REFERENCE_REUSED":
+        await settleOwned(deps.spend, spend.owned, ctx, "data", input.reference, "released")
         return fail(409, MSG_REFERENCE_REUSED)
       default:
+        // unknown outcome: the reservation stays counted (the safe side)
         return fail(500, MSG_ORDER_FAILED)
     }
   }
   if (res.replayed) {
+    // the order existed before: this request charged nothing
+    await settleOwned(deps.spend, spend.owned, ctx, "data", input.reference, "released")
     return ok(200, { order: await liveReplayOrder(deps, ctx, p, res), replayed: true })
   }
+  await settleOwned(deps.spend, spend.owned, ctx, "data", input.reference, "spent")
 
   // 6. Only a NEW placement dispatches, exactly once.
   deps.schedule(target(res.orderId, input))
@@ -628,6 +645,11 @@ async function liveBulk(deps: DataDeps, items: PurchaseInput[], ctx: V2Context, 
     if (balance === null || cents(balance) < neededCents) return fail(402, insufficient(neededCents / 100, false))
   }
 
+  // 6b. Daily spending limit (live, caps on): one reservation for the new items' total, before any placement.
+  const bulkRef = bulkReference([...toPlace].flatMap((s) => (s.kind === "new" ? [s.p.input.reference] : [])))
+  const spend = deps.spend && neededCents > 0 ? await guardSpend(deps.spend, ctx, "data_bulk", bulkRef, neededCents / 100) : NO_SPEND
+  if (!spend.proceed) return spend.result
+
   // 7. Sequential placement; a failure marks the item and the batch continues.
   //    Past the deadline no new placement STARTS (NOT_ATTEMPTED).
   //    NEW placements are collected and dispatched ONCE after the loop (one
@@ -668,6 +690,8 @@ async function liveBulk(deps: DataDeps, items: PurchaseInput[], ctx: V2Context, 
   } finally {
     if (placed.length > 0) deps.scheduleBatch(placed)
   }
+  // Normal completion only (a throw above leaves the reservation counted): settle with what was actually charged.
+  await settleOwned(deps.spend, spend.owned, ctx, "data_bulk", bulkRef, chargedCents > 0 ? "spent" : "released", chargedCents > 0 ? chargedCents / 100 : undefined)
 
   return ok(200, { results, skipped, total_charged: chargedCents / 100 })
 }

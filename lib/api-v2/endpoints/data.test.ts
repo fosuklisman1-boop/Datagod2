@@ -1592,3 +1592,111 @@ describe("sandbox failure numbers", () => {
     for (const f of Object.values(d.sandbox)) expect(f).not.toHaveBeenCalled()
   })
 })
+
+// ---------------------------------------------------------------- Release 5: daily spending limit
+
+describe("data purchases (live): daily spending limit", () => {
+  const spendHook = (reserve: { kind: string; scope?: "key" | "user" }, caps = true) => ({
+    settings: vi.fn(async () => ({ capsEnabled: caps, alertsEnabled: false, at: 0 })),
+    reserve: vi.fn(async () => reserve as any),
+    settle: vi.fn(async () => {}),
+  })
+  const withSpend = (h: ReturnType<typeof spendHook>) => Object.assign(makeDeps(), { spend: h })
+
+  it("single: caps off / test key -> no reserve", async () => {
+    const off = spendHook({ kind: "reserved" }, false)
+    await purchaseHandler(withSpend(off))(body(), LIVE)
+    expect(off.reserve).not.toHaveBeenCalled()
+    const on = spendHook({ kind: "reserved" })
+    await purchaseHandler(withSpend(on))(body(), TEST)
+    expect(on.reserve).not.toHaveBeenCalled()
+  })
+  it("single: reserves the server-side price before placing; placed -> settle spent", async () => {
+    const h = spendHook({ kind: "reserved" })
+    const d = withSpend(h)
+    const r = await purchaseHandler(d)(body(), LIVE)
+    expect(r.status).toBe(201)
+    expect(h.reserve).toHaveBeenCalledWith({ userId: "user-1", keyId: "key-live-1", kind: "data", reference: "REF-001", amount: 8 })
+    expect(h.settle).toHaveBeenCalledWith({ keyId: "key-live-1", kind: "data", reference: "REF-001", state: "spent" })
+  })
+  it("single: cap -> 402, placeV2Order never called; reserve error -> 503, nothing placed", async () => {
+    const d = withSpend(spendHook({ kind: "cap", scope: "key" }))
+    const r = await purchaseHandler(d)(body(), LIVE)
+    expect(r.status).toBe(402)
+    expect((r as any).error.message).toMatch(/^DAILY_LIMIT_REACHED: /)
+    expectNoMoney(d)
+    const e = withSpend(spendHook({ kind: "error" }))
+    expect((await purchaseHandler(e)(body(), LIVE)).status).toBe(503)
+    expectNoMoney(e)
+  })
+  it("single: INSUFFICIENT_BALANCE -> released; replayed -> released; unknown code -> no settle; existing -> never settles", async () => {
+    const a = spendHook({ kind: "reserved" })
+    const da = withSpend(a)
+    da.store.placeV2Order.mockResolvedValueOnce({ ok: false, code: "INSUFFICIENT_BALANCE", required: 8 } as any)
+    await purchaseHandler(da)(body(), LIVE)
+    expect(a.settle).toHaveBeenCalledWith({ keyId: "key-live-1", kind: "data", reference: "REF-001", state: "released" })
+    const b = spendHook({ kind: "reserved" })
+    const db = withSpend(b)
+    db.store.placeV2Order.mockResolvedValueOnce({ ...placedOk("REF-001"), replayed: true } as any)
+    await purchaseHandler(db)(body(), LIVE)
+    expect(b.settle).toHaveBeenCalledWith({ keyId: "key-live-1", kind: "data", reference: "REF-001", state: "released" })
+    const c = spendHook({ kind: "reserved" })
+    const dc = withSpend(c)
+    dc.store.placeV2Order.mockResolvedValueOnce({ ok: false, code: "FAILED" } as any)
+    await purchaseHandler(dc)(body(), LIVE)
+    expect(c.settle).not.toHaveBeenCalled()
+    const x = spendHook({ kind: "existing" })
+    await purchaseHandler(withSpend(x))(body(), LIVE)
+    expect(x.settle).not.toHaveBeenCalled()
+  })
+  it("bulk: one reserve of the new items' total after the balance check; under cap -> settle spent with the placed total", async () => {
+    const h = spendHook({ kind: "reserved" })
+    const d = withSpend(h)
+    const r = await bulkHandler(d)({ orders: [item(0), item(1)] }, LIVE)
+    expect(r.status).toBe(200)
+    expect(h.reserve).toHaveBeenCalledTimes(1)
+    const call = (h.reserve.mock.calls[0] as any[])[0]
+    expect(call).toMatchObject({ userId: "user-1", keyId: "key-live-1", kind: "data_bulk", amount: 16 })
+    // raw form; the server hook hashes it to bulk:<sha256> (lib/api-v2/spend.ts ledgerReference)
+    expect(call.reference).toBe("bulk:BULK-0\nBULK-1")
+    expect(h.settle).toHaveBeenCalledWith({ keyId: "key-live-1", kind: "data_bulk", reference: call.reference, state: "spent", amount: 16 })
+  })
+  it("bulk: the reference hash is stable for the same new references in any order", async () => {
+    const h1 = spendHook({ kind: "reserved" })
+    await bulkHandler(withSpend(h1))({ orders: [item(0), item(1)] }, LIVE)
+    const h2 = spendHook({ kind: "reserved" })
+    await bulkHandler(withSpend(h2))({ orders: [item(1), item(0)] }, LIVE)
+    expect((h1.reserve.mock.calls[0] as any[])[0].reference).toBe((h2.reserve.mock.calls[0] as any[])[0].reference)
+  })
+  it("bulk: cap on the batch -> 402 before any placement", async () => {
+    const d = withSpend(spendHook({ kind: "cap", scope: "user" }))
+    const r = await bulkHandler(d)({ orders: [item(0), item(1)] }, LIVE)
+    expect(r.status).toBe(402)
+    expectNoMoney(d)
+  })
+  it("bulk: one placed and one failed -> spent with the placed total; nothing placed -> released", async () => {
+    const h = spendHook({ kind: "reserved" })
+    const d = withSpend(h)
+    d.store.placeV2Order.mockImplementationOnce(async (p: PlaceParams) => placedOk(p.reference))
+    d.store.placeV2Order.mockImplementationOnce(async () => ({ ok: false, code: "FAILED" }) as any)
+    await bulkHandler(d)({ orders: [item(0), item(1)] }, LIVE)
+    expect(h.settle).toHaveBeenLastCalledWith(expect.objectContaining({ state: "spent", amount: 8 }))
+    const h2 = spendHook({ kind: "reserved" })
+    const d2 = withSpend(h2)
+    d2.store.placeV2Order.mockResolvedValue({ ok: false, code: "INSUFFICIENT_BALANCE" } as any)
+    await bulkHandler(d2)({ orders: [item(0), item(1)] }, LIVE)
+    expect(h2.settle).toHaveBeenLastCalledWith(expect.objectContaining({ state: "released" }))
+  })
+  it("bulk: an all-replay batch never reserves", async () => {
+    const h = spendHook({ kind: "reserved" })
+    const d = withSpend(h)
+    d.store.getOrdersByReferences.mockResolvedValueOnce(
+      new Map([
+        ["BULK-0", row({ api_reference: "BULK-0", recipient_phone: item(0).recipient } as any)],
+        ["BULK-1", row({ api_reference: "BULK-1", recipient_phone: item(1).recipient } as any)],
+      ]) as any,
+    )
+    await bulkHandler(d)({ orders: [item(0), item(1)] }, LIVE)
+    expect(h.reserve).not.toHaveBeenCalled()
+  })
+})

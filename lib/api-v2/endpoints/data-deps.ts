@@ -4,6 +4,7 @@
  * the pure handlers never load them.
  */
 import { getAdminClient } from "../store"
+import { defaultSpendHook } from "../spend"
 import {
   getOrderByReference,
   getOrdersByReferences,
@@ -104,6 +105,7 @@ export function realDataDeps(): DataDeps {
     schedule: (o) => scheduleFulfillment(o, after),
     scheduleBatch: (targets) => scheduleFulfillmentBatch(targets, { concurrency: BULK_DISPATCH_CONCURRENCY }, after),
     now: () => new Date(),
+    spend: defaultSpendHook(),
   }
 }
 

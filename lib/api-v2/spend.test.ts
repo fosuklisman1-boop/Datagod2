@@ -90,13 +90,26 @@ describe("reserveSpend / settleSpend", () => {
     expect(await reserveSpend(rpcClient({ data: { ok: true, ledger_id: "L", existing: true, state: "reserved" }, error: null }).client, p)).toEqual({ kind: "existing" })
     expect(await reserveSpend(rpcClient({ data: { ok: true, ledger_id: "L", existing: true, state: "spent" }, error: null }).client, p)).toEqual({ kind: "existing" })
   })
+  it("a raw data_bulk reference is hashed to bulk:<sha256> for both reserve and settle; other kinds pass through", async () => {
+    const r = rpcClient({ data: { ok: true, ledger_id: "L" }, error: null })
+    const raw = "bulk:BULK-0\nBULK-1"
+    await reserveSpend(r.client, { ...p, kind: "data_bulk", reference: raw })
+    const sent = (r.rpc.mock.calls[0] as any[])[1].p_reference as string
+    expect(sent).toMatch(/^bulk:[0-9a-f]{64}$/)
+    const s = rpcClient({ data: { ok: true, changed: true }, error: null })
+    await settleSpend(s.client, { keyId: "k1", kind: "data_bulk", reference: raw, state: "spent" })
+    expect((s.rpc.mock.calls[0] as any[])[1].p_reference).toBe(sent)
+    const a = rpcClient({ data: { ok: true, ledger_id: "L" }, error: null })
+    await reserveSpend(a.client, p)
+    expect((a.rpc.mock.calls[0] as any[])[1].p_reference).toBe("ref-1")
+  })
   it("passes the exact rpc arguments", async () => {
     const r = rpcClient({ data: { ok: true, ledger_id: "L" }, error: null })
     await reserveSpend(r.client, p)
     expect(r.rpc).toHaveBeenCalledWith("api_v2_spend_reserve", { p_user: "u1", p_key: "k1", p_kind: "airtime", p_reference: "ref-1", p_amount: 12.5 })
     const s = rpcClient({ data: { ok: true, changed: true }, error: null })
-    await settleSpend(s.client, { keyId: "k1", kind: "data_bulk", reference: "b", state: "spent", amount: 4 })
-    expect(s.rpc).toHaveBeenCalledWith("api_v2_spend_settle", { p_key: "k1", p_kind: "data_bulk", p_reference: "b", p_state: "spent", p_amount: 4 })
+    await settleSpend(s.client, { keyId: "k1", kind: "data", reference: "b", state: "spent", amount: 4 })
+    expect(s.rpc).toHaveBeenCalledWith("api_v2_spend_settle", { p_key: "k1", p_kind: "data", p_reference: "b", p_state: "spent", p_amount: 4 })
   })
   it("settleSpend swallows errors and logs only the function name and code", async () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {})
