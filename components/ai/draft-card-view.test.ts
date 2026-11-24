@@ -315,6 +315,12 @@ describe("admin_route cards", () => {
     expect(v.showConfirm).toBe(true)
   })
 
+  it("passes long multi-line values through unclipped", () => {
+    const value = `${"line one ".repeat(300)}\nsecond line\nhttp://tail.example`
+    const v = adminView({ lines: [{ label: "Message", value }] })
+    expect(v.lines[0].value).toBe(value)
+  })
+
   it("danger is red with the exact irreversible line", () => {
     const v = adminView({ risk: "danger" })
     expect(v.risk).toBe("danger")

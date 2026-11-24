@@ -10,12 +10,13 @@ import type { PrepareAdminCtx } from "./prepare-admin"
 // the confirm side runs the stored request after the admin taps Confirm. Card text comes only from entry.card(), never
 // from model text. No names, phones, emails or secrets go to logs.
 
-const MAX_LINES = 12
-const MAX_VALUE = 200
+// A card must never hide text that will be sent: nothing is clipped or dropped. Anything over a limit is refused.
+const MAX_LINES = 40
+const MAX_VALUE = 6000
+const MAX_SUMMARY = 500
+const TOO_LARGE = "This change is too large to show on a card. Use the page."
 
 const refuse = (code: string, message: string): DraftToolResult => ({ refused: true, code, message })
-
-const clip = (s: string) => (s.length > MAX_VALUE ? `${s.slice(0, MAX_VALUE - 1)}…` : s)
 
 export async function prepareAdminRouteCall(
   db: SupabaseClient,
@@ -44,16 +45,23 @@ export async function prepareAdminRouteCall(
     return refuse("card_error", "The confirmation card could not be built. Check the input and try again.")
   }
 
-  const lines: CardLine[] = (Array.isArray(card.lines) ? card.lines : [])
-    .slice(0, MAX_LINES)
-    .map((l) => ({ label: clip(String(l.label)), value: clip(String(l.value)) }))
+  const rawLines = Array.isArray(card.lines) ? card.lines : []
+  const lines: CardLine[] = rawLines.map((l) => ({ label: String(l.label), value: String(l.value) }))
+  const summary = String(card.summary)
+  if (
+    lines.length > MAX_LINES ||
+    summary.length > MAX_SUMMARY ||
+    lines.some((l) => l.value.length > MAX_VALUE || l.label.length > MAX_SUMMARY)
+  ) {
+    return refuse("card_too_large", TOO_LARGE)
+  }
 
   const display: Record<string, unknown> = {
     kind: "admin_route",
     entryId: entry.id,
     page: entry.page,
     pageTitle: entry.pageTitle,
-    summary: clip(String(card.summary)),
+    summary,
     lines,
     risk: entry.risk,
     secretFields: entry.secretFields ?? [],

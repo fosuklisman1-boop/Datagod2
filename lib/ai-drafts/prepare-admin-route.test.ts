@@ -134,22 +134,63 @@ describe("prepareAdminRouteCall", () => {
     })
   })
 
-  it("caps lines at 12 and values at 200 chars", async () => {
+  it("shows a 5000-char message in full, never clipped", async () => {
+    const msg = "m".repeat(4990) + "http://evil"
+    entries.map.set(
+      "x",
+      entry({ id: "x", card: async () => ({ summary: "s", lines: [{ label: "Message", value: msg }] }) }),
+    )
+    const r: any = await prepareAdminRouteCall(db, ctx, "x", { body: { text: "a" } })
+    expect(r.draft_id).toBe("d-1")
+    expect(createDraftMock.fn.mock.calls[0][1].display.lines[0].value).toBe(msg)
+  })
+
+  it("accepts exactly 40 lines and a 6000-char value", async () => {
     entries.map.set(
       "x",
       entry({
         id: "x",
         card: async () => ({
           summary: "s",
-          lines: Array.from({ length: 20 }, (_, i) => ({ label: `L${i}`, value: "v".repeat(300) })),
+          lines: Array.from({ length: 40 }, (_, i) => ({ label: `L${i}`, value: i === 0 ? "v".repeat(6000) : "v" })),
         }),
       }),
     )
-    await prepareAdminRouteCall(db, ctx, "x", { body: { text: "a" } })
-    const lines = createDraftMock.fn.mock.calls[0][1].display.lines
-    expect(lines).toHaveLength(12)
-    expect(lines[0].value).toHaveLength(200)
-    expect(lines[0].value.endsWith("…")).toBe(true)
+    const r: any = await prepareAdminRouteCall(db, ctx, "x", { body: { text: "a" } })
+    expect(r.draft_id).toBe("d-1")
+    expect(createDraftMock.fn.mock.calls[0][1].display.lines).toHaveLength(40)
+  })
+
+  const TOO_LARGE = "This change is too large to show on a card. Use the page."
+
+  it("refuses card_too_large for 41 lines, storing nothing", async () => {
+    entries.map.set(
+      "x",
+      entry({
+        id: "x",
+        card: async () => ({ summary: "s", lines: Array.from({ length: 41 }, (_, i) => ({ label: `L${i}`, value: "v" })) }),
+      }),
+    )
+    const r: any = await prepareAdminRouteCall(db, ctx, "x", { body: { text: "a" } })
+    expect(r).toMatchObject({ refused: true, code: "card_too_large", message: TOO_LARGE })
+    expect(createDraftMock.fn).not.toHaveBeenCalled()
+  })
+
+  it("refuses card_too_large for a 6001-char value, storing nothing", async () => {
+    entries.map.set(
+      "x",
+      entry({ id: "x", card: async () => ({ summary: "s", lines: [{ label: "L", value: "v".repeat(6001) }] }) }),
+    )
+    const r: any = await prepareAdminRouteCall(db, ctx, "x", { body: { text: "a" } })
+    expect(r).toMatchObject({ refused: true, code: "card_too_large", message: TOO_LARGE })
+    expect(createDraftMock.fn).not.toHaveBeenCalled()
+  })
+
+  it("refuses card_too_large for a summary over 500 chars", async () => {
+    entries.map.set("x", entry({ id: "x", card: async () => ({ summary: "s".repeat(501), lines: [] }) }))
+    const r: any = await prepareAdminRouteCall(db, ctx, "x", { body: { text: "a" } })
+    expect(r.code).toBe("card_too_large")
+    expect(createDraftMock.fn).not.toHaveBeenCalled()
   })
 
   it("refuses card_error when card() throws, storing nothing", async () => {

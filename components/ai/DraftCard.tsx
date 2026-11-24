@@ -214,7 +214,7 @@ export function DraftCard({ draftId, initial, getToken, onPrepareAgain }: DraftC
           {view.lines.map((l, i) => (
             <div key={i} className="flex justify-between gap-3">
               <dt className="text-muted-foreground">{l.label}</dt>
-              <dd className="text-right font-medium break-words">{l.value}</dd>
+              <dd className="max-h-64 min-w-0 overflow-y-auto whitespace-pre-wrap break-words text-right font-medium">{l.value}</dd>
             </div>
           ))}
         </dl>

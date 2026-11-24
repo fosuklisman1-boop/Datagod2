@@ -7,7 +7,7 @@ import { AIChatContext } from "@/lib/ai-tools"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
 import { resolveProviderForContext } from "@/lib/ai-providers"
-import { loadAIConfig } from "@/lib/ai-console/load-config"
+import { loadAIConfigChecked } from "@/lib/ai-console/load-config"
 import { audienceForContext, maxIterationsFor, resolveAssistantSettings } from "@/lib/ai-console/settings"
 import { runAgenticLoop } from "@/lib/ai-agentic-loop"
 import { resolveCustomDomain } from "@/lib/custom-domain-lookup"
@@ -203,7 +203,7 @@ export async function POST(req: NextRequest) {
   const lastUserMsg = [...messages].reverse().find((m) => m.role === "user")
   const transcriptUserText = typeof lastUserMsg?.content === "string" ? lastUserMsg.content : ""
 
-  const [aiConfig, ussdDialCode, guestPurchaseUrl, communityLink] = await Promise.all([loadAIConfig(supabaseAdmin), loadUssdDialCode(), loadGuestPurchaseUrl(), loadCommunityLink()])
+  const [{ config: aiConfig, failed: aiConfigFailed }, ussdDialCode, guestPurchaseUrl, communityLink] = await Promise.all([loadAIConfigChecked(supabaseAdmin), loadUssdDialCode(), loadGuestPurchaseUrl(), loadCommunityLink()])
   const channelNote = communityLink
     ? `\nUPDATES CHANNEL: our WhatsApp channel for updates, new bundles & deals is ${communityLink}. Share it (as a plain URL) when someone asks about updates/promos or wants to stay in the loop.`
     : ""
@@ -266,6 +266,12 @@ export async function POST(req: NextRequest) {
       JSON.stringify({ error: "Admin access required" }),
       { status: 403, headers: { "Content-Type": "application/json" } }
     )
+  }
+
+  // A failed settings read must not silently turn the admin catalog switch OFF (that would restore the old card-less
+  // acting tools). Admin chat answers "unavailable" and calls no model or tool. Other contexts keep the defaults.
+  if (context === "admin" && aiConfigFailed) {
+    return fixedTextStream("AI is temporarily unavailable. Please try again shortly.")
   }
 
   // ── Assistant audience switch (admin console) ─────────────────────────────
