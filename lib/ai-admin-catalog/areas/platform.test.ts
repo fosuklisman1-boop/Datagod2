@@ -33,6 +33,17 @@ const CATALOGUED = [
   "GET /api/admin/api-v2/logs",
   "GET /api/admin/api-v2/stats",
   "GET /api/admin/api-v2/stuck",
+  "GET /api/admin/api-v2/announcements",
+  "POST /api/admin/api-v2/announcements",
+  "PUT /api/admin/api-v2/announcements/:id",
+  "DELETE /api/admin/api-v2/announcements/:id",
+  "GET /api/admin/api-v2/developers",
+  "GET /api/admin/api-v2/developers/:userId",
+  "POST /api/admin/api-v2/developers/:userId/pause",
+  "GET /api/admin/api-v2/report",
+  "GET /api/admin/api-v2/services",
+  "PUT /api/admin/api-v2/services/:service",
+  "GET /api/admin/api-v2/trend",
   "GET /api/admin/api-v1/retirement",
   "PUT /api/admin/api-v1/retirement",
   "GET /api/admin/api-keys",
@@ -72,7 +83,7 @@ const EXCLUDED_HERE = ["POST /api/admin/api-v1/retirement/notify"]
 describe("platform catalog coverage", () => {
   it("catalogues exactly the listed routes, registered in CATALOG, none pending or excluded", () => {
     expect(PLATFORM_ENTRIES.map((e) => key(e.method, e.path)).sort()).toEqual([...CATALOGUED].sort())
-    expect(CATALOGUED.length).toBe(45)
+    expect(CATALOGUED.length).toBe(56)
     for (const k of CATALOGUED) {
       expect(PENDING, k).not.toContain(k)
       expect(CATALOG.map((e) => key(e.method, e.path)), k).toContain(k)
@@ -163,6 +174,7 @@ describe("platform catalog rules", () => {
     const rank: Record<Risk, number> = { normal: 0, money: 1, danger: 2 }
     const danger = [
       "POST /api/admin/api-v2/approvals/:id", "PUT /api/admin/api-v2/config", "DELETE /api/admin/api-v2/grants/:userId", "PATCH /api/admin/api-v2/keys/:id",
+      "POST /api/admin/api-v2/developers/:userId/pause", "PUT /api/admin/api-v2/services/:service", "DELETE /api/admin/api-v2/announcements/:id",
       "PUT /api/admin/api-v1/retirement", "PATCH /api/admin/api-keys", "DELETE /api/admin/api-keys", "POST /api/admin/api-keys/global-kill",
       "POST /api/admin/leaderboard/config", "POST /api/admin/leaderboard/close", "POST /api/admin/leaderboard/prizes/:id/cancel",
       "POST /api/admin/scheduled-tasks", "PATCH /api/admin/scheduled-tasks/:id", "DELETE /api/admin/scheduled-tasks/:id",
@@ -683,5 +695,66 @@ describe("platform cards", () => {
     ].join("\n")
     expect(all).not.toContain(SECRET_HASH)
     expect(all).not.toContain(SECRET_PREFIX)
+  })
+})
+
+describe("api v2 admin console entries (merged from main)", () => {
+  const ann = { title: "Planned maintenance", body: "We pause purchases at 02:00. See https://status.example/x", severity: "warning", startsAt: "2026-12-01T01:00:00.000Z", endsAt: "2026-12-01T03:00:00.000Z" }
+
+  it("schemas mirror the handlers and reject unknown keys", () => {
+    const create = byKey("POST /api/admin/api-v2/announcements").body!
+    expect(create.safeParse(ann).success).toBe(true)
+    expect(create.safeParse({ ...ann, severity: "urgent" }).success).toBe(false)
+    expect(create.safeParse({ ...ann, title: "x".repeat(81) }).success).toBe(false)
+    expect(create.safeParse({ ...ann, body: "x".repeat(1001) }).success).toBe(false)
+    expect(create.safeParse({ ...ann, startsAt: "tomorrow" }).success).toBe(false)
+    expect(byKey("POST /api/admin/api-v2/developers/:userId/pause").body!.safeParse({ paused: true, reason: "Abuse" }).success).toBe(true)
+    expect(byKey("POST /api/admin/api-v2/developers/:userId/pause").body!.safeParse({ paused: "yes" }).success).toBe(false)
+    expect(byKey("PUT /api/admin/api-v2/services/:service").body!.safeParse({ paused: true, message: null }).success).toBe(true)
+    expect(byKey("GET /api/admin/api-v2/trend").query!.safeParse({ days: 90 }).success).toBe(true)
+    expect(byKey("GET /api/admin/api-v2/trend").query!.safeParse({ days: 14 }).success).toBe(false)
+    expect(byKey("GET /api/admin/api-v2/report").query!.safeParse({ format: "csv" }).success).toBe(false)
+    expect(byKey("GET /api/admin/api-v2/report").query!.safeParse({ from: "2026-11-01", to: "2026-11-30", by: "month" }).success).toBe(true)
+  })
+
+  it("the report lookup keeps no cost or profit figures", () => {
+    expect(byKey("GET /api/admin/api-v2/report").resultKeep!.join("|")).not.toMatch(/cost|profit/i)
+    expect(byKey("GET /api/admin/api-v2/developers/:userId").resultKeep!.join("|")).not.toMatch(/prefix|phone/i)
+  })
+
+  it("an announcement card shows the FULL text, severity and dates, and refuses an end before the start", async () => {
+    const t = await card("POST /api/admin/api-v2/announcements", { body: ann })
+    expect(t).toContain(ann.body)
+    expect(t).toContain("warning")
+    expect(t).toContain(ann.endsAt)
+    expect(t).toMatch(/audit trail/i)
+    const bad = await card("POST /api/admin/api-v2/announcements", { body: { ...ann, endsAt: ann.startsAt } })
+    expect(bad).toMatch(/Problem: The end is not after the start/)
+  })
+
+  it("pausing a developer names who, the reason and every effect; a missing reason is flagged", async () => {
+    const t = await card("POST /api/admin/api-v2/developers/:userId/pause", { params: { userId: U1 }, body: { paused: true, reason: "Chargeback abuse" } })
+    expect(t).toContain("Ama Mensah")
+    expect(t).toContain("Chargeback abuse")
+    expect(t).toMatch(/refused/i)
+    expect(t).toMatch(/not sent a message/i)
+    const none = await card("POST /api/admin/api-v2/developers/:userId/pause", { params: { userId: U1 }, body: { paused: true } })
+    expect(none).toMatch(/reason of 3 to 200/)
+  })
+
+  it("pausing a service says it hits every developer and shows the message in full", async () => {
+    const t = await card("PUT /api/admin/api-v2/services/:service", { params: { service: "data" }, body: { paused: true, message: "Back at 10:00" } })
+    expect(t).toContain("Data and wallet")
+    expect(t).toContain("Back at 10:00")
+    expect(t).toMatch(/EVERY developer/)
+    const unknown = await card("PUT /api/admin/api-v2/services/:service", { params: { service: "nope" }, body: { paused: true } })
+    expect(unknown).toMatch(/No such API service/)
+  })
+
+  it("deleting an announcement shows the text being removed and says it cannot be restored", async () => {
+    const d = fakeDb({ api_v2_announcements: [{ id: U1, title: "Old notice", body: "Old body text", severity: "info", starts_at: "a", ends_at: "b" }] })
+    const t = await card("DELETE /api/admin/api-v2/announcements/:id", { params: { id: U1 } }, { db: d, adminId: U3 })
+    expect(t).toContain("Old body text")
+    expect(t).toMatch(/cannot be restored/)
   })
 })

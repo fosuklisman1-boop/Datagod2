@@ -5,6 +5,7 @@ import { hasEnded, parseAdminPeriod, periodLabel } from "@/lib/leaderboard/perio
 import { bundleLabel, defaultPrizeLabel, type PrizeFields, type PrizeType } from "@/lib/leaderboard/prizes"
 import { LEADERBOARD_CONFIG_KEY } from "@/lib/leaderboard/public"
 import { audienceLabel, reasonLabel } from "@/lib/ai-console/review"
+import { SERVICES } from "@/lib/api-v2/services"
 
 // Platform group: /api/admin/ api-v2, api-v1, api-keys, api-logs, leaderboard, dashboard-stats, dashboard-analytics,
 // security-alerts, scheduled-tasks, ai-conversations. (The last area task; after it PENDING is empty.)
@@ -238,6 +239,107 @@ const grantRemoveCard = async (i: EntryInput, ctx: CardCtx): Promise<Card> => {
   if (text.length < 3 || text.length > 200) lines.push(problem("A reason of 3 to 200 characters is needed: without one the request is refused."))
   lines.push(effect("Their personal API access grant is removed. Their keys are not revoked, but each one stops working on its next request unless their role is allowed to use the API. They are told by message, with the reason. Recorded in the audit trail."))
   return { summary: "Remove a person's API-only access grant", lines }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// API v2 admin console: announcements, developer pause, service pause
+// ---------------------------------------------------------------------------------------------------------------------
+
+const SERVICE_IDS = SERVICES.map((s) => s.id)
+const MAX_ANNOUNCEMENTS = 50
+
+const announcementLines = async (i: EntryInput, ctx: CardCtx, id: string | null): Promise<CardLine[]> => {
+  const b = asBody(i)
+  const title = str(b.title).trim()
+  const text = str(b.body).trim()
+  const starts = str(b.startsAt)
+  const ends = str(b.endsAt)
+  const lines: CardLine[] = []
+  if (id) {
+    const r = await rowBy(ctx, "api_v2_announcements", "id, title, body, severity, starts_at, ends_at", "id", id)
+    const cur = rowOf(r)
+    if (cur) {
+      lines.push({ label: "Editing", value: `"${str(cur.title)}" (${str(cur.severity)}, ${str(cur.starts_at)} to ${str(cur.ends_at)})` })
+      if (str(cur.body) !== text) lines.push({ label: "Old text", value: str(cur.body) })
+    } else lines.push({ label: "Editing", value: `announcement id ${id}` }, ...noteLine(r))
+  } else {
+    const n = await readCount(() => ctx.db.from("api_v2_announcements").select("id", { count: "exact", head: true }))
+    if (n !== null && n >= MAX_ANNOUNCEMENTS) lines.push(problem(`There are already ${MAX_ANNOUNCEMENTS} announcements, the most allowed: the request will be refused.`))
+  }
+  lines.push({ label: "Title (shown exactly like this)", value: title })
+  lines.push({ label: "Text (shown exactly like this)", value: text })
+  lines.push({ label: "Severity", value: str(b.severity) })
+  lines.push({ label: "Shown from", value: starts })
+  lines.push({ label: "Shown until", value: ends })
+  const s = Date.parse(starts)
+  const e = Date.parse(ends)
+  if (Number.isFinite(s) && Number.isFinite(e) && e <= s) lines.push(problem("The end is not after the start: the request will be refused."))
+  if (!title || !text) lines.push(problem("A title and a text are both needed: the request will be refused."))
+  lines.push(effect("Developers see this notice on the API pages while it is active (from the start time until the end time). Nobody is sent a message. The change is recorded in the audit trail (title, severity and dates, not the text)."))
+  return lines
+}
+
+const announcementSaveCard = async (i: EntryInput, ctx: CardCtx): Promise<Card> => {
+  const id = asParams(i).id ?? null
+  return { summary: id ? "Edit an API announcement" : "Publish a new API announcement", lines: await announcementLines(i, ctx, id) }
+}
+
+const announcementDeleteCard = async (i: EntryInput, ctx: CardCtx): Promise<Card> => {
+  const id = asParams(i).id ?? ""
+  const r = await rowBy(ctx, "api_v2_announcements", "id, title, body, severity, starts_at, ends_at", "id", id)
+  const cur = rowOf(r)
+  const lines: CardLine[] = []
+  if (cur) {
+    lines.push({ label: "Announcement", value: `"${str(cur.title)}" (${str(cur.severity)}, ${str(cur.starts_at)} to ${str(cur.ends_at)})` })
+    lines.push({ label: "Text being removed", value: str(cur.body) })
+  } else lines.push({ label: "Announcement", value: `id ${id}` }, ...noteLine(r))
+  lines.push(effect("The announcement is deleted for good and disappears from the API pages at once. It cannot be restored. Recorded in the audit trail."))
+  return { summary: "Delete an API announcement", lines }
+}
+
+const developerPauseCard = async (i: EntryInput, ctx: CardCtx): Promise<Card> => {
+  const userId = asParams(i).userId ?? ""
+  const b = asBody(i)
+  const pausing = b.paused === true
+  const reasonText = str(b.reason).trim()
+  const p = await person(ctx, userId)
+  const cur = await rowBy(ctx, "api_v2_developer_pauses", "user_id, reason", "user_id", userId)
+  const lines: CardLine[] = [{ label: "Developer", value: p.text }, ...noteLine(p.read)]
+  const row = rowOf(cur)
+  lines.push({ label: "Now", value: row ? `paused (reason: ${str(row.reason) || "none recorded"})` : cur.state === "unread" ? "unknown (could not be read)" : "not paused" })
+  if (pausing) {
+    lines.push({ label: "Reason (stored in the audit trail)", value: reasonText || "(none given)" })
+    const n = Array.from(reasonText).length
+    if (n < 3 || n > 200) lines.push(problem("A reason of 3 to 200 characters of plain text is needed: without one the request is refused."))
+    if (row) lines.push(problem("This developer is already paused: nothing will change."))
+    lines.push(effect("Every API v2 request made with this developer's keys is refused (within about 10 seconds) until they are resumed. Their keys stay approved and nothing is revoked. The developer is not sent a message. Recorded in the audit trail."))
+  } else {
+    if (cur.state === "missing") lines.push(problem("This developer is not paused: nothing will change."))
+    lines.push(effect("The pause is lifted and their keys work again (within about 10 seconds). The developer is not sent a message. Recorded in the audit trail."))
+  }
+  return { summary: pausing ? "Pause a developer's API access" : "Resume a developer's API access", lines }
+}
+
+const servicePauseCard = async (i: EntryInput, ctx: CardCtx): Promise<Card> => {
+  const service = asParams(i).service ?? ""
+  const b = asBody(i)
+  const pausing = b.paused === true
+  const msg = str(b.message).trim()
+  const meta = SERVICES.find((s) => s.id === service)
+  const cur = await rowBy(ctx, "api_v2_service_controls", "service, paused, message", "service", service)
+  const row = rowOf(cur)
+  const lines: CardLine[] = [{ label: "Service", value: meta ? `${meta.title} (${meta.id})` : service }]
+  if (!meta) lines.push(problem(`No such API service. The services are: ${SERVICE_IDS.join(", ")}. The request will be refused.`))
+  lines.push({ label: "Now", value: row ? (row.paused === true ? `paused${str(row.message) ? ` (message: ${str(row.message)})` : ""}` : "running") : cur.state === "unread" ? "unknown (could not be read)" : "no control row yet" })
+  if (pausing) {
+    lines.push({ label: "Message shown to developers", value: msg || "(none)" })
+    if (Array.from(msg).length > 200) lines.push(problem("The message is over 200 characters: the request will be refused."))
+    lines.push(effect("New requests for this service are refused for EVERY developer (within about 10 seconds); looking up existing orders stays available. Nobody is sent a message. Recorded in the audit trail."))
+  } else {
+    if (msg) lines.push({ label: "Message", value: "ignored: resuming clears any message" })
+    lines.push(effect("The service accepts requests again for every developer (within about 10 seconds) and its message is cleared. Recorded in the audit trail."))
+  }
+  return { summary: pausing ? "Pause an API service for all developers" : "Resume an API service for all developers", lines }
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -775,6 +877,70 @@ export const PLATFORM_ENTRIES: CatalogEntry[] = [
     id: "api_v2.stuck", page: API_KEYS, summary: "List API v2 requests and orders that have been unfinished for over 10 minutes (read-only).",
     method: "GET", path: "/api/admin/api-v2/stuck", kind: "lookup", risk: "normal", auth: "admin",
     resultKeep: ["claims[].id", "claims[].user_id", "claims[].kind", "claims[].reference", "claims[].status", "claims[].created_at", "orders[].id", "orders[].user_id", "orders[].network", "orders[].api_reference", "orders[].status", "orders[].created_at"],
+  }),
+
+  // ---- API v2 admin console (announcements, developers, services, report, trend)
+  mk({
+    id: "api_v2.announcements.list", page: API_KEYS, summary: "List the API announcements with their text, severity, dates and whether each is active, scheduled or ended.",
+    method: "GET", path: "/api/admin/api-v2/announcements", kind: "lookup", risk: "normal", auth: "admin",
+    resultKeep: ["announcements[].id", "announcements[].title", "announcements[].body", "announcements[].severity", "announcements[].startsAt", "announcements[].endsAt", "announcements[].state"],
+  }),
+  mk({
+    id: "api_v2.announcements.create", page: API_KEYS, summary: "Publish a new announcement on the API pages for developers, for a set period (at most 50 exist).",
+    method: "POST", path: "/api/admin/api-v2/announcements",
+    body: z.object({ title: z.string().trim().min(1).max(80), body: z.string().trim().min(1).max(1000), severity: z.enum(["info", "warning", "critical"]), startsAt: dateTime, endsAt: dateTime }).strict(),
+    kind: "change", risk: "normal", auth: "admin", card: announcementSaveCard,
+  }),
+  mk({
+    id: "api_v2.announcements.update", page: API_KEYS, summary: "Edit one API announcement: title, text, severity and the period it is shown.",
+    method: "PUT", path: "/api/admin/api-v2/announcements/:id", params: { id: "uuid" },
+    body: z.object({ title: z.string().trim().min(1).max(80), body: z.string().trim().min(1).max(1000), severity: z.enum(["info", "warning", "critical"]), startsAt: dateTime, endsAt: dateTime }).strict(),
+    kind: "change", risk: "normal", auth: "admin", card: announcementSaveCard,
+  }),
+  mk({
+    id: "api_v2.announcements.delete", page: API_KEYS, summary: "Delete one API announcement for good.",
+    method: "DELETE", path: "/api/admin/api-v2/announcements/:id", params: { id: "uuid" },
+    kind: "change", risk: "danger", auth: "admin", card: announcementDeleteCard,
+  }),
+  mk({
+    id: "api_v2.developers.list", page: API_KEYS, summary: "List the developers with API v2 keys: 30-day requests, failures, spend, orders and whether they are paused (25 per page).",
+    method: "GET", path: "/api/admin/api-v2/developers", query: z.object({ q: z.string().max(60).optional(), page: pageNo.optional() }).strict(),
+    kind: "lookup", risk: "normal", auth: "admin",
+    resultKeep: ["items[].userId", "items[].name", "items[].email", "items[].role", "items[].keysActive", "items[].keysPending", "items[].requests", "items[].failed", "items[].successRate", "items[].spent", "items[].orders", "items[].lastUsedAt", "items[].granted", "items[].paused", "total", "page", "pageSize"],
+  }),
+  mk({
+    id: "api_v2.developers.get", page: API_KEYS, summary: "Show one developer's API profile: totals, keys (no key material), personal grant and pause state.",
+    method: "GET", path: "/api/admin/api-v2/developers/:userId", params: { userId: "uuid" }, kind: "lookup", risk: "normal", auth: "admin",
+    resultKeep: ["profile.user.id", "profile.user.name", "profile.user.email", "profile.user.role", "profile.user.suspended", "profile.totals.requests", "profile.totals.failed", "profile.totals.successRate", "profile.totals.spent", "profile.totals.orders", "profile.totals.pending", "profile.keys[].id", "profile.keys[].keyType", "profile.keys[].environment", "profile.keys[].status", "profile.keys[].name", "profile.keys[].lastUsedAt", "profile.grant.grantedAt", "profile.pause.pausedAt", "profile.pause.reason"],
+  }),
+  mk({
+    id: "api_v2.developers.pause", page: API_KEYS, summary: "Pause or resume one developer's API v2 access (their keys stay approved but every request is refused while paused).",
+    method: "POST", path: "/api/admin/api-v2/developers/:userId/pause", params: { userId: "uuid" },
+    body: z.object({ paused: bool, reason: z.string().trim().max(200).optional() }).strict(),
+    kind: "change", risk: "danger", auth: "admin", card: developerPauseCard,
+  }),
+  mk({
+    id: "api_v2.report", page: API_KEYS, summary: "Show the API business report: data orders and revenue by developer, product or month over a date range (counts only; no cost or profit figures).",
+    method: "GET", path: "/api/admin/api-v2/report", query: z.object({ from: isoDay.optional(), to: isoDay.optional(), by: z.enum(["developer", "product", "month"]).optional() }).strict(),
+    kind: "lookup", risk: "normal", auth: "admin",
+    resultKeep: ["from", "to", "by", "groups[].label", "groups[].orders", "groups[].revenue", "totals.orders", "totals.revenue", "other[].month", "other[].product", "other[].orders"],
+  }),
+  mk({
+    id: "api_v2.services.list", page: API_KEYS, summary: "List the seven API services and whether each is paused, with its message.",
+    method: "GET", path: "/api/admin/api-v2/services", kind: "lookup", risk: "normal", auth: "admin",
+    resultKeep: ["services[].id", "services[].title", "services[].paused", "services[].message", "services[].updatedAt", "services[].missing"],
+  }),
+  mk({
+    id: "api_v2.services.pause", page: API_KEYS, summary: "Pause or resume one API service for every developer (new requests are refused while paused).",
+    method: "PUT", path: "/api/admin/api-v2/services/:service", params: { service: "slug" },
+    body: z.object({ paused: bool, message: z.string().trim().max(200).nullable().optional() }).strict(),
+    kind: "change", risk: "danger", auth: "admin", card: servicePauseCard,
+  }),
+  mk({
+    id: "api_v2.trend", page: API_KEYS, summary: "Show per-day API requests, failures and data revenue for the last 7, 30 or 90 days.",
+    method: "GET", path: "/api/admin/api-v2/trend", query: z.object({ days: z.union([z.literal(7), z.literal(30), z.literal(90)]).optional() }).strict(),
+    kind: "lookup", risk: "normal", auth: "admin",
+    resultKeep: ["days", "points[].day", "points[].requests", "points[].failed", "points[].revenue"],
   }),
 
   // ---- API v1 retirement
