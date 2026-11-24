@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest"
-import { createMoneySettings, reserveSpend, settleSpend, capMessage, spendGuard, MONEY_SETTINGS_TTL_MS } from "./spend"
+import { createMoneySettings, reserveSpend, settleSpend, capMessage, spendGuard, guardSpend, settleOwned, MONEY_SETTINGS_TTL_MS } from "./spend"
 import type { V2Context } from "./handler"
 
 type Res = { data: unknown; error: unknown }
@@ -106,6 +106,57 @@ describe("reserveSpend / settleSpend", () => {
     expect(logged).toContain("api_v2_spend_settle")
     expect(logged).not.toContain("secret")
     spy.mockRestore()
+  })
+})
+
+describe("guardSpend / settleOwned (request-path helpers)", () => {
+  const hook = (reserve: ReserveResultLike, caps = true) => {
+    const h = {
+      settings: vi.fn(async () => ({ capsEnabled: caps, alertsEnabled: false, at: 0 })),
+      reserve: vi.fn(async () => reserve),
+      settle: vi.fn(async () => {}),
+    }
+    return h
+  }
+  type ReserveResultLike = Awaited<ReturnType<typeof reserveSpend>>
+  it("no hook, test key, or caps off -> proceed, not owned, reserve never called", async () => {
+    expect(await guardSpend(undefined, ctx("live"), "airtime", "R", 5)).toEqual({ proceed: true, owned: false })
+    const h1 = hook({ kind: "reserved" })
+    expect(await guardSpend(h1, ctx("test"), "airtime", "R", 5)).toEqual({ proceed: true, owned: false })
+    const h2 = hook({ kind: "reserved" }, false)
+    expect(await guardSpend(h2, ctx("live"), "airtime", "R", 5)).toEqual({ proceed: true, owned: false })
+    expect(h1.reserve).not.toHaveBeenCalled()
+    expect(h2.reserve).not.toHaveBeenCalled()
+  })
+  it("reserved -> owned; existing/skipped -> proceed, not owned; reserve gets user, key, kind, reference, amount", async () => {
+    const h = hook({ kind: "reserved" })
+    expect(await guardSpend(h, ctx("live"), "bill", "R", 12.5)).toEqual({ proceed: true, owned: true })
+    expect(h.reserve).toHaveBeenCalledWith({ userId: "u1", keyId: "k1", kind: "bill", reference: "R", amount: 12.5 })
+    expect(await guardSpend(hook({ kind: "existing" }), ctx("live"), "bill", "R", 1)).toEqual({ proceed: true, owned: false })
+    expect(await guardSpend(hook({ kind: "skipped" }), ctx("live"), "bill", "R", 1)).toEqual({ proceed: true, owned: false })
+  })
+  it("cap -> 402 with the scope's message; error -> 503; never proceed", async () => {
+    const k = await guardSpend(hook({ kind: "cap", scope: "key" }), ctx("live"), "afa", "R", 1)
+    expect(k).toEqual({ proceed: false, result: { status: 402, error: { status: 402, message: capMessage("key") } } })
+    const u = await guardSpend(hook({ kind: "cap", scope: "user" }), ctx("live"), "afa", "R", 1)
+    expect(u).toEqual({ proceed: false, result: { status: 402, error: { status: 402, message: capMessage("user") } } })
+    const e = await guardSpend(hook({ kind: "error" }), ctx("live"), "afa", "R", 1)
+    expect(e).toMatchObject({ proceed: false, result: { status: 503 } })
+  })
+  it("a settings read that throws -> treated as caps off (never blocks, never reserves)", async () => {
+    const h = hook({ kind: "reserved" })
+    h.settings.mockRejectedValueOnce(new Error("x"))
+    expect(await guardSpend(h, ctx("live"), "data", "R", 1)).toEqual({ proceed: true, owned: false })
+    expect(h.reserve).not.toHaveBeenCalled()
+  })
+  it("settleOwned settles only when owned", async () => {
+    const h = hook({ kind: "reserved" })
+    await settleOwned(h, false, ctx("live"), "data", "R", "spent")
+    expect(h.settle).not.toHaveBeenCalled()
+    await settleOwned(h, true, ctx("live"), "data", "R", "released")
+    expect(h.settle).toHaveBeenCalledWith({ keyId: "k1", kind: "data", reference: "R", state: "released" })
+    await settleOwned(h, true, ctx("live"), "data_bulk", "B", "spent", 4)
+    expect(h.settle).toHaveBeenLastCalledWith({ keyId: "k1", kind: "data_bulk", reference: "B", state: "spent", amount: 4 })
   })
 })
 

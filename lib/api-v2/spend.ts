@@ -135,6 +135,75 @@ export function capMessage(scope: "key" | "user"): string {
   return scope === "user" ? MSG_DAILY_LIMIT_ADMIN : MSG_DAILY_LIMIT
 }
 
+// ---------------------------------------------------------------- request-path helpers (Tasks 3 and 4)
+
+/** What an endpoint needs; injected through each endpoint's Deps so tests never touch the database. */
+export interface SpendHook {
+  settings(): Promise<MoneySettings>
+  reserve(p: { userId: string; keyId: string; kind: SpendKind; reference: string; amount: number }): Promise<ReserveResult>
+  settle(p: { keyId: string; kind: SpendKind; reference: string; state: "spent" | "released"; amount?: number }): Promise<void>
+}
+
+export function defaultSpendHook(): SpendHook {
+  return {
+    settings: () => getMoneySettings().read(),
+    reserve: (p) => reserveSpend(getAdminClient() as unknown as RpcClient, p),
+    settle: (p) => settleSpend(getAdminClient() as unknown as RpcClient, p),
+  }
+}
+
+export type GuardResult = { proceed: true; owned: boolean } | { proceed: false; result: { status: 402 | 503; error: { status: 402 | 503; message: string } } }
+
+const SPEND_UNAVAILABLE = "UNAVAILABLE: the daily spending limit could not be checked; nothing was charged. Retry with the same reference"
+
+/**
+ * Before anything that can charge. `owned: true` means this request holds the reservation and MUST settle it.
+ * Live keys only, caps on only; a settings failure reads as caps off (never blocks). A refused request has charged
+ * nothing; the caller releases its claim (commission) before returning the result.
+ */
+export async function guardSpend(hook: SpendHook | undefined, ctx: V2Context, kind: SpendKind, reference: string, amount: number): Promise<GuardResult> {
+  if (!hook || ctx.environment !== "live") return { proceed: true, owned: false }
+  let settings: MoneySettings
+  try {
+    settings = await hook.settings()
+  } catch {
+    return { proceed: true, owned: false }
+  }
+  if (!spendGuard(ctx, settings)) return { proceed: true, owned: false }
+  const r = await hook.reserve({ userId: ctx.userId, keyId: ctx.keyId, kind, reference, amount })
+  switch (r.kind) {
+    case "reserved":
+      return { proceed: true, owned: true }
+    case "existing":
+    case "skipped":
+      return { proceed: true, owned: false }
+    case "cap": {
+      const message = capMessage(r.scope)
+      return { proceed: false, result: { status: 402, error: { status: 402, message } } }
+    }
+    default:
+      return { proceed: false, result: { status: 503, error: { status: 503, message: SPEND_UNAVAILABLE } } }
+  }
+}
+
+/** Settles only a reservation this request owns (never someone else's `existing` row). Never throws. */
+export async function settleOwned(
+  hook: SpendHook | undefined,
+  owned: boolean,
+  ctx: V2Context,
+  kind: SpendKind,
+  reference: string,
+  state: "spent" | "released",
+  amount?: number,
+): Promise<void> {
+  if (!hook || !owned) return
+  try {
+    await hook.settle({ keyId: ctx.keyId, kind, reference, state, ...(amount !== undefined ? { amount } : {}) })
+  } catch {
+    // a failed settle leaves the row reserved (counted): the safe side
+  }
+}
+
 /** True only for live keys while caps are switched on. Test keys never reserve. */
 export function spendGuard(ctx: V2Context, settings: MoneySettings): boolean {
   return ctx.environment === "live" && settings.capsEnabled

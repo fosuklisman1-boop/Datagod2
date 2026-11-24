@@ -30,6 +30,7 @@
 import type { V2Context, V2HandlerResult } from "../handler"
 import type { V2ErrorStatus } from "../envelope"
 import type { ClaimOutcome } from "../idempotency"
+import { guardSpend, settleOwned, type SpendHook } from "../spend"
 import {
   airtimeErrorResponse,
   airtimeHash,
@@ -144,6 +145,8 @@ export interface AirtimeDeps {
     place(p: AirtimeSandboxPlaceParams): Promise<AirtimeSandboxPlaceResult>
   }
   now(): number
+  /** Release 5 daily spending limit (absent in unit tests that do not exercise it). */
+  spend?: SpendHook
 }
 
 // ---------------------------------------------------------------- messages
@@ -367,6 +370,13 @@ async function livePurchase(deps: AirtimeDeps, input: AirtimeInput, ctx: V2Conte
     return fail(403, MSG_PHONE_GATE)
   }
 
+  // 2b. Daily spending limit (live, caps on). The face amount is reserved; a refusal frees the reference.
+  const spend = await guardSpend(deps.spend, ctx, "airtime", input.reference, input.amount)
+  if (!spend.proceed) {
+    await safeRelease(deps, claimId, ctx.userId)
+    return spend.result
+  }
+
   // 3. The engine. Only classified no-charge codes free the reference.
   let result: AirtimeEngineResult
   try {
@@ -374,6 +384,7 @@ async function livePurchase(deps: AirtimeDeps, input: AirtimeInput, ctx: V2Conte
   } catch (e) {
     if (classifyEngineError(engineCode(e)) === "no_charge") {
       await safeRelease(deps, claimId, ctx.userId)
+      await settleOwned(deps.spend, spend.owned, ctx, "airtime", input.reference, "released")
       return noChargeResult(e)
     }
     await markAmbiguous(deps, claimId, ctx, input.reference)
@@ -388,6 +399,8 @@ async function livePurchase(deps: AirtimeDeps, input: AirtimeInput, ctx: V2Conte
     console.error(LOG_AMBIGUOUS)
     return fail(500, MSG_OUTCOME_UNKNOWN)
   }
+
+  await settleOwned(deps.spend, spend.owned, ctx, "airtime", input.reference, "spent")
 
   // 4. Success. The engine result lacks cashback and created_at: read the row
   //    back (owner-scoped, best effort), else map the engine row as is.
