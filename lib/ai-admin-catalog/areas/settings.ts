@@ -26,8 +26,9 @@ import { validateReviewUrl } from "@/lib/review-prompt"
 // column): settings PUT terms_content* (long legal text: use the page); ai-knowledge PATCH only passes the five real
 // columns (the handler spreads the whole body into the update).
 //
-// A GET that saves a default row when none exists yet (settings, afa-auto-fulfillment, mtn-auto-fulfillment,
-// mtn-registration-gate, network-prefix-validation) is kind "change": it writes, even if only on first use.
+// A GET whose ONLY write is inserting a default row when none exists yet (settings, afa-auto-fulfillment,
+// mtn-auto-fulfillment, mtn-registration-gate, network-prefix-validation) is kind "lookup" (ruling G-default): it never
+// changes a saved value.
 //
 // Schemas that are tighter than the handler (the handler only checks a few types): URLs must be https (or a known
 // shape), colors hex, booleans real booleans, text lengths capped. A body schema cannot refuse an empty change (zod
@@ -146,43 +147,20 @@ function toggleCard(t: Toggle) {
   }
 }
 
-function seedCard(t: Toggle) {
-  return async (_i: EntryInput, ctx: CardCtx): Promise<Card> => {
-    const s = await switchState(ctx, t)
-    const lines: CardLine[] = [
-      { label: "Setting", value: t.name },
-      { label: "Now", value: nowText(s, t) },
-      { label: "What this does", value: `Only reads the setting. If it has never been saved, it first saves the default (${onOff(t.defaultOn)}) so there is a row to show.` },
-    ]
-    if (s.state === "unread") lines.push(UNREAD)
-    return { summary: `Read the ${t.name} setting`, lines }
-  }
-}
-
+// Ruling G-default: a GET whose only write is inserting the default row when none exists (idempotent, never changes
+// a saved value) is a lookup. `seeds` marks those; it only changes the summary text.
 function toggleEntries(t: Toggle): CatalogEntry[] {
-  const get: CatalogEntry = t.seeds
-    ? mk({
-        id: `${t.id}.read`,
-        ...where(t.page),
-        summary: `${t.read} (saves the default first if it was never set).`,
-        method: "GET",
-        path: t.path,
-        kind: "change",
-        risk: "normal",
-        auth: t.getAuth ?? "admin",
-        card: seedCard(t),
-      })
-    : mk({
-        id: `${t.id}.read`,
-        ...where(t.page),
-        summary: t.read,
-        method: "GET",
-        path: t.path,
-        kind: "lookup",
-        risk: "normal",
-        auth: t.getAuth ?? "admin",
-        resultKeep: t.getKeep ?? ["enabled", "updated_at"],
-      })
+  const get: CatalogEntry = mk({
+    id: `${t.id}.read`,
+    ...where(t.page),
+    summary: t.seeds ? `${t.read} (the first read of a never-saved setting stores its default).` : t.read,
+    method: "GET",
+    path: t.path,
+    kind: "lookup",
+    risk: "normal",
+    auth: t.getAuth ?? "admin",
+    resultKeep: t.getKeep ?? ["enabled", "updated_at"],
+  })
   const set = mk({
     id: `${t.id}.set`,
     ...where(t.page),
@@ -877,7 +855,7 @@ async function whitelistRemoveCard(i: EntryInput, ctx: CardCtx): Promise<Card> {
     { label: "Number", value: phone },
     { label: "On the list now", value: there.state === "unread" ? "unknown (could not be read)" : there.state === "found" ? "yes" : "no (nothing is removed)" },
     { label: "Whitelist switch", value: swOn === null ? "unknown" : onOff(swOn) },
-    { label: "What changes", value: `This number will be blocked from USSD data purchases while the whitelist switch is ON${swOn === false ? " (it is OFF now, so nothing is blocked yet)" : ""}, unless the owner is a registered user.` },
+    { label: "What changes", value: `This number will be blocked from USSD data purchases while the whitelist switch is ON${swOn === false ? " (it is OFF now, so nothing is blocked yet)" : ""}. Callers whose number is not on the list and who are not registered users are refused.` },
   )
   return { summary: "Remove a number from the USSD whitelist", lines }
 }
@@ -1215,7 +1193,7 @@ async function supportCard(i: EntryInput, ctx: CardCtx): Promise<Card> {
   const lines: CardLine[] = [{ label: "WhatsApp number", value: change(o("support_whatsapp"), str(b.support_whatsapp)) }]
   lines.push({ label: "Support email", value: b.support_email === undefined ? `${o("support_email")} (unchanged)` : change(o("support_email"), str(b.support_email)) })
   lines.push({ label: "Support phone", value: b.support_phone === undefined ? `${o("support_phone")} (unchanged)` : change(o("support_phone"), str(b.support_phone)) })
-  lines.push({ label: "Guest purchase link", value: change(o("guest_purchase_url"), b.guest_purchase_url ? str(b.guest_purchase_url) : "(cleared: it was not sent)") })
+  lines.push({ label: "Guest purchase link", value: change(o("guest_purchase_url"), b.guest_purchase_url ? str(b.guest_purchase_url) : `(cleared: ${b.guest_purchase_url === undefined ? "it was not sent" : "sent empty"})`) })
   lines.push({ label: "Guest purchase button text", value: change(o("guest_purchase_button_text"), b.guest_purchase_button_text ? str(b.guest_purchase_button_text) : "Buy as Guest") })
   if (cur.state === "unread") lines.push(UNREAD)
   if (cur.state === "missing") lines.push({ label: "Note", value: "No support settings are saved yet: a new row is created." })
@@ -1288,10 +1266,8 @@ async function aiConfigCard(i: EntryInput, ctx: CardCtx): Promise<Card> {
     if (b[pk] !== undefined) lines.push({ label: `${c} assistant provider`, value: change(was(str(cfg[pk]) || (DEFAULT_CONFIG as Record<string, string>)[pk]), str(b[pk])) })
     if (b[mk2] !== undefined) lines.push({ label: `${c} assistant model`, value: change(was(str(cfg[mk2]) || (DEFAULT_CONFIG as Record<string, string>)[mk2]), str(b[mk2])) })
   }
-  for (const [p, label] of AI_PROVIDERS) {
-    lines.push({ label: `${label} API key`, value: `will be replaced${known ? (cfg[`${p}_api_key`] ? " (a key is saved now)" : " (no key is saved now)") : ""}` })
-  }
   lines.push(
+    { label: "API keys", value: "replaced only for the boxes you fill in; empty boxes keep the saved key." },
     { label: "Keys", value: "Type each new key in the secure box on this card, never in chat. Keys are never shown here." },
     { label: "Who is affected", value: "Every chat assistant on the site: which model answers, who may use it and what it can do change within about a minute. Nothing is sent to customers." },
   )
@@ -1377,21 +1353,41 @@ export const SETTINGS_ENTRIES: CatalogEntry[] = [
   mk({
     id: "settings.read_site_settings",
     ...where("/admin/settings"),
-    summary: "Read the site-wide settings: ordering, signups, fees, price adjustments, announcements and links. Saves the default row first if none exists.",
+    summary: "Read the site-wide settings: ordering, signups, fees, price adjustments, announcements and links. (The very first read creates the default row if none exists.)",
     method: "GET",
     path: "/api/admin/settings",
-    kind: "change",
+    kind: "lookup", // ruling G-default: only inserts the default row when missing
     risk: "normal",
     auth: "admin",
-    card: async (_i, ctx) => {
-      const r = await appSingleton(ctx, "ordering_enabled")
-      const lines: CardLine[] = [
-        { label: "Ordering now", value: r.state === "found" ? onOff(r.row.ordering_enabled !== false) : r.state === "missing" ? "no settings saved yet" : "unknown (could not be read)" },
-        { label: "What this does", value: "Only reads the site settings. If the settings row has never been created, it first creates it with the built-in defaults." },
-      ]
-      if (r.state === "unread") lines.push(UNREAD)
-      return { summary: "Read the site settings", lines }
-    },
+    resultKeep: [
+      "ordering_enabled",
+      "signups_enabled",
+      "signup_default_role",
+      "wallet_topups_enabled",
+      "upgrades_enabled",
+      "announcement_enabled",
+      "announcement_title",
+      "announcement_message",
+      "storefront_announcement_enabled",
+      "paystack_fee_percentage",
+      "wallet_topup_fee_percentage",
+      "withdrawal_fee_percentage",
+      "withdrawal_fee_minimum",
+      "minimum_withdrawal_amount",
+      "price_adjustment_mtn",
+      "price_adjustment_telecel",
+      "price_adjustment_at_ishare",
+      "price_adjustment_at_bigtime",
+      "supplier_cost_per_gb_mtn",
+      "supplier_cost_per_gb_telecel",
+      "supplier_cost_per_gb_at_ishare",
+      "supplier_cost_per_gb_at_bigtime",
+      "ussd_price_tier",
+      "ussd_shop_dial_code",
+      "ussd_shop_activation_fee",
+      "whatsapp_shop_activation_fee",
+      "sub_agent_open_join_enabled",
+    ],
   }),
   mk({
     id: "settings.update_site_settings",
@@ -2016,7 +2012,7 @@ export const SETTINGS_ENTRIES: CatalogEntry[] = [
     method: "PUT",
     path: "/api/admin/ai-config",
     body: aiConfigBody,
-    secretFields: AI_PROVIDERS.map(([p, label]) => ({ name: `${p}_api_key_new`, label: `${label} API key`, min: 16, max: 300 })),
+    secretFields: AI_PROVIDERS.map(([p, label]) => ({ name: `${p}_api_key_new`, label: `${label} API key`, min: 16, max: 300, optional: true })),
     kind: "change",
     risk: "danger",
     auth: "admin",
@@ -2067,7 +2063,7 @@ export const SETTINGS_ENTRIES: CatalogEntry[] = [
     path: "/api/admin/ai-knowledge",
     query: z.object({ id: uuid }).strict(),
     kind: "change",
-    risk: "normal",
+    risk: "danger",
     auth: "admin",
     card: knowledgeDeleteCard,
   }),

@@ -48,7 +48,7 @@ export interface CardView {
 }
 
 export type AdminRisk = "normal" | "money" | "danger"
-export interface SecretField { name: string; label: string; min: number; max: number }
+export interface SecretField { name: string; label: string; min: number; max: number; optional?: boolean }
 
 export const DANGER_NOTE = "This cannot be undone."
 
@@ -73,7 +73,7 @@ function readAdminDisplay(display: unknown) {
     if (typeof o.name !== "string" || !/^[A-Za-z0-9_]{1,64}$/.test(o.name)) return []
     const min = typeof o.min === "number" && Number.isFinite(o.min) && o.min >= 1 ? Math.floor(o.min) : 1
     const max = typeof o.max === "number" && Number.isFinite(o.max) && o.max >= min ? Math.floor(o.max) : 256
-    return [{ name: o.name, label: typeof o.label === "string" && o.label.trim() ? o.label.trim() : o.name, min, max }]
+    return [{ name: o.name, label: typeof o.label === "string" && o.label.trim() ? o.label.trim() : o.name, min, max, ...(o.optional === true ? { optional: true } : {}) }]
   })
   return {
     title: typeof d.pageTitle === "string" && d.pageTitle.trim() ? d.pageTitle.trim() : "Confirm action",
@@ -93,6 +93,7 @@ export function clearsSecrets(action: "confirm" | "recheck" | "cancel"): boolean
 export function secretsReady(fields: SecretField[], values: Record<string, string>): boolean {
   return fields.every((f) => {
     const v = values[f.name]
+    if (f.optional && (v === undefined || v === "")) return true
     return typeof v === "string" && v.length >= f.min && v.length <= f.max
   })
 }
@@ -101,7 +102,11 @@ export function secretsReady(fields: SecretField[], values: Record<string, strin
 export function buildConfirmSecrets(fields: SecretField[], values: Record<string, string>): { secrets: Record<string, string> } | null {
   if (fields.length === 0) return null
   const secrets: Record<string, string> = {}
-  for (const f of fields) secrets[f.name] = values[f.name] ?? ""
+  for (const f of fields) {
+    const v = values[f.name] ?? ""
+    if (f.optional && v === "") continue
+    secrets[f.name] = v
+  }
   return { secrets }
 }
 

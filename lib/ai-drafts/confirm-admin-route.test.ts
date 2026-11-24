@@ -94,6 +94,16 @@ const ENTRIES: Record<string, CatalogEntry> = {
     body: z.object({ provider: z.string() }).strict(),
     secretFields: [{ name: "apiKey", label: "API key", min: 8, max: 100 }],
   }),
+  optsecret: mk({
+    id: "t.optsecret",
+    path: "/api/admin/ai-config",
+    params: undefined,
+    body: z.object({ provider: z.string() }).strict(),
+    secretFields: [
+      { name: "keyA", label: "Key A", min: 8, max: 100, optional: true },
+      { name: "keyB", label: "Key B", min: 8, max: 100, optional: true },
+    ],
+  }),
 }
 
 function storedReq(entry: CatalogEntry, input: Parameters<typeof resolveRequest>[1]) {
@@ -383,6 +393,41 @@ describe("confirm admin_route_call: secure box", () => {
     expect(note).not.toContain(SECRET)
     expect(note).toContain("API key was set")
     expect(note).toContain("succeeded")
+  })
+
+  describe("optional secret fields", () => {
+    const optDraft = () => draftRow(ENTRIES.optsecret, { body: { provider: "openai" } })
+
+    it("absent or empty optional boxes are not sent; the filled one is", async () => {
+      for (const secrets of [{}, { keyA: "", keyB: "" }, undefined]) {
+        const db = fakeDb(tables([optDraft()]))
+        const fetchFn = vi.fn(async () => res(200, { ok: true }))
+        const out = await confirmDraft(db, DRAFT, caller(fetchFn), secrets as any)
+        expect(out).toMatchObject({ status: "succeeded" })
+        expect(JSON.parse((fetchFn.mock.calls[0] as any)[1].body)).toEqual({ provider: "openai" })
+      }
+      const db = fakeDb(tables([optDraft()]))
+      const fetchFn = vi.fn(async () => res(200, { ok: true }))
+      const out = await confirmDraft(db, DRAFT, caller(fetchFn), { keyA: SECRET, keyB: "" })
+      expect(JSON.parse((fetchFn.mock.calls[0] as any)[1].body)).toEqual({ provider: "openai", keyA: SECRET })
+      expect(out).toMatchObject({ outcome: { secretsSet: ["Key A"] } })
+    })
+
+    it("a present optional box that is too short, too long or not text is refused before the claim", async () => {
+      for (const keyA of ["short", "x".repeat(101), 12345678 as unknown as string]) {
+        const db = fakeDb(tables([optDraft()]))
+        const fetchFn = vi.fn()
+        const out = await confirmDraft(db, DRAFT, caller(fetchFn), { keyA })
+        expect(out).toMatchObject({ refused: true, code: "missing_secret" })
+        expect(fetchFn).not.toHaveBeenCalled()
+        expect(db.tables.ai_drafts[0].status).toBe("pending")
+      }
+    })
+
+    it("required boxes are still required", async () => {
+      const db = fakeDb(tables([secretDraft()]))
+      expect(await confirmDraft(db, DRAFT, caller(vi.fn()), { apiKey: "" })).toMatchObject({ refused: true, code: "missing_secret" })
+    })
   })
 
   it("a failed or unknown secret run never claims the field was set", async () => {

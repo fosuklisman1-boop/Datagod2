@@ -8,6 +8,8 @@ export interface SecretField {
   label: string
   min: number
   max: number
+  /** Default false (required). An optional box may be left empty: it is then not sent and the route keeps its stored value. */
+  optional?: boolean
 }
 
 export interface CardLine {

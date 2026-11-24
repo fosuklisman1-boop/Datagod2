@@ -154,7 +154,7 @@ describe("settings catalog rules", () => {
     }
   })
 
-  it("GETs that save a default row when none exists are changes", () => {
+  it("GETs whose only write is seeding a missing default row are lookups (ruling G-default); no other GET writes", () => {
     for (const k of [
       "GET /api/admin/settings",
       "GET /api/admin/settings/afa-auto-fulfillment",
@@ -162,8 +162,11 @@ describe("settings catalog rules", () => {
       "GET /api/admin/settings/mtn-registration-gate",
       "GET /api/admin/settings/network-prefix-validation",
     ]) {
-      expect(byKey(k).kind, k).toBe("change")
+      expect(byKey(k).kind, k).toBe("lookup")
+      expect(byKey(k).resultKeep?.length, k).toBeGreaterThan(0)
     }
+    // Every GET here is a lookup: none of the handlers does anything beyond reading or seeding a default.
+    for (const e of SETTINGS_ENTRIES.filter((x) => x.method === "GET")) expect(e.kind, e.id).toBe("lookup")
     // These only read.
     expect(byKey("GET /api/admin/settings/turnstile").kind).toBe("lookup")
     expect(byKey("GET /api/admin/gateway").kind).toBe("lookup")
@@ -204,6 +207,7 @@ describe("settings catalog rules", () => {
       "DELETE /api/admin/custom-domains",
       "POST /api/admin/ai-knowledge",
       "PATCH /api/admin/ai-knowledge",
+      "DELETE /api/admin/ai-knowledge",
     ]
     for (const k of danger) expect(rank[byKey(k).risk], k).toBeGreaterThanOrEqual(rank.danger)
     expect(rank[byKey("POST /api/admin/gateway/hubtel-payments").risk]).toBeGreaterThanOrEqual(rank.money)
@@ -511,7 +515,7 @@ async function text(k: string, input = CARD_INPUTS[k], client: SupabaseClient = 
 describe("settings cards", () => {
   it("every change entry has a card input, returns a summary and lines, and survives a broken database", async () => {
     const changes = SETTINGS_ENTRIES.filter((e) => e.kind === "change")
-    expect(changes.length).toBeGreaterThan(40)
+    expect(changes.length).toBe(40)
     for (const e of changes) {
       const k = key(e.method, e.path)
       expect(CARD_INPUTS[k], k).toBeTruthy()
@@ -543,8 +547,6 @@ describe("settings cards", () => {
     expect(same).toMatch(/already OFF/i)
     const unread = await text("POST /api/admin/settings/turnstile", undefined, brokenDb)
     expect(unread).toMatch(/could not be read/)
-    const seed = await text("GET /api/admin/settings/mtn-auto-fulfillment")
-    expect(seed).toMatch(/saves the default/i)
   })
 
   it("site settings card shows old -> new for every field sent and the global effects", async () => {
@@ -633,7 +635,9 @@ describe("settings cards", () => {
     expect(t).toMatch(/admin pages/i)
     expect(t).toContain("anthropic -> openai")
     expect(t).toContain("claude-haiku-4-5-20251001 -> gpt-4o")
-    for (const p of ["Anthropic", "OpenAI", "Gemini", "DeepSeek", "Groq"]) expect(t).toContain(`${p} API key: will be replaced`)
+    expect(t).toContain("API keys: replaced only for the boxes you fill in; empty boxes keep the saved key.")
+    expect(t).not.toMatch(/will be replaced/)
+    for (const s of byKey("PUT /api/admin/ai-config").secretFields!) expect(s.optional, s.name).toBe(true)
     expect(t).not.toContain(SECRET_SENTINEL)
     const on = await text("PUT /api/admin/ai-config", { body: { admin_catalog_enabled: true } })
     expect(on).not.toMatch(/loses/i)
@@ -651,6 +655,8 @@ describe("settings cards", () => {
     const del = await text("DELETE /api/admin/custom-domains")
     expect(del).toContain("shop.example.com")
     expect(del).toMatch(/stops working|no longer/i)
+    expect(await text("POST /api/admin/support-settings")).toMatch(/cleared: it was not sent/)
+    expect(await text("POST /api/admin/support-settings", { body: { support_whatsapp: "233209998888", guest_purchase_url: "" } })).toMatch(/cleared: sent empty/)
     const s = await text("POST /api/admin/support-settings")
     expect(s).toContain("233201111111 -> 233209998888")
     expect(s).toContain("old@datagod.store -> help@datagod.store")

@@ -353,6 +353,16 @@ describe("admin_route cards", () => {
     expect(secretsReady([], {})).toBe(true)
   })
 
+  it("optional boxes never block Confirm, but a typed value must still fit", () => {
+    const f = [{ name: "a", label: "A", min: 8, max: 20, optional: true }, { name: "b", label: "B", min: 1, max: 5 }]
+    expect(secretsReady(f, { b: "x" })).toBe(true)
+    expect(secretsReady(f, { a: "", b: "x" })).toBe(true)
+    expect(secretsReady(f, { a: "short", b: "x" })).toBe(false)
+    expect(secretsReady(f, { a: "longenough", b: "" })).toBe(false)
+    expect(buildConfirmSecrets(f, { a: "", b: "x" })).toEqual({ secrets: { b: "x" } })
+    expect(buildConfirmSecrets(f, { a: "longenough", b: "x" })).toEqual({ secrets: { a: "longenough", b: "x" } })
+  })
+
   it("the confirm payload carries only declared names", () => {
     const f = [{ name: "password", label: "P", min: 1, max: 72 }]
     expect(buildConfirmSecrets(f, { password: "pw1234", injected: "evil" })).toEqual({ secrets: { password: "pw1234" } })

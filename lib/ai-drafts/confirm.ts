@@ -80,6 +80,8 @@ function checkSecrets(draft: AiDraft, secrets: Record<string, unknown> | undefin
   }
   for (const f of declared) {
     const v = Object.hasOwn(given, f.name) ? given[f.name] : undefined
+    // An optional box that is absent or empty is simply not sent.
+    if (f.optional && (v === undefined || v === "")) continue
     if (typeof v !== "string" || v.length < f.min || v.length > f.max) {
       return { refused: true, code: "missing_secret", message: `Enter ${f.label} (${f.min}-${f.max} characters) in the box on the card.` }
     }

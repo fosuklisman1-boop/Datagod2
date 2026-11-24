@@ -482,7 +482,7 @@ async function executeAdminRoute(draft: AiDraft, call: ExecCall): Promise<ExecRe
 
   // Merge the secure-box values into a COPY of the stored body: only the entry's declared secret fields.
   const declared = entry.secretFields ?? []
-  const typed = declared.filter((f) => typeof call.secrets?.[f.name] === "string")
+  const typed = declared.filter((f) => typeof call.secrets?.[f.name] === "string" && !(f.optional && call.secrets[f.name] === ""))
   const body = typed.length > 0 ? { ...(req.body ?? {}), ...Object.fromEntries(typed.map((f) => [f.name, call.secrets![f.name]])) } : req.body
   const secretValues = typed.map((f) => call.secrets![f.name])
 
