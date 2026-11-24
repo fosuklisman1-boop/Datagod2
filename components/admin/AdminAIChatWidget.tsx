@@ -13,6 +13,7 @@ import { createIdleTimeout } from "@/lib/ai-chat-ui/idle-timeout"
 import { widgetVisible, isAssistantOffResponse, assistantOffMessage, showTryAgain } from "@/lib/ai-chat-ui/widget-visibility"
 import { followupsFor } from "@/lib/ai-chat-ui/suggestions"
 import { historyKey, safeClear, safeLoad, safeSave, trimHistory } from "@/lib/ai-chat-ui/history"
+import { scrollToEnd } from "@/lib/ai-chat-ui/scroll"
 
 interface CardData {
   draftId: string
@@ -139,7 +140,7 @@ export function AdminAIChatWidget() {
   }, [])
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+    scrollToEnd(scrollContainerRef.current)
   }, [messages, streamingContent, actionButtons])
 
   useEffect(() => {
@@ -298,7 +299,7 @@ export function AdminAIChatWidget() {
   }
 
   function scrollToBottom() {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+    scrollToEnd(scrollContainerRef.current)
   }
 
   function buttonClass(style?: string) {
@@ -329,8 +330,8 @@ export function AdminAIChatWidget() {
             </div>
           </div>
 
-          <div className="flex-1 relative overflow-hidden">
-            <div ref={scrollContainerRef} onScroll={handleScroll} className="h-full overflow-y-auto p-4 space-y-3 bg-transparent">
+          <div className="flex-1 min-h-0 relative overflow-hidden">
+            <div ref={scrollContainerRef} onScroll={handleScroll} className="absolute inset-0 overflow-y-auto overscroll-contain p-4 space-y-3 bg-transparent">
               {linkedCard && (
                 <div className="space-y-2">
                   {linkedCard.card ? (
