@@ -81,6 +81,11 @@ describe("logReason", () => {
 })
 
 describe("logReason pause slugs", () => {
+  it("both daily-limit messages -> daily_limit (the risk scan counts that slug)", async () => {
+    const { MSG_DAILY_LIMIT, MSG_DAILY_LIMIT_ADMIN } = await import("./access")
+    expect(logReason(402, MSG_DAILY_LIMIT)).toBe("daily_limit")
+    expect(logReason(402, MSG_DAILY_LIMIT_ADMIN)).toBe("daily_limit")
+  })
   it("MSG_PAUSED -> developer_paused; the service pause marker -> service_paused; arbitrary admin text -> never a slug (falls to the existing default)", async () => {
     const { MSG_PAUSED, MSG_SERVICE_PAUSED_DEFAULT } = await import("./access")
     expect(logReason(403, MSG_PAUSED)).toBe("developer_paused")

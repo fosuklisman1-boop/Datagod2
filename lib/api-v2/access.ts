@@ -38,6 +38,9 @@ export const MSG_RATE_LIMITED = "Rate limit exceeded"
 export const MSG_PAUSED = "API access paused by Datagod"
 /** Default body for a paused service when the admin gave no message; also the fixed marker logged for service_paused. */
 export const MSG_SERVICE_PAUSED_DEFAULT = "This service is temporarily unavailable"
+/** Release 5 daily spending limit (402). The developer's own limit may be raised; the admin limit is never named or valued. */
+export const MSG_DAILY_LIMIT = "DAILY_LIMIT_REACHED: Daily spending limit reached. Try again after 00:00 GMT or raise the limit."
+export const MSG_DAILY_LIMIT_ADMIN = "DAILY_LIMIT_REACHED: Daily spending limit reached. Try again after 00:00 GMT. A Datagod limit applies."
 export const msgWrongKeyType = (required: string) => `This endpoint requires a ${required} key`
 
 /**
