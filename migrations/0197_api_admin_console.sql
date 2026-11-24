@@ -71,6 +71,8 @@
 --   SELECT to_regclass('public.package_costs');                                                         -- NOT NULL (0187 applied: the report cost join)
 --   SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'users'
 --      AND column_name IN ('first_name','last_name','email','role','is_suspended');                     -- 5 rows
+--   SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'api_v2_logs'
+--      AND column_name = 'error_reason';                                                                -- 1 row (0195 applied: public_health skips service_paused 503s)
 --   The seven service names: data, airtime, bills, bundles, results, afa, sms (equal to DocSlug in lib/api-v2/docs/pages.ts).
 --
 -- VERIFY after applying:
@@ -622,7 +624,7 @@ BEGIN
     FROM (
       SELECT l.endpoint,
              count(*) AS total,
-             count(*) FILTER (WHERE l.status_code >= 500) AS failed
+             count(*) FILTER (WHERE l.status_code >= 500 AND coalesce(l.error_reason, '') <> 'service_paused') AS failed
         FROM public.api_v2_logs l
        WHERE l.environment = 'live' AND l.created_at >= v_since AND l.endpoint IS NOT NULL
        GROUP BY l.endpoint

@@ -70,6 +70,8 @@ export function createAnnouncementsService(deps: { client: SupabaseLike; now(): 
         .from("api_v2_announcements")
         .select("id, title, body, severity, starts_at, ends_at")
         .gt("ends_at", new Date(now).toISOString())
+        // Started only: many scheduled ones must not push the active ones out of the limit below.
+        .lte("starts_at", new Date(now).toISOString())
         .order("starts_at", { ascending: false })
         .limit(20)) as { data: unknown; error: unknown }
       if (res.error) {

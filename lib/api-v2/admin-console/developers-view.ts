@@ -17,7 +17,7 @@ export function pauseCopy(pausing: boolean): { title: string; body: string; conf
   return pausing
     ? {
         title: "Pause API access for this developer?",
-        body: "This blocks every key for this person (live and test) within a few seconds. Nothing is revoked and their keys stay as they are, so this is reversible: unpause to restore access.",
+        body: "This blocks every v2 key for this person (live and test) within a few seconds. Legacy v1 keys are not affected: disable those in the Legacy v1 tab until the v1 sunset. Nothing is revoked and their keys stay as they are, so this is reversible: unpause to restore access.",
         confirm: "Pause access",
         needsReason: true,
       }

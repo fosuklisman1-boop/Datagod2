@@ -239,6 +239,16 @@ describe("review fixes", () => {
     expect(r.status).toBe(200)
     expect(k.rpc.mock.calls[0][1].p_reason).toBeNull()
   })
+  it("migration not applied (function missing) -> 500 Not set up yet, not the generic error (review M3)", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    for (const err of [{ code: "PGRST202", message: "Could not find the function public.api_v2_set_service_pause" }, { code: "42883", message: "function does not exist" }]) {
+      const r = await setServicePause(client(null, err).c, { service: "data", paused: true, message: null, actorId: ADMIN }, inv)
+      expect(r.status).toBe(500)
+      expect((r.body as { code?: string }).code).toBe("not_set_up")
+      expect(JSON.stringify(r.body)).not.toMatch(/public\.api_v2/)
+    }
+    spy.mockRestore()
+  })
   it("rpc 55P03 lock timeout is a generic 500", async () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {})
     const r = await setServicePause(client(null, { code: "55P03", message: "lock detail" }).c, { service: "data", paused: true, message: null, actorId: ADMIN }, inv)

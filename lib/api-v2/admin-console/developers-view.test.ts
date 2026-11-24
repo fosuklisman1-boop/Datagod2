@@ -7,7 +7,9 @@ describe("pauseCopy", () => {
   it("pause names the effect: every key blocked, nothing revoked, reversible; needs a reason", () => {
     const c = pauseCopy(true)
     expect(c.title).toMatch(/Pause/)
-    expect(c.body).toMatch(/blocks every key for this person/i)
+    expect(c.body).toMatch(/blocks every v2 key for this person/i)
+    // review I1: the pause is enforced on v2 only; the copy must not promise more
+    expect(c.body).toMatch(/Legacy v1 keys are not affected/i)
     expect(c.body).toMatch(/nothing is revoked/i)
     expect(c.body).toMatch(/reversible/i)
     expect(c.needsReason).toBe(true)

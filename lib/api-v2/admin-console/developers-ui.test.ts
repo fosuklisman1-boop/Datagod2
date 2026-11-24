@@ -82,7 +82,7 @@ describe("DeveloperProfileView", () => {
 describe("PauseForm", () => {
   it("names the effect and disables submit until the reason is 3-200 characters", () => {
     const empty = html(createElement(PauseForm, { paused: true, reason: "ab", busy: false, onReason: noop, onSubmit: noop, onCancel: noop }))
-    expect(empty).toMatch(/blocks every key for this person/i)
+    expect(empty).toMatch(/blocks every v2 key for this person/i)
     expect(empty).toMatch(/<button[^>]*disabled=""[^>]*>[^<]*Pause access/)
     const ok = html(createElement(PauseForm, { paused: true, reason: "Fraud pattern", busy: false, onReason: noop, onSubmit: noop, onCancel: noop }))
     expect(ok).not.toMatch(/<button[^>]*disabled=""[^>]*>[^<]*Pause access/)

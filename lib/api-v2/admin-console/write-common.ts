@@ -1,6 +1,7 @@
 // Shared by the admin console write libs: result shape, the refused-character class (mirrors migration 0197),
 // UUID check and rpc outcome mapping. Never logs anything but the error code.
 import type { RpcClient } from "@/lib/api-v2/approvals"
+import { isNotSetUp, NOT_SET_UP } from "./read-common"
 
 export type { RpcClient }
 
@@ -50,6 +51,8 @@ export async function callWrite(
   }
   if (res.error) {
     console.error("[api-v2 admin write] rpc error", fn, res.error.code ?? "unknown")
+    // Migration not applied yet: say so plainly (same wording as the reads), never a raw database message.
+    if (isNotSetUp(res.error)) return { ok: false, result: { status: 500, body: NOT_SET_UP } }
     return { ok: false, result: GENERIC }
   }
   const d = res.data as Record<string, unknown> | null

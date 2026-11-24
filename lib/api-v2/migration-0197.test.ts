@@ -126,6 +126,8 @@ async function fresh(): Promise<any> {
   await db.exec(read("0128_api_v2_foundation.sql"))
   await db.exec(STUBS_ORDERS) // after 0128: api_orders references api_v2_keys
   await db.exec(read("0131_api_v2_stats_orders.sql"))
+  // 0195 (applied in production 2026-11-23) added api_v2_logs.error_reason; public_health reads it.
+  await db.exec("ALTER TABLE public.api_v2_logs ADD COLUMN IF NOT EXISTS error_reason text")
   return db
 }
 async function fresh96(): Promise<any> {
@@ -160,10 +162,10 @@ async function mkKey(db: any, user: string, o: { status?: string; type?: string;
     )
   ).id
 }
-async function mkLog(db: any, key: string, user: string, status: number, o: { endpoint?: string; env?: string; at?: string } = {}): Promise<void> {
+async function mkLog(db: any, key: string, user: string, status: number, o: { endpoint?: string; env?: string; at?: string; reason?: string } = {}): Promise<void> {
   await db.exec(
-    `INSERT INTO api_v2_logs(key_id, user_id, method, endpoint, status_code, environment, created_at)
-     VALUES ('${key}', '${user}', 'POST', '${o.endpoint ?? "/api/v2/data/orders"}', ${status}, '${o.env ?? "live"}', ${o.at ?? "now()"})`,
+    `INSERT INTO api_v2_logs(key_id, user_id, method, endpoint, status_code, environment, created_at, error_reason)
+     VALUES ('${key}', '${user}', 'POST', '${o.endpoint ?? "/api/v2/data/orders"}', ${status}, '${o.env ?? "live"}', ${o.at ?? "now()"}, ${o.reason ? `'${o.reason}'` : "NULL"})`,
   )
 }
 async function mkPkg(db: any, cost?: number): Promise<string> {
@@ -632,6 +634,17 @@ describe.skipIf(!PGliteCtor)("0197 in PGlite", () => {
     await fails(db, "SELECT public.api_v2_business_report(NULL, now())", /from and to are required/)
     await fails(db, "SELECT public.api_v2_business_report(now() - interval '1000 days', now())", /range too large/)
     expect((await one(db, "SELECT public.api_v2_business_report(now(), now() - interval '1 day') AS r")).r).toEqual([])
+  }, 60_000)
+
+  it("public_health: a 503 from an admin service pause is not a failure (review M1)", async () => {
+    const db = await fresh96()
+    const u = await mkUser(db)
+    const k = await mkKey(db, u)
+    await mkLog(db, k, u, 200, { endpoint: "/api/v2/sms/send" })
+    await mkLog(db, k, u, 503, { endpoint: "/api/v2/sms/send", reason: "service_paused" })
+    await mkLog(db, k, u, 503, { endpoint: "/api/v2/sms/send", reason: "unavailable" })
+    const h = await call(db, "api_v2_public_health", null)
+    expect(h).toEqual([{ endpoint: "/api/v2/sms/send", total: 3, failed: 1 }])
   }, 60_000)
 
   it("public_health: only environment='live' rows; contains no user_id/key_id/ip fields", async () => {
