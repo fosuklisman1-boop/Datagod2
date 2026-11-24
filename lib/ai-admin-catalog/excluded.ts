@@ -51,4 +51,10 @@ export const EXCLUDED: ExcludedRoute[] = [
   { path: "/api/admin/packages", method: "GET", reason: "returns every package's supplier cost as one map keyed by package id (up to 1000 entries), which the lookup filter cannot narrow and which is margin data; use the packages page" },
   { path: "/api/admin/airtime/digiwapy-debug", method: "GET", reason: "temporary debug endpoint (provider key prefixes and raw toggles), diagnostic dump not meant for assistant use" },
   { path: "/api/admin/ussd-hubtel/sessions/:sessionId", method: "GET", reason: "returns the full transcript of what a caller typed on USSD (numbers, codes, free text) from an untrusted source; use the page, or the sessions list for outcomes" },
+  { path: "/api/admin/broadcast/recipients", method: "GET", reason: "returns a bare JSON array of every user's email and phone number (all pages of the users table), which the lookup filter cannot narrow; use the broadcast page, or the audience counts on each broadcast card" },
+  { path: "/api/admin/sms-platform/flags/held/:id", method: "POST", reason: "long-running (up to 300 s): releasing a held SMS campaign sends up to 500 messages inline; use the page" },
+  { path: "/api/admin/sms-platform/business-reviews/:id", method: "GET", reason: "opens a customer's identity documents (Ghana card, registration) as signed links and writes a document-viewed audit row; the applications list shows the same application fields without documents; use the page" },
+  { path: "/api/admin/whatsapp-inbox/typing", method: "POST", reason: "UI heartbeat that shows the customer a typing indicator while a person composes a reply; meaningless for an assistant" },
+  { path: "/api/admin/whatsapp-inbox/send-media", method: "POST", reason: "sends a photo or PDF from an already-uploaded file URL to a customer; the assistant cannot upload files, so the only use left is sending an arbitrary link, which is a phishing risk; use the page" },
+  { path: "/api/admin/complaints/evidence-urls", method: "POST", reason: "returns 24-hour signed links to customers' uploaded payment screenshots; the reply is never shown to the model and the links are secrets; use the page" },
 ]
