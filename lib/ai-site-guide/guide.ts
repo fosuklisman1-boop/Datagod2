@@ -8,6 +8,43 @@ function visible(item: { audiences: Audience[] }, audiences: Audience[]): boolea
   return item.audiences.some((a) => audiences.includes(a))
 }
 
+const AUDIENCE_SETS: Audience[][] = [
+  ["public"],
+  ["public", "customer"],
+  ["public", "customer", "dealer"],
+  ["public", "customer", "shop_owner"],
+  ["public", "customer", "dealer", "shop_owner"],
+  ["public", "customer", "dealer", "shop_owner", "admin"],
+]
+
+/** Human-readable violations of the content limits; [] when the data is fine. */
+export function checkSiteGuideLimits(pages: SitePage[], articles: SiteArticle[]): string[] {
+  const out: string[] = []
+  const paths = new Set<string>()
+  for (const p of pages) {
+    if (paths.has(p.path)) out.push(`duplicate path: ${p.path}`)
+    paths.add(p.path)
+    if (p.purpose.length > 160) out.push(`page ${p.path}: purpose over 160 chars`)
+    if (p.tasks.length < 1 || p.tasks.length > 5) out.push(`page ${p.path}: tasks must be 1-5`)
+    if (p.audiences.length === 0) out.push(`page ${p.path}: empty audiences`)
+  }
+  const ids = new Set<string>()
+  for (const a of articles) {
+    if (ids.has(a.id)) out.push(`duplicate id: ${a.id}`)
+    ids.add(a.id)
+    if (a.summary.length > 200) out.push(`article ${a.id}: summary over 200 chars`)
+    if (a.body.length > 2500) out.push(`article ${a.id}: body over 2500 chars`)
+    if (a.audiences.length === 0) out.push(`article ${a.id}: empty audiences`)
+  }
+  for (const set of AUDIENCE_SETS) {
+    const len = renderSiteGuide(set, pages, articles).length
+    if (len > SITE_GUIDE_BUDGET_CHARS) {
+      out.push(`guide for [${set.join(",")}] is ${len} chars, over budget ${SITE_GUIDE_BUDGET_CHARS}`)
+    }
+  }
+  return out
+}
+
 /** Compact, deterministic site guide for the system prompt. "" when nothing matches. */
 export function renderSiteGuide(
   audiences: Audience[],
