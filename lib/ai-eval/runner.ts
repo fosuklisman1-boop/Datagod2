@@ -19,6 +19,8 @@ export interface Scenario {
   storefrontServices?: ("data_bundles" | "airtime" | "results_checker")[]
   /** Fixed knowledge-base entries injected into the prompt. */
   knowledge?: KnowledgeEntry[]
+  /** Admin only: run with the admin catalog switch ON (catalog tools + prompt block, acting tools dropped). */
+  adminCatalog?: boolean
   expect: Expectation[]
 }
 
@@ -45,7 +47,7 @@ export function buildScenarioSystem(s: Scenario): SystemPrompt {
   if (s.context === "dashboard") {
     return buildDashboardPrompt({ ...common, channelNote: "", firstName: "Ama", lastName: "Mensah", role: s.role, phone: "0240000001", balance: "GHS 50.00", today: "2026-01-02", cardNonce: NONCE })
   }
-  return buildAdminPrompt({ ...common, firstName: "Kojo", lastName: "Boateng", today: "2026-01-02", cardNonce: NONCE })
+  return buildAdminPrompt({ ...common, firstName: "Kojo", lastName: "Boateng", today: "2026-01-02", cardNonce: NONCE, adminCatalog: s.adminCatalog === true })
 }
 
 function storefrontFlags(s: Scenario): StorefrontServiceFlags | undefined {
@@ -65,7 +67,8 @@ function toMessages(userText: string | string[]): Anthropic.MessageParam[] {
 export async function runScenario(s: Scenario, opts: { provider: AIProvider; model: string }): Promise<ScenarioOutcome> {
   const stubs = s.stubs ?? {}
   const flags = storefrontFlags(s)
-  const offeredTools = aiTools(s.context, flags).map((t) => t.name)
+  const adminCatalog = s.context === "admin" && s.adminCatalog === true
+  const offeredTools = aiTools(s.context, flags, adminCatalog).map((t) => t.name)
   const toolCalls: EvalResult["toolCalls"] = []
   let modelCalls = 0
   const provider: AIProvider = {
@@ -79,6 +82,7 @@ export async function runScenario(s: Scenario, opts: { provider: AIProvider; mod
     system: buildScenarioSystem(s),
     context: s.context,
     storefrontServices: flags,
+    ...(adminCatalog ? { adminCatalog: true } : {}),
     messages: toMessages(s.userText),
     toolCtx: { userRole: s.role, baseUrl: "http://eval.invalid", userId: "eval-user", phone: "0240000001", conversationKey: "eval-session" },
     maxIterations: 6,

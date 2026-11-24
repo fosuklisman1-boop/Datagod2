@@ -310,7 +310,7 @@ const v1DeleteCard = async (i: EntryInput, ctx: CardCtx): Promise<Card> => {
 }
 
 const globalKillCard = async (_i: EntryInput, ctx: CardCtx): Promise<Card> => {
-  const v1 = await readCount(() => ctx.db.from("user_api_keys").select("id", { count: "exact", head: true }).eq("is_active", true))
+  const v1 = await readCount(() => ctx.db.from("user_api_keys").select("id", { count: "exact", head: true }).neq("is_active", false))
   const v2 = await readCount(() => ctx.db.from("api_v2_keys").select("id", { count: "exact", head: true }).in("status", ["pending", "active"]))
   const cfg = await readOne(() => ctx.db.from("api_v2_config").select("enabled").eq("id", true).maybeSingle())
   const c = rowOf(cfg)
@@ -599,7 +599,7 @@ const taskCreateCard = async (i: EntryInput, ctx: CardCtx): Promise<Card> => {
   if ((type === "daily" || type === "weekly") && !str(b.run_at_time)) lines.push(problem("A time of day (run_at_time, HH:MM UTC) is needed for daily and weekly tasks: the request is refused."))
   if (type === "weekly" && arr(b.run_on_days).length === 0) lines.push(problem("The days to run on (run_on_days) are needed for weekly tasks: the request is refused."))
   if (type === "once" && !str(b.run_at_timestamp)) lines.push(problem("The date and time (run_at_timestamp) are needed for a one-off task: the request is refused."))
-  lines.push(effect("A new scheduled task is saved and starts running on its own at the times above, without anyone present to approve each run. Times are UTC. Check that the prompt is something you want to run unattended. It can be paused or deleted from the Scheduled Tasks page."))
+  lines.push(effect("A new scheduled task is saved and starts running on its own at the times above, without anyone present to approve each run. Times are UTC. Check that the prompt is something you want to run unattended. While the admin catalog switch is ON, an unattended run can only read data and prepare confirm cards that wait for your tap; with the switch OFF, an unattended run can still act directly (change order statuses, retry or fulfil orders, switch settings, send notifications) with no one tapping to approve. It can be paused or deleted from the Scheduled Tasks page."))
   return { summary: "Create a scheduled AI task", lines }
 }
 

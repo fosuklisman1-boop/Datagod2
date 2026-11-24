@@ -11,6 +11,8 @@ const PATTERN = /package_costs|cost_price/
 const ALLOW = new Set<string>([
   "lib/admin-service.ts", // client helper used only by admin pages (calls /api/admin/packages)
   "lib/package-cost-form.ts", // pure helper for the admin packages form
+  "lib/ai-admin-catalog/areas/services.ts", // admin AI catalog: confirm card for the admin packages route (admin-only caller)
+  "lib/ai-admin-catalog/areas/users.ts", // admin AI catalog: admin-only user/package price lookups
   "lib/roles/package-costs.guard.test.ts",
   "lib/roles/migration-0187.test.ts",
   "lib/roles/migration-0187-run.ts",

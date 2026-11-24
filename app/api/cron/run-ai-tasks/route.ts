@@ -360,6 +360,9 @@ export async function GET(request: NextRequest) {
           // Nobody is present to tap a confirm card on a dashboard run, so it never gets a prepare_* tool.
           // Admin runs keep the admin prepare_* tools (the admin confirms later from a push) minus prepare_wallet_order.
           toolFilter: isAdminRun ? adminBackgroundTools : withoutPrepareTools,
+          // Admin catalog switch ON: a background admin run keeps only read tools and prepare_* drafts. The loop then drops
+          // every ops/money/account tool from the offered list and the executeToolCall allow-check refuses it. OFF: unchanged.
+          ...(isAdminRun && resolveAssistantSettings(aiConfig).adminCatalog ? { adminCatalog: true } : {}),
           // No onEvent — silent execution
         })
 

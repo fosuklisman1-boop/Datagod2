@@ -51,6 +51,7 @@ vi.mock("@/lib/ai-drafts/standing-order", () => ({ runStandingOrder: vi.fn() }))
 import { GET } from "./route"
 import { aiTools } from "@/lib/ai-tools"
 import { adminBackgroundTools } from "@/lib/ai-scheduled/tools"
+import { TOOL_REGISTRY } from "@/lib/ai-tool-registry"
 
 const ADMIN = "22222222-2222-4222-8222-222222222222"
 const past = () => new Date(Date.now() - 60_000).toISOString()
@@ -170,6 +171,24 @@ describe("run-ai-tasks admin cards", () => {
     const sys = h.runLoop.mock.calls[0][0].system as string
     expect(sys).toContain("You are running in the background with nobody watching. You cannot adjust wallets, act on withdrawals, change roles, suspend users, bulk-change order statuses or place data orders")
     expect(sys).not.toContain("You cannot perform actions")
+  })
+
+  it("switch ON: admin background run is told the catalog is on, so no ops/money/account tool is offered or runnable", async () => {
+    seed("admin")
+    h.tables.admin_settings = [{ key: "ai_provider_config", value: { admin_catalog_enabled: true } }]
+    await GET(req())
+    const p = h.runLoop.mock.calls[0][0]
+    expect(p.adminCatalog).toBe(true)
+    const acting = TOOL_REGISTRY.filter((e) => e.acts === "ops" || e.acts === "money" || e.acts === "account").map((e) => e.tool.name)
+    const list = names(p.toolFilter(aiTools("admin", undefined, p.adminCatalog)))
+    for (const n of acting) expect(list).not.toContain(n)
+    for (const n of ["prepare_withdrawal_action", "prepare_wallet_adjustment", "get_all_orders"]) expect(list).toContain(n)
+  })
+
+  it("switch OFF: admin background run is unchanged (no adminCatalog flag)", async () => {
+    seed("admin")
+    await GET(req())
+    expect(h.runLoop.mock.calls[0][0].adminCatalog).toBeUndefined()
   })
 
   it("non_admin_task_gets_no_admin_tools", async () => {
