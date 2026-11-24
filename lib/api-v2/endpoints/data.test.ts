@@ -1596,7 +1596,7 @@ describe("sandbox failure numbers", () => {
 // ---------------------------------------------------------------- Release 5: daily spending limit
 
 describe("data purchases (live): daily spending limit", () => {
-  const spendHook = (reserve: { kind: string; scope?: "key" | "user" }, caps = true) => ({
+  const spendHook = (reserve: { kind: string; scope?: "key" | "user"; state?: "reserved" | "spent" }, caps = true) => ({
     settings: vi.fn(async () => ({ capsEnabled: caps, alertsEnabled: false, at: 0 })),
     reserve: vi.fn(async () => reserve as any),
     settle: vi.fn(async () => {}),
@@ -1674,18 +1674,31 @@ describe("data purchases (live): daily spending limit", () => {
     expect(r.status).toBe(402)
     expectNoMoney(d)
   })
-  it("bulk: one placed and one failed -> spent with the placed total; nothing placed -> released", async () => {
+  it("bulk (review I1): a FAILED placement may have committed, so it counts: placed 8 + uncertain 8 -> spent 16; nothing charged -> released", async () => {
     const h = spendHook({ kind: "reserved" })
     const d = withSpend(h)
     d.store.placeV2Order.mockImplementationOnce(async (p: PlaceParams) => placedOk(p.reference))
     d.store.placeV2Order.mockImplementationOnce(async () => ({ ok: false, code: "FAILED" }) as any)
     await bulkHandler(d)({ orders: [item(0), item(1)] }, LIVE)
-    expect(h.settle).toHaveBeenLastCalledWith(expect.objectContaining({ state: "spent", amount: 8 }))
+    expect(h.settle).toHaveBeenLastCalledWith(expect.objectContaining({ state: "spent", amount: 16 }))
     const h2 = spendHook({ kind: "reserved" })
     const d2 = withSpend(h2)
     d2.store.placeV2Order.mockResolvedValue({ ok: false, code: "INSUFFICIENT_BALANCE" } as any)
     await bulkHandler(d2)({ orders: [item(0), item(1)] }, LIVE)
     expect(h2.settle).toHaveBeenLastCalledWith(expect.objectContaining({ state: "released" }))
+  })
+  it("review C2: another request still holds a reservation for the same reference -> 409, nothing placed (single and bulk)", async () => {
+    const d = withSpend(spendHook({ kind: "existing", state: "reserved" }))
+    const r = await purchaseHandler(d)(body(), LIVE)
+    expect(r.status).toBe(409)
+    expect((r as any).error.message).toMatch(/^REQUEST_IN_PROGRESS: /)
+    expectNoMoney(d)
+    const b = withSpend(spendHook({ kind: "existing", state: "reserved" }))
+    expect((await bulkHandler(b)({ orders: [item(0), item(1)] }, LIVE)).status).toBe(409)
+    expectNoMoney(b)
+    // an existing SPENT row (finished earlier) may proceed: placement can only replay or refuse the reference
+    const s = withSpend(spendHook({ kind: "existing", state: "spent" }))
+    expect((await purchaseHandler(s)(body(), LIVE)).status).toBe(201)
   })
   it("bulk: an all-replay batch never reserves", async () => {
     const h = spendHook({ kind: "reserved" })

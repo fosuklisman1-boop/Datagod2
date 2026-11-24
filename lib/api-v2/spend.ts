@@ -67,12 +67,14 @@ export function getMoneySettings(): ReturnType<typeof createMoneySettings> {
   return defaultSettings
 }
 
-const HASHED_BULK = /^bulk:[0-9a-f]{64}$/
-
-/** A data_bulk reference reaches the ledger as bulk:<sha256> (stable, <= 200 characters); other kinds pass through. */
+/**
+ * A data_bulk reference ALWAYS reaches the ledger as bulkh:<sha256 of the raw "bulk:..." form>: stable, <= 200
+ * characters, and never a pass-through (review C1: a client-chosen reference that merely looked hashed could otherwise
+ * land on another batch's row). Other kinds pass through unchanged.
+ */
 export function ledgerReference(kind: SpendKind, reference: string): string {
-  if (kind !== "data_bulk" || HASHED_BULK.test(reference)) return reference
-  return "bulk:" + createHash("sha256").update(reference, "utf8").digest("hex")
+  if (kind !== "data_bulk") return reference
+  return "bulkh:" + createHash("sha256").update(reference, "utf8").digest("hex")
 }
 
 export async function reserveSpend(
@@ -91,8 +93,13 @@ export async function reserveSpend(
       console.error("[api-v2 spend] api_v2_spend_reserve", (res.error as { code?: string }).code ?? "unknown")
       return { kind: "error" }
     }
-    const d = (res.data ?? {}) as { ok?: unknown; skipped?: unknown; existing?: unknown; code?: unknown; scope?: unknown }
-    if (d.ok === true) return d.skipped === true ? { kind: "skipped" } : d.existing === true ? { kind: "existing" } : { kind: "reserved" }
+    const d = (res.data ?? {}) as { ok?: unknown; skipped?: unknown; existing?: unknown; state?: unknown; code?: unknown; scope?: unknown }
+    if (d.ok === true) {
+      if (d.skipped === true) return { kind: "skipped" }
+      // an unknown state is treated as still reserved (the cautious reading)
+      if (d.existing === true) return { kind: "existing", state: d.state === "spent" ? "spent" : "reserved" }
+      return { kind: "reserved" }
+    }
     if (d.code === "cap_reached" && (d.scope === "key" || d.scope === "user")) return { kind: "cap", scope: d.scope }
     console.error("[api-v2 spend] api_v2_spend_reserve", typeof d.code === "string" ? d.code : "unexpected")
     return { kind: "error" }

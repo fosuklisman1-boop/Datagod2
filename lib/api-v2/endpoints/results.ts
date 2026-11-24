@@ -412,8 +412,8 @@ async function livePurchase(deps: ResultsDeps, input: ResultsInput, ctx: V2Conte
     result = await deps.engine({ userId: ctx.userId, examBoard: input.board, quantity: input.quantity })
   } catch (e) {
     if (classifyResultsError(engineCode(e)) === "no_charge") {
-      await safeRelease(deps, claimId, ctx.userId)
       await settleOwned(deps.spend, spend.owned, ctx, "results", input.reference, "released")
+      await safeRelease(deps, claimId, ctx.userId)
       return errorResult(e)
     }
     await markAmbiguous(deps, claimId, ctx, input.reference)

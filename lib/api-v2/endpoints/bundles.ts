@@ -394,8 +394,8 @@ async function livePurchase(deps: BundlesV2Deps, input: BundlePurchaseInput, ctx
   if (!result.ok) {
     const c = classifyBundleRefusal(result, input.expectedPay)
     if (c.kind === "no_charge") {
-      await safeRelease(deps, claimId, ctx.userId)
       await settleOwned(deps.spend, spend.owned, ctx, "bundle", input.reference, "released")
+      await safeRelease(deps, claimId, ctx.userId)
       return fail(c.status, c.message)
     }
     return ambiguous(deps, claimId, ctx, input.reference, engineOrderRef(result))

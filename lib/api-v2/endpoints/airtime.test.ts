@@ -1169,6 +1169,19 @@ describe("POST /airtime/purchase (live): daily spending limit", () => {
     await purchaseAirtimeHandler({ ...b, spend: hb })(body(), LIVE)
     expect(hb.settle).not.toHaveBeenCalled()
   })
+  it("review I2: a no-charge outcome settles the reservation BEFORE freeing the claim (a retry then sees a clean slate)", async () => {
+    const { deps } = makeDeps()
+    const order: string[] = []
+    const realRelease = deps.release.getMockImplementation()!
+    deps.release.mockImplementation(async (...a: any[]) => (order.push("release"), (realRelease as any)(...a)))
+    const h = spendHook({ kind: "reserved" })
+    h.settle.mockImplementation(async () => {
+      order.push("settle")
+    })
+    deps.engine.mockRejectedValueOnce(engineError("INSUFFICIENT_BALANCE", { required: 12.5 }))
+    await purchaseAirtimeHandler({ ...deps, spend: h })(body(), LIVE)
+    expect(order).toEqual(["settle", "release"])
+  })
   it("reserve 'existing' (owned by another request) -> engine runs but this request never settles", async () => {
     const { deps } = makeDeps()
     const h = spendHook({ kind: "existing" })

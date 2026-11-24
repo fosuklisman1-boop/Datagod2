@@ -87,15 +87,23 @@ describe("reserveSpend / settleSpend", () => {
     spy.mockRestore()
   })
   it("an existing reserved/spent row maps to 'existing' (owned by another request: the caller must never settle it)", async () => {
-    expect(await reserveSpend(rpcClient({ data: { ok: true, ledger_id: "L", existing: true, state: "reserved" }, error: null }).client, p)).toEqual({ kind: "existing" })
-    expect(await reserveSpend(rpcClient({ data: { ok: true, ledger_id: "L", existing: true, state: "spent" }, error: null }).client, p)).toEqual({ kind: "existing" })
+    expect(await reserveSpend(rpcClient({ data: { ok: true, ledger_id: "L", existing: true, state: "reserved" }, error: null }).client, p)).toEqual({ kind: "existing", state: "reserved" })
+    expect(await reserveSpend(rpcClient({ data: { ok: true, ledger_id: "L", existing: true, state: "spent" }, error: null }).client, p)).toEqual({ kind: "existing", state: "spent" })
   })
   it("a raw data_bulk reference is hashed to bulk:<sha256> for both reserve and settle; other kinds pass through", async () => {
     const r = rpcClient({ data: { ok: true, ledger_id: "L" }, error: null })
     const raw = "bulk:BULK-0\nBULK-1"
     await reserveSpend(r.client, { ...p, kind: "data_bulk", reference: raw })
     const sent = (r.rpc.mock.calls[0] as any[])[1].p_reference as string
-    expect(sent).toMatch(/^bulk:[0-9a-f]{64}$/)
+    expect(sent).toMatch(/^bulkh:[0-9a-f]{64}$/)
+    // review C1: a raw value that already LOOKS hashed is still hashed (no pass-through a client can aim at)
+    const crafted = "bulk:" + "a".repeat(64)
+    const r2 = rpcClient({ data: { ok: true, ledger_id: "L" }, error: null })
+    await reserveSpend(r2.client, { ...p, kind: "data_bulk", reference: crafted })
+    const sent2 = (r2.rpc.mock.calls[0] as any[])[1].p_reference as string
+    expect(sent2).toMatch(/^bulkh:[0-9a-f]{64}$/)
+    expect(sent2).not.toBe(crafted)
+    expect(sent2).not.toBe("bulkh:" + "a".repeat(64))
     const s = rpcClient({ data: { ok: true, changed: true }, error: null })
     await settleSpend(s.client, { keyId: "k1", kind: "data_bulk", reference: raw, state: "spent" })
     expect((s.rpc.mock.calls[0] as any[])[1].p_reference).toBe(sent)
@@ -145,7 +153,7 @@ describe("guardSpend / settleOwned (request-path helpers)", () => {
     const h = hook({ kind: "reserved" })
     expect(await guardSpend(h, ctx("live"), "bill", "R", 12.5)).toEqual({ proceed: true, owned: true })
     expect(h.reserve).toHaveBeenCalledWith({ userId: "u1", keyId: "k1", kind: "bill", reference: "R", amount: 12.5 })
-    expect(await guardSpend(hook({ kind: "existing" }), ctx("live"), "bill", "R", 1)).toEqual({ proceed: true, owned: false })
+    expect(await guardSpend(hook({ kind: "existing", state: "reserved" }), ctx("live"), "bill", "R", 1)).toEqual({ proceed: true, owned: false })
     expect(await guardSpend(hook({ kind: "skipped" }), ctx("live"), "bill", "R", 1)).toEqual({ proceed: true, owned: false })
   })
   it("cap -> 402 with the scope's message; error -> 503; never proceed", async () => {
@@ -174,6 +182,19 @@ describe("guardSpend / settleOwned (request-path helpers)", () => {
       expect(await guardSpend(hb, ctx("live"), "afa", "R", bad)).toMatchObject({ proceed: false, result: { status: 503 } })
       expect(hb.reserve).not.toHaveBeenCalled()
     }
+  })
+  it("review C2: with refuseInFlight, an existing RESERVED row (another request still in flight) -> 409, never proceed; existing spent -> proceed, not owned", async () => {
+    const inflight = await guardSpend(hook({ kind: "existing", state: "reserved" } as any), ctx("live"), "data", "R", 8, { refuseInFlight: true })
+    expect(inflight).toMatchObject({ proceed: false, result: { status: 409 } })
+    expect((inflight as any).result.error.message).toMatch(/^REQUEST_IN_PROGRESS: .*nothing was charged/i)
+    expect(await guardSpend(hook({ kind: "existing", state: "spent" } as any), ctx("live"), "data", "R", 8, { refuseInFlight: true })).toEqual({ proceed: true, owned: false })
+    // commission keeps proceeding (its claim already serialises the reference)
+    expect(await guardSpend(hook({ kind: "existing", state: "reserved" } as any), ctx("live"), "airtime", "R", 8)).toEqual({ proceed: true, owned: false })
+  })
+  it("review M1: a reserve that throws -> 503, never an unhandled error", async () => {
+    const h = hook({ kind: "reserved" })
+    h.reserve.mockRejectedValueOnce(new Error("client init failed"))
+    expect(await guardSpend(h, ctx("live"), "data", "R", 8)).toMatchObject({ proceed: false, result: { status: 503 } })
   })
   it("settleOwned settles only when owned", async () => {
     const h = hook({ kind: "reserved" })

@@ -428,7 +428,8 @@ async function livePurchase(deps: DataDeps, input: PurchaseInput, ctx: V2Context
   }
 
   // 4b. Daily spending limit (live, caps on): the server-side price is reserved before anything can charge.
-  const spend = deps.spend ? await guardSpend(deps.spend, ctx, "data", input.reference, p.price) : NO_SPEND
+  // refuseInFlight: data has no claim, so a racing duplicate is refused here instead (review C2).
+  const spend = deps.spend ? await guardSpend(deps.spend, ctx, "data", input.reference, p.price, { refuseInFlight: true }) : NO_SPEND
   if (!spend.proceed) return spend.result
 
   // 5. Atomic placement.
@@ -647,7 +648,8 @@ async function liveBulk(deps: DataDeps, items: PurchaseInput[], ctx: V2Context, 
 
   // 6b. Daily spending limit (live, caps on): one reservation for the new items' total, before any placement.
   const bulkRef = bulkReference([...toPlace].flatMap((s) => (s.kind === "new" ? [s.p.input.reference] : [])))
-  const spend = deps.spend && neededCents > 0 ? await guardSpend(deps.spend, ctx, "data_bulk", bulkRef, neededCents / 100) : NO_SPEND
+  const spend =
+    deps.spend && neededCents > 0 ? await guardSpend(deps.spend, ctx, "data_bulk", bulkRef, neededCents / 100, { refuseInFlight: true }) : NO_SPEND
   if (!spend.proceed) return spend.result
 
   // 7. Sequential placement; a failure marks the item and the batch continues.
@@ -658,6 +660,8 @@ async function liveBulk(deps: DataDeps, items: PurchaseInput[], ctx: V2Context, 
   const results: BulkResult[] = []
   const placed: FulfillmentTarget[] = []
   let chargedCents = 0
+  /** Placements whose outcome is unknown: they still count toward today's spend (the safe side). */
+  let uncertainCents = 0
   try {
     for (const s of slots) {
       if (s.kind === "replay") {
@@ -672,6 +676,10 @@ async function liveBulk(deps: DataDeps, items: PurchaseInput[], ctx: V2Context, 
       }
       const res = await deps.store.placeV2Order(placeParams(ctx, s.p))
       if (!res.ok) {
+        // Only these codes are known to have charged nothing; any other failure may have committed (review I1).
+        if (res.code !== "INSUFFICIENT_BALANCE" && res.code !== "WALLET_NOT_FOUND" && res.code !== "REFERENCE_REUSED") {
+          uncertainCents += cents(s.p.price)
+        }
         results.push({
           reference: ref,
           status: "failed",
@@ -691,7 +699,8 @@ async function liveBulk(deps: DataDeps, items: PurchaseInput[], ctx: V2Context, 
     if (placed.length > 0) deps.scheduleBatch(placed)
   }
   // Normal completion only (a throw above leaves the reservation counted): settle with what was actually charged.
-  await settleOwned(deps.spend, spend.owned, ctx, "data_bulk", bulkRef, chargedCents > 0 ? "spent" : "released", chargedCents > 0 ? chargedCents / 100 : undefined)
+  const countedCents = chargedCents + uncertainCents
+  await settleOwned(deps.spend, spend.owned, ctx, "data_bulk", bulkRef, countedCents > 0 ? "spent" : "released", countedCents > 0 ? countedCents / 100 : undefined)
 
   return ok(200, { results, skipped, total_charged: chargedCents / 100 })
 }

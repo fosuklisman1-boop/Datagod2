@@ -347,8 +347,8 @@ async function liveRegister(deps: AfaDeps, input: AfaInput, ctx: V2Context): Pro
     result = await deps.engine(engineParams(ctx, input))
   } catch (e) {
     if (classifyAfaError(engineCode(e)) === "no_charge") {
-      await safeRelease(deps, claimId, ctx.userId)
       await settleOwned(deps.spend, spend.owned, ctx, "afa", input.reference, "released")
+      await safeRelease(deps, claimId, ctx.userId)
       return errorResult(e)
     }
     await markAmbiguous(deps, claimId, ctx, input.reference)

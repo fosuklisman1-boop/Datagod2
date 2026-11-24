@@ -383,8 +383,9 @@ async function livePurchase(deps: AirtimeDeps, input: AirtimeInput, ctx: V2Conte
     result = await deps.engine(engineParams(ctx, input))
   } catch (e) {
     if (classifyEngineError(engineCode(e)) === "no_charge") {
-      await safeRelease(deps, claimId, ctx.userId)
+      // settle first: while the claim is still held, a retry gets in_progress instead of racing this release
       await settleOwned(deps.spend, spend.owned, ctx, "airtime", input.reference, "released")
+      await safeRelease(deps, claimId, ctx.userId)
       return noChargeResult(e)
     }
     await markAmbiguous(deps, claimId, ctx, input.reference)

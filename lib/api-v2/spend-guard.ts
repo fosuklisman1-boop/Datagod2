@@ -22,7 +22,7 @@ export interface MoneySettings {
 export type ReserveResult =
   | { kind: "skipped" }
   | { kind: "reserved" }
-  | { kind: "existing" }
+  | { kind: "existing"; state: "reserved" | "spent" }
   | { kind: "cap"; scope: "key" | "user" }
   | { kind: "error" }
 
@@ -33,9 +33,11 @@ export interface SpendHook {
   settle(p: { keyId: string; kind: SpendKind; reference: string; state: "spent" | "released"; amount?: number }): Promise<void>
 }
 
-export type GuardResult = { proceed: true; owned: boolean } | { proceed: false; result: { status: 402 | 503; error: { status: 402 | 503; message: string } } }
+export type GuardResult = { proceed: true; owned: boolean } | { proceed: false; result: { status: 402 | 409 | 503; error: { status: 402 | 409 | 503; message: string } } }
 
 const SPEND_UNAVAILABLE = "UNAVAILABLE: the daily spending limit could not be checked; nothing was charged. Retry with the same reference"
+export const MSG_SPEND_IN_PROGRESS =
+  "REQUEST_IN_PROGRESS: a request with this reference is still being processed; nothing was charged by this one. Retry the same reference shortly"
 
 export function capMessage(scope: "key" | "user"): string {
   return scope === "user" ? MSG_DAILY_LIMIT_ADMIN : MSG_DAILY_LIMIT
@@ -58,6 +60,12 @@ export async function guardSpend(
   reference: string,
   /** A number, or a reader called only when caps are on for a live key (so caps-off adds no query). */
   amountOrRead: number | (() => Promise<number>),
+  /**
+   * refuseInFlight: for products WITHOUT a claim (data, data_bulk) another request holding a still-reserved row for the
+   * same reference means two requests are racing: answer 409 and never place (review C2). Commission products keep
+   * proceeding: their claim already makes the reference exclusive.
+   */
+  opts: { refuseInFlight?: boolean } = {},
 ): Promise<GuardResult> {
   if (!hook || ctx.environment !== "live") return { proceed: true, owned: false }
   let settings: MoneySettings
@@ -76,11 +84,20 @@ export async function guardSpend(
   if (!Number.isFinite(amount) || amount <= 0) {
     return { proceed: false, result: { status: 503, error: { status: 503, message: SPEND_UNAVAILABLE } } }
   }
-  const r = await hook.reserve({ userId: ctx.userId, keyId: ctx.keyId, kind, reference, amount })
+  let r: ReserveResult
+  try {
+    r = await hook.reserve({ userId: ctx.userId, keyId: ctx.keyId, kind, reference, amount })
+  } catch {
+    r = { kind: "error" }
+  }
   switch (r.kind) {
     case "reserved":
       return { proceed: true, owned: true }
     case "existing":
+      if (opts.refuseInFlight && r.state === "reserved") {
+        return { proceed: false, result: { status: 409, error: { status: 409, message: MSG_SPEND_IN_PROGRESS } } }
+      }
+      return { proceed: true, owned: false }
     case "skipped":
       return { proceed: true, owned: false }
     case "cap": {

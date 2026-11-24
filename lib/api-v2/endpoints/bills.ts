@@ -405,8 +405,8 @@ async function livePay(deps: BillsV2Deps, input: BillPayInput, ctx: V2Context): 
 
   if (!result.ok) {
     if (typeof result.status === "number" && isNoDebitStatus(result.status)) {
-      await safeRelease(deps, claimId, ctx.userId)
       await settleOwned(deps.spend, spend.owned, ctx, "bill", input.reference, "released")
+      await safeRelease(deps, claimId, ctx.userId)
       return refusalResult(result, input.expectedPay)
     }
     // Conservative by design: of payBill's 500s only "debit uncertain" (service.ts ~267) can have moved
@@ -422,8 +422,8 @@ async function livePay(deps: BillsV2Deps, input: BillPayInput, ctx: V2Context): 
   // 5. An order this call did not insert is the token's EARLIER order (payBill's API retry
   //    path): this request debited nothing, and that payment belongs to another reference.
   if (paid.fresh !== true) {
-    await safeRelease(deps, claimId, ctx.userId)
     await settleOwned(deps.spend, spend.owned, ctx, "bill", input.reference, "released")
+    await safeRelease(deps, claimId, ctx.userId)
     console.error(LOG_TOKEN_REUSED)
     return tokenReuseResult(deps, ctx.userId, order)
   }
