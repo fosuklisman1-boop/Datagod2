@@ -42,7 +42,6 @@ const CATALOGUED = [
   "POST /api/admin/roles/:id/move",
   "POST /api/admin/roles/members/move",
   "POST /api/admin/set-admin",
-  "POST /api/admin/set-admin-by-email",
   "POST /api/admin/update-balance",
   "POST /api/admin/users/:id/force-logout",
   "POST /api/admin/users/:id/notes",
@@ -63,6 +62,7 @@ const EXCLUDED_ROUTES: Array<[string, RegExp]> = [
   ["GET /api/admin/customers/analytics", /own shop/],
   ["GET /api/admin/customers/list", /own shop/],
   ["GET /api/admin/initialize-balance", /1000/],
+  ["POST /api/admin/set-admin-by-email", /use users\.set_admin by id/],
   ["POST /api/admin/users/bulk", /use the page/],
   ["GET /api/admin/users/export", /use the page/],
 ]
@@ -157,7 +157,6 @@ describe("users catalog rules", () => {
     atLeast("POST /api/admin/update-balance", "money")
     for (const k of [
       "POST /api/admin/set-admin",
-      "POST /api/admin/set-admin-by-email",
       "POST /api/admin/remove-admin",
       "DELETE /api/admin/remove-user",
       "POST /api/admin/change-user-password",
@@ -204,9 +203,15 @@ describe("users catalog rules", () => {
     }
   })
 
-  it("set-admin-by-email is not behind verifyAdminAccess", () => {
-    expect(byKey("POST /api/admin/set-admin-by-email").auth).toBe("other")
-    for (const x of USERS_ENTRIES) if (x.id !== "users.set_admin_by_email") expect(x.auth, x.id).toBe("admin")
+  it("every remaining entry is behind verifyAdminAccess", () => {
+    for (const x of USERS_ENTRIES) expect(x.auth, x.id).toBe("admin")
+  })
+
+  it("lookups drop last sign-in timestamps, and bulk role move refuses admin and sub_agent targets in the schema", () => {
+    for (const x of USERS_ENTRIES) for (const p of x.resultKeep ?? []) expect(p, x.id).not.toMatch(/sign_?in/i)
+    const b = byKey("POST /api/admin/roles/members/move").body!
+    for (const to_role of ["admin", "sub_agent"]) expect(b.safeParse({ user_ids: [U1], to_role, reason: "tier change" }).success, to_role).toBe(false)
+    expect(b.safeParse({ user_ids: [U1], to_role: "dealer", reason: "tier change" }).success).toBe(true)
   })
 
   it("timeouts stay within 60 s", () => {
@@ -311,7 +316,6 @@ const CARD_INPUTS: Record<string, { params?: Record<string, string>; query?: Rec
   "POST /api/admin/roles/:id/move": { params: { id: R2 }, body: { direction: "up", reason: "reorder" } },
   "POST /api/admin/roles/members/move": { body: { user_ids: [U1, U2, U3, "eeeeeeee-eeee-4eee-8eee-000000000001"], to_role: "dealer", reason: "tier change" } },
   "POST /api/admin/set-admin": { body: { userId: U3 } },
-  "POST /api/admin/set-admin-by-email": { body: { email: "yaw@example.com" } },
   "POST /api/admin/users/:id/force-logout": { params: { id: U1 } },
   "POST /api/admin/users/:id/notes": { params: { id: U1 }, body: { body: "New note" } },
   "POST /api/admin/users/:id/password-reset": { params: { id: U1 } },
@@ -349,7 +353,7 @@ describe("users change cards", () => {
       expect(c.lines.length).toBeGreaterThanOrEqual(1)
       const text = JSON.stringify(c)
       expect(text).not.toContain("SECRET123")
-      for (const full of ["leak@example.com", "0241234567", "0551234567", "yaw@example.com", "kofi@example.com", "new@example.com", "0559998888"]) {
+      for (const full of ["leak@example.com", "0241234567", "0551234567", "yaw@example.com", "kofi@example.com"]) {
         expect(text, full).not.toContain(full)
       }
     })
@@ -379,17 +383,28 @@ describe("users change cards", () => {
     expect(c).toMatch(/wallet adjustments/i)
     expect(c).toMatch(/admin history/i)
     const missing = await text("POST /api/admin/set-admin", { body: { userId: "aaaaaaaa-aaaa-4aaa-8aaa-0000000000ff" } })
-    expect(missing).toMatch(/No user with this id/i)
+    expect(missing).toMatch(/no such user/i)
     const already = await text("POST /api/admin/set-admin", { body: { userId: U2 } })
     expect(already).toMatch(/already an admin/i)
   })
 
-  it("set-admin-by-email masks the email and says no history entry is written", async () => {
-    const c = await text("POST /api/admin/set-admin-by-email", CARD_INPUTS["POST /api/admin/set-admin-by-email"])
-    expect(c).toContain("y***@example.com")
-    expect(c).toMatch(/NO entry is written/)
-    const none = await text("POST /api/admin/set-admin-by-email", { body: { email: "nobody@example.com" } })
-    expect(none).toMatch(/No profile with this email/i)
+  it("set-admin shows the full name, the id and a masked phone, and flags a missing user", async () => {
+    const c = await text("POST /api/admin/set-admin", CARD_INPUTS["POST /api/admin/set-admin"])
+    expect(c).toContain("Yaw Asare")
+    expect(c).toContain(U3)
+    expect(c).toContain("020 *** 4567")
+    const missing = await text("POST /api/admin/set-admin", { body: { userId: "aaaaaaaa-aaaa-4aaa-8aaa-0000000000ff" } })
+    expect(missing).toContain("(no such user — the route still reports success)")
+  })
+
+  it("update-user shows the FULL new email and phone, and warns when the target is an admin", async () => {
+    const e = byKey("POST /api/admin/users/update-user")
+    const c = JSON.stringify(await e.card!({ body: { userId: U1, email: "attacker@evil.example", phoneNumber: "0559998888" } }, { db: fakeDb(tables), adminId: ADMIN }))
+    expect(c).toContain("attacker@evil.example")
+    expect(c).toContain("0559998888")
+    expect(c).not.toContain("This changes the sign-in details of an admin account.")
+    const admin = JSON.stringify(await e.card!({ body: { userId: U2, email: "x@evil.example" } }, { db: fakeDb(tables), adminId: ADMIN }))
+    expect(admin).toContain("This changes the sign-in details of an admin account.")
   })
 
   it("remove-admin warns it sets role to user whatever it was, on your own account and on the last admin", async () => {
@@ -418,9 +433,9 @@ describe("users change cards", () => {
   it("update-user shows masked before and after, and says the history and user are not told", async () => {
     const c = await text("POST /api/admin/users/update-user", CARD_INPUTS["POST /api/admin/users/update-user"])
     expect(c).toContain("l***@example.com")
-    expect(c).toContain("n***@example.com")
+    expect(c).toContain("new@example.com")
     expect(c).toContain("024 *** 4567")
-    expect(c).toContain("055 *** 8888")
+    expect(c).toContain("0559998888")
     expect(c).toMatch(/sign-in email/i)
     expect(c).toMatch(/No entry is written/)
     const none = await text("POST /api/admin/users/update-user", { body: { userId: U1 } })

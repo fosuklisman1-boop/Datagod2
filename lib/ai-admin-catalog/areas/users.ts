@@ -111,14 +111,18 @@ async function adminCount(ctx: CardCtx): Promise<number | null> {
 async function setAdminCard(i: EntryInput, ctx: CardCtx): Promise<Card> {
   const id = str(asBody(i).userId)
   const { row, label } = await who(ctx, id)
-  const lines: CardLine[] = [{ label: "User", value: label }]
+  const fullName = [row?.first_name, row?.last_name].map((s) => str(s).trim()).filter(Boolean).join(" ")
+  const lines: CardLine[] = [
+    { label: "User", value: row ? `${fullName || "(no name)"} · ${row.phone_number ? maskAny(row.phone_number) : "no phone"}` : label },
+    { label: "User id", value: id || "(none)" },
+  ]
   if (row) {
     lines.push({ label: "Role now", value: roleOf(row) })
     if (roleOf(row) === "admin") lines.push({ label: "Note", value: "This user is already an admin, so nothing changes." })
   } else {
     lines.push({
       label: "Problem",
-      value: "No user with this id was found. The request would still report success but nothing would be granted.",
+      value: "(no such user — the route still reports success). Nothing would be granted.",
     })
   }
   lines.push({
@@ -128,36 +132,6 @@ async function setAdminCard(i: EntryInput, ctx: CardCtx): Promise<Card> {
   })
   lines.push({ label: "Record", value: "The grant is written to the admin history (who granted admin to whom). The user is not notified." })
   return { summary: "Grant full admin access to a user", lines }
-}
-
-async function setAdminByEmailCard(i: EntryInput, ctx: CardCtx): Promise<Card> {
-  const email = str(asBody(i).email).trim()
-  const masked = email.includes("@") ? maskEmail(email) : "***"
-  const lines: CardLine[] = [{ label: "Email", value: masked }]
-  const escaped = email.replace(/[\\%_]/g, (c) => `\\${c}`)
-  const row = email
-    ? await readRow(() => ctx.db.from("users").select(USER_COLS).ilike("email", escaped).limit(1).maybeSingle())
-    : null
-  if (row) {
-    lines.push({ label: "User", value: userLabel("", row as never) || masked })
-    lines.push({ label: "Role now", value: roleOf(row) })
-    if (roleOf(row) === "admin") lines.push({ label: "Note", value: "This user is already an admin, so nothing changes." })
-  } else {
-    lines.push({
-      label: "Problem",
-      value: "No profile with this email was found in the user table. If no account has this email the request is refused (404).",
-    })
-  }
-  lines.push({
-    label: "Danger",
-    value:
-      "Makes the account with this email a full admin: every admin page and action, including wallet adjustments, refunds, withdrawals, passwords and account removal.",
-  })
-  lines.push({
-    label: "Record",
-    value: "Unlike the by-id route, NO entry is written to the admin history for this one (it is only logged). The user is not notified.",
-  })
-  return { summary: "Grant full admin access to the account with this email", lines }
 }
 
 async function removeAdminCard(i: EntryInput, ctx: CardCtx): Promise<Card> {
@@ -237,18 +211,20 @@ async function updateUserCard(i: EntryInput, ctx: CardCtx): Promise<Card> {
   }
   if (b.email !== undefined) {
     const e = str(b.email)
-    lines.push({ label: "Email", value: `${str(row?.email) ? maskEmail(str(row?.email)) : "(none)"} -> ${e.includes("@") ? maskEmail(e) : "***"}` })
+    // The NEW address is shown in full so a swapped-in attacker address cannot hide; the current one stays masked.
+    lines.push({ label: "Email", value: `${str(row?.email) ? maskEmail(str(row?.email)) : "(none)"} -> ${e}` })
     lines.push({ label: "Sign-in", value: "The sign-in email changes too, so the user must use the new address to sign in." })
     changes++
   }
   if (typeof b.phoneNumber === "string" && b.phoneNumber.trim() !== "") {
-    lines.push({ label: "Phone", value: `${row?.phone_number ? maskAny(row.phone_number) : "(none)"} -> ${maskAny(b.phoneNumber)}` })
+    lines.push({ label: "Phone", value: `${row?.phone_number ? maskAny(row.phone_number) : "(none)"} -> ${b.phoneNumber.trim()}` })
     lines.push({
       label: "Phone checks",
       value: "The phone-verified flag is not reset. Orders, refunds and bots that match accounts by phone will use the new number.",
     })
     changes++
   }
+  if (row && roleOf(row) === "admin") lines.push({ label: "Danger", value: "This changes the sign-in details of an admin account." })
   if (changes === 0) lines.push({ label: "Problem", value: "No field to change was given, so nothing will change." })
   lines.push({ label: "Record", value: "No entry is written to the admin history for this change. The user is not notified." })
   return { summary: "Change a user's name, email or phone number", lines }
@@ -699,7 +675,6 @@ export const USERS_ENTRIES: CatalogEntry[] = [
       "users[].shopBalance",
       "users[].pricing_mode",
       "users[].created_at",
-      "users[].last_sign_in_at",
       "users[].shop.shop_name",
       "users[].tags",
     ],
@@ -727,7 +702,6 @@ export const USERS_ENTRIES: CatalogEntry[] = [
       "phoneVerified",
       "phoneVerifyDeadline",
       "createdAt",
-      "lastSignInAt",
       "hasProfile",
       "walletBalance",
       "walletRows",
@@ -1061,20 +1035,6 @@ export const USERS_ENTRIES: CatalogEntry[] = [
     risk: "danger",
     auth: "admin",
     card: setAdminCard,
-  },
-  {
-    id: "users.set_admin_by_email",
-    area: "users",
-    ...where("/admin/users"),
-    summary: "Make the account with a given email a full admin.",
-    method: "POST",
-    path: "/api/admin/set-admin-by-email",
-    body: z.object({ email: z.string().email().max(254) }).strict(),
-    kind: "change",
-    risk: "danger",
-    auth: "other", // checks the caller's bearer token and public.users.role = 'admin' itself, not verifyAdminAccess
-    timeoutMs: 60000, // pages through every sign-in account to find the email
-    card: setAdminByEmailCard,
   },
   {
     id: "users.remove_admin",
@@ -1441,7 +1401,7 @@ export const USERS_ENTRIES: CatalogEntry[] = [
     method: "POST",
     path: "/api/admin/roles/members/move",
     // The handler takes up to 200 ids and moves them one by one; 50 keeps it inside the 60 s limit.
-    body: z.object({ user_ids: z.array(uuid).min(1).max(50), to_role: roleSlug, reason: roleReason }).strict(),
+    body: z.object({ user_ids: z.array(uuid).min(1).max(50), to_role: roleSlug.refine((s) => s !== "admin" && s !== "sub_agent", "cannot move users to that role"), reason: roleReason }).strict(),
     kind: "change",
     risk: "danger",
     auth: "admin",

@@ -40,6 +40,7 @@ export const EXCLUDED: ExcludedRoute[] = [
   { path: "/api/admin/phone-verify/upload", method: "POST", reason: "multipart file upload (formData), cannot be driven from JSON" },
   { path: "/api/admin/results-checker/upload", method: "POST", reason: "multipart file upload (formData), cannot be driven from JSON" },
   { path: "/api/admin/setup-rls", method: "POST", reason: "one-off RLS setup script, alters database security policy" },
+  { path: "/api/admin/set-admin-by-email", method: "POST", reason: "use users.set_admin by id (shows the account, writes an audit row); a masked email on a card cannot show which account gets full admin rights" },
   { path: "/api/admin/stale-tracking/recheck", method: "POST", reason: "long-running (up to 300 s, paced supplier calls); use the page" },
   { path: "/api/admin/users/bulk", method: "POST", reason: "long-running (up to 300 s: role or suspension changes for up to 200 users, or a message to up to 5000); use the page. Single users: users/update-role and users/suspend, or roles/members/move" },
   { path: "/api/admin/users/export", method: "GET", reason: "returns up to 5000 users' contact details in one reply, the same data as users list but unpaged for the model; use the page, or the users list lookup" },
