@@ -111,6 +111,7 @@ async function destinationLines(ctx: CardCtx, o: RefundableOrder, gw: string, am
   const phone = o.payment.payerPhone
   switch (gw) {
     case "wallet": {
+      if (isCommissionTable(o.table)) out.push({ label: "Problem", value: "Storefront and bot orders have no wallet: a wallet refund is refused. Use Paystack, a MoMo payout or manual." })
       out.push({ label: "Where it goes", value: `${ghs(amount)} is added to the Datagod wallet of ${o.payment.walletUserId ? await who(ctx, o.payment.walletUserId) : "(no wallet account found: the refund is refused)"}` })
       break
     }
@@ -120,9 +121,14 @@ async function destinationLines(ctx: CardCtx, o: RefundableOrder, gw: string, am
         value: `${ghs(amount)} is reversed by Paystack back to whoever paid the original Paystack charge${o.payment.reference ? ` (payment reference ${o.payment.reference})` : " (no Paystack reference found: the refund is refused)"}`,
       })
       break
-    case "hubtel":
+    case "hubtel": {
       out.push({ label: "Where it goes", value: `${ghs(amount)} is refunded by Hubtel to the payer of the original Hubtel payment (the full payment only)` })
+      if (!o.payment.hubtel) out.push({ label: "Problem", value: "This order has no Hubtel checkout payment: the request is refused." })
+      else if (Math.abs(Math.round(o.paid * 100) / 100 - amount) > 0.005) {
+        out.push({ label: "Problem", value: `Hubtel refunds the full payment only (${ghs(o.paid)}). A partial amount is refused.` })
+      }
       break
+    }
     case "moolre":
     case "paystack_payout":
     case "hubtel_send": {
@@ -644,17 +650,29 @@ async function momoClaimCard(i: EntryInput, ctx: CardCtx): Promise<Card> {
           value: str(tx.status) === "claimed" ? "Already claimed: nothing more is credited." : `Only pending, flagged or unreadable payments can be credited (this one is "${str(tx.status)}"): the request is refused.`,
         })
       }
-      const given = num(b.amount)
+      // credit never sends an amount (the route passes none), so it uses the amount on the payment row only.
+      const given = action === "assign" ? num(b.amount) : null
       const sent = tx?.amount != null ? Number(tx.amount) : null
+      let credited = sent
       if (sent === null) {
-        lines.push({ label: "Sent amount", value: given === null ? "not read from the SMS and none given: the request is refused" : `${ghs(given)} (given by you, saved on the payment)` })
+        if (action === "credit") lines.push({ label: "Sent amount", value: "not read from the SMS, and a credit cannot be given one: the request is refused. Use assign with the amount instead." })
+        else lines.push({ label: "Sent amount", value: given === null ? "not read from the SMS and none given: the request is refused" : `${ghs(given)} (given by you, saved on the payment)` })
+        credited = given
       } else {
         lines.push({ label: "Sent amount", value: ghs(sent) })
         if (given !== null && given !== sent) lines.push({ label: "Problem", value: "The amount differs from the SMS amount: the request is refused." })
       }
+      // Exact net only when the RPC uses the stored session quote (same customer, same amount); else say the fee rule.
+      const sid = str(tx?.session_id)
+      const sess = sid ? await readRow(() => ctx.db.from("wallet_topup_sessions").select("user_id, amount, net_amount").eq("id", sid).maybeSingle()) : null
+      const quoted = !!sess && !!target && str(sess.user_id) === target && credited !== null && Number(sess.amount) === credited && sess.net_amount != null
       lines.push({
         label: "Wallet credit",
-        value: target ? `The sent amount is added to that wallet: ${await momoFeeNote(ctx, target)}. The payment becomes claimed.` : "none",
+        value: !target
+          ? "none"
+          : quoted
+            ? `${ghs(sess!.net_amount)} is added to that wallet (the fee was fixed when the customer started this top-up). The payment becomes claimed.`
+            : `${credited !== null ? `${ghs(credited)} sent, ` : ""}${await momoFeeNote(ctx, target)}. The exact net is worked out when it runs. The payment becomes claimed.`,
       })
       lines.push(
         { label: "Alert", value: "All admins get an alert that an admin credited a MoMo payment (amount and last 4 digits of its id)." },
@@ -1070,7 +1088,7 @@ export const MONEY_ENTRIES: CatalogEntry[] = [
     id: "withdrawals.approve",
     area: "money",
     ...where("/admin/withdrawals"),
-    summary: "Approve a shop withdrawal and send the payout through Moolre.",
+    summary: "Approve a shop withdrawal and send the payout from the Moolre account to the payout number saved on the request (the default route; this tool never picks Paystack or manual).",
     method: "POST",
     path: "/api/admin/withdrawals/approve",
     body: z.object({ withdrawalId: uuid }).strict(),
@@ -1467,9 +1485,10 @@ export const MONEY_ENTRIES: CatalogEntry[] = [
         transactionId: z.string().min(1).max(60),
         reason: reason200.optional(),
         targetUserId: uuid.optional(),
-        amount: z.number().positive().lt(1000000).optional(),
+        amount: z.number().positive().lt(1000000).refine((n) => Math.abs(Math.round(n * 100) - n * 100) < 1e-6, "at most 2 decimals").optional(),
       })
-      .strict(),
+      .strict()
+      .refine((b) => !(b.action === "credit" && b.amount !== undefined), "amount is only for assign: a credit uses the amount on the payment"),
     kind: "change",
     risk: "money",
     auth: "admin",
