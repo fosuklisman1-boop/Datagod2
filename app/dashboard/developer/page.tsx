@@ -11,6 +11,7 @@ import { PostmanButtons } from "@/components/developer/docs/PostmanButtons"
 import { InlineCode } from "@/components/developer/docs/RichText"
 import { V2KeysPanel } from "@/components/developer/V2KeysPanel"
 import { LegacyV1Section } from "@/components/developer/LegacyV1Section"
+import { AnnouncementBanner } from "@/components/developer/AnnouncementBanner"
 import { v2DocsRegistry, V2_BASE_URL } from "@/lib/api-v2/docs/registry"
 import { legacyDefaultOpen, type DashboardAccessState } from "@/lib/api-v2/key-issue"
 
@@ -50,6 +51,7 @@ export default function DeveloperPage() {
           subtitle="Generate API keys and connect your apps to Datagod with the v2 API."
           icon={KeyRound}
         />
+        <AnnouncementBanner />
 
         <p className="px-1 text-sm leading-6 text-muted-foreground">
           Base URL <InlineCode>{V2_BASE_URL}</InlineCode>. Authenticate every request with one of your keys below; responses are JSON.

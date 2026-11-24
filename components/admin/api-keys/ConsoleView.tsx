@@ -17,6 +17,8 @@ import { ConsoleTabBar } from "./ConsoleTabBar"
 import { OverviewTab } from "./OverviewTab"
 import { LegacyTab } from "./LegacyTab"
 import { DevelopersTab } from "./DevelopersTab"
+import { ServicesTab } from "./ServicesTab"
+import { AnnouncementsTab } from "./AnnouncementsTab"
 import { Panel } from "./ui"
 
 export interface ConsoleViewProps {
@@ -126,8 +128,8 @@ export function ConsoleView(p: ConsoleViewProps) {
         />
       )}
       {tab === "logs" && <RequestLogs keys={p.keys} preset={p.preview?.logs} />}
-      {tab === "services" && <Pending title="Services and status" />}
-      {tab === "announcements" && <Pending title="Announcements" />}
+      {tab === "services" && <ServicesTab />}
+      {tab === "announcements" && <AnnouncementsTab />}
       {tab === "report" && <Pending title="Report" />}
       {tab === "legacy" && <LegacyTab keys={p.keys} busy={p.busy} handlers={p.handlers} loading={p.loading} sourceErrors={sourceErrors("v1")} onRetry={retry} />}
     </div>

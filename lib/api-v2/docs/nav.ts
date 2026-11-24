@@ -38,6 +38,7 @@ export function buildDocsNav(registry: V2DocSection[] = v2DocsRegistry): NavGrou
       items: [
         { label: "Errors", href: docPath("errors") },
         { label: "Changelog", href: docPath("changelog") },
+        { label: "API status", href: "/developers/status" },
         { label: "OpenAPI", href: "/developers/openapi.json" },
         { label: "Postman", href: "/developers/postman/collection" },
       ],

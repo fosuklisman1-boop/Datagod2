@@ -64,6 +64,12 @@ export function ErrorGuideList({ entries }: { entries: GuideError[] }) {
                     <span className="font-semibold">What to do: </span>
                     {e.fix}
                   </p>
+                  {e.appliesTo && (
+                    <p className="text-xs text-muted-foreground">
+                      <span className="font-semibold">Applies to: </span>
+                      {e.appliesTo}
+                    </p>
+                  )}
                   {e.endpoints.length > 0 && (
                     <p className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
                       <span className="font-semibold">Seen on</span>
