@@ -439,3 +439,99 @@ describe("services cards", () => {
     expect(t).not.toContain("SER123")
   })
 })
+
+describe("services cards name the values the request will send", () => {
+  const rich = fakeDb({
+    ...tables,
+    ussd_shop_orders: [{ id: U1, shop_code_id: U1, order_status: "pending" }, { id: U2, shop_code_id: U1, order_status: "processing" }],
+    results_check_requests: [{ id: U1, exam_board: "WASSCE", index_number: "1234567890", status: "pending", channel: "web", payment_status: "paid" }],
+    admin_settings: [
+      { key: "results_check_settings", value: { enabled: true, fee: 2 } },
+      { key: "ttb_main_enabled", value: { value: true } },
+      { key: "ttb_shop_enabled", value: { value: false } },
+      { key: "standard_bundles_config", value: { enabled: false, networks: { MTN: { enabled: false } }, special: { enabled: false, unitAmount: 3 } } },
+      { key: "utility_bills_config", value: { enabled: false, autoFulfil: true, billers: { ecg: { enabled: false, min: 5, max: 10000 } } } },
+      { key: "hubtel_cs_config", value: { enabled: false, mode: "relay", services: { airtime_mtn: true } } },
+    ],
+  })
+  const rctx = { db: rich, adminId: U2 }
+  const run = (k: string, input: any) => card(k, input, rctx)
+
+  it("shops.approve names the shop", async () => {
+    const t = await run("POST /api/admin/shops/approve", { body: { shopId: U1 } })
+    expect(t).toContain("Kofi Data")
+    expect(t).toContain("11111111")
+  })
+
+  it("ussd shop create / update / delete show the code and shop", async () => {
+    const c = await run("POST /api/admin/ussd-shops", { body: { shop_id: U1, code: "7777" } })
+    expect(c).toContain("Kofi Data")
+    expect(c).toContain("7777")
+    const u = await run("PUT /api/admin/ussd-shops/:id", { params: { id: U1 }, body: { code: "9999", status: "suspended" } })
+    expect(u).toContain("4321 -> 9999")
+    expect(u).toContain("active -> suspended")
+    const d = await run("DELETE /api/admin/ussd-shops/:id", { params: { id: U1 } })
+    expect(d).toContain("4321")
+    expect(d).toContain("Orders still pending or processing: 2")
+  })
+
+  it("airtime bulk and auto cards list each order's number and amount", async () => {
+    const bulk = await run("POST /api/admin/airtime/bulk-update-status", { body: { orderIds: [U1], status: "failed" } })
+    expect(bulk).toContain("AIR-1")
+    expect(bulk).toContain("0243334444")
+    expect(bulk).toContain("GHS 10.00")
+    expect(bulk).toContain("FAILED")
+    const auto = await run("POST /api/admin/airtime/auto-fulfill", { body: { orderIds: [U1] } })
+    expect(auto).toContain("0243334444")
+    expect(auto).toContain("GHS 10.00")
+  })
+
+  it("config cards show old -> new for the keys sent", async () => {
+    const sb = await run("POST /api/admin/standard-bundles/config", {
+      body: { enabled: true, networks: { MTN: { enabled: true, hiddenCategories: ["Video"], referenceNumber: "233246912184" } }, special: { enabled: true, multiples: [3, 5], unitAmount: 4, unitValue: "RACT_X", ussdEnabled: false } },
+    })
+    expect(sb).toContain("OFF -> ON")
+    expect(sb).toContain("233246912184")
+    expect(sb).toContain("Video")
+    expect(sb).toContain("GHS 3.00 -> GHS 4.00")
+    expect(sb).toContain("RACT_X")
+    const ub = await run("POST /api/admin/utility-bills/config", { body: { enabled: true, billers: { ecg: { enabled: true, min: 10, max: 500 } } } })
+    expect(ub).toContain("OFF -> ON")
+    expect(ub).toContain("ecg")
+    expect(ub).toContain("GHS 5.00 to GHS 10000.00 -> GHS 10.00 to GHS 500.00")
+    const cs = await run("POST /api/admin/hubtel-cs/config", { body: { enabled: true, mode: "direct", lowBalanceThreshold: 250, services: { airtime_mtn: false } } })
+    expect(cs).toContain("OFF -> ON")
+    expect(cs).toContain("relay -> direct")
+    expect(cs).toContain("GHS 250.00")
+    expect(cs).toContain("Service airtime_mtn: ON -> OFF")
+  })
+
+  it("text-to-buy asks for confirm only when a switch really changes", async () => {
+    const same = await run("PUT /api/admin/text-to-buy", { body: { mainEnabled: true } })
+    expect(same).not.toContain("needs confirm")
+    const turnsOn = await run("PUT /api/admin/text-to-buy", { body: { shopEnabled: true } })
+    expect(turnsOn).toContain("needs confirm to be true")
+    const confirmed = await run("PUT /api/admin/text-to-buy", { body: { shopEnabled: true, confirm: true } })
+    expect(confirmed).not.toContain("Refused")
+    const tr = await run("POST /api/admin/text-to-buy/try", { body: { line: "shop", sender: "0241230000", text: "mtn 1gb 0241112222" } })
+    expect(tr).toContain("0241230000")
+    expect(tr).toContain("mtn 1gb 0241112222")
+  })
+
+  it("results check request update shows status, result text and the paid delivery", async () => {
+    const e = byKey("PATCH /api/admin/results-check-requests")
+    expect(e.risk).toBe("money")
+    const t = await run("PATCH /api/admin/results-check-requests", { body: { id: U1, status: "completed", result_data: "Maths A1", deliver: true } })
+    expect(t).toContain("1234567890")
+    expect(t).toContain("pending -> completed")
+    expect(t).toContain("Maths A1")
+    expect(t).toContain("PAID results")
+  })
+
+  it("bulk price refuses a per-GB price of zero or less", () => {
+    const b = byKey("POST /api/admin/packages/bulk-update-price").body!
+    expect(b.safeParse({ packageIds: [U1], updates: { price: { mode: "per_gb", value: 0 } } }).success).toBe(false)
+    expect(b.safeParse({ packageIds: [U1], updates: { dealer_price: { mode: "per_gb", value: -2 } } }).success).toBe(false)
+    expect(b.safeParse({ packageIds: [U1], updates: { price: { mode: "percentage", value: -10 } } }).success).toBe(true)
+  })
+})

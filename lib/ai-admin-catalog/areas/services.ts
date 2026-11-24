@@ -326,11 +326,13 @@ async function ttbSettingsCard(i: EntryInput, ctx: CardCtx): Promise<Card> {
   }
   if (sent.length === 0) lines.push({ label: "Note", value: "Nothing to change: no setting was sent." })
   if (!readOk) lines.push(UNREAD)
-  const turnsOn = TTB_CONFIRM.filter((f) => b[f] === true)
+  // The route only asks for confirm when a switch's value actually changes to on (an already-on switch is a no-op).
+  const turnsOn = TTB_CONFIRM.filter((f) => b[f] === true && (!readOk || old[f] !== true))
   if (turnsOn.length > 0) {
     lines.push({ label: "Going live", value: `Switching on ${turnsOn.join(", ")} puts live customer texts (and for airtime or results checker, a money path) on the order path.` })
     if (b.confirm !== true) lines.push({ label: "Result", value: "Refused: switching these on needs confirm to be true." })
   }
+  lines.push({ label: "Saved settings", value: "If the saved settings cannot be loaded the request is refused (settings unavailable) and nothing changes." })
   lines.push({ label: "Who is affected", value: "Every customer texting the Text-to-Buy numbers, from now on. Admins get one alert naming the settings changed (names only). Nothing is sent to customers." })
   return { summary: "Change the Text-to-Buy settings", lines }
 }
@@ -813,7 +815,7 @@ const rcRequestsCard = async (i: EntryInput, ctx: CardCtx): Promise<Card> => {
   if (b.status !== undefined) lines.push({ label: "Status", value: change(row ? shown(row.status) : "(unknown)", str(b.status)) })
   if (b.result_data !== undefined) lines.push({ label: "Result text saved", value: str(b.result_data) === "" ? "(cleared)" : str(b.result_data) })
   if (b.media_url !== undefined) lines.push({ label: "Result file saved", value: `${str(b.media_url)} (${str(b.media_type) || "type unchanged"})` })
-  if (b.deliver === true) lines.push({ label: "Delivery", value: "The saved result is SENT to the customer now (on the channel they used). It only happens when the request has result text or a file after this change." })
+  if (b.deliver === true) lines.push({ label: "Delivery", value: "The customer's PAID results are SENT to them now (on the channel they used). It only happens when the request has result text or a file after this change." })
   if (b.status === "completed") lines.push({ label: "Notices", value: "The customer is told their results are ready (unless delivery fails)." })
   else if (b.status && ["failed", "declined", "rejected", "cancelled"].includes(str(b.status))) lines.push({ label: "Notices", value: `The customer is told the request was rejected${b.reason ? `, with the reason: ${str(b.reason)}` : ""}.` })
   else lines.push({ label: "Notices", value: "Only a real status change notifies the customer." })
@@ -855,7 +857,10 @@ const dateText = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 const orderIdBody = z.object({ orderId: uuid }).strict()
 const note500 = z.string().min(1).max(500)
 const refText = z.string().regex(/^[A-Za-z0-9_-]{1,100}$/)
-const priceField = z.object({ mode: z.enum(["percentage", "per_gb"]), value: z.number().finite().min(-100).max(100000) }).strict()
+const priceField = z
+  .object({ mode: z.enum(["percentage", "per_gb"]), value: z.number().finite().min(-100).max(100000) })
+  .strict()
+  .refine((v) => v.mode !== "per_gb" || v.value > 0, "a price per GB must be more than 0")
 const ghMobile233 = z.string().regex(/^233\d{9}$/)
 const billerKey = z.enum(BILLER_KEYS as unknown as [string, ...string[]])
 const serviceKey = z.enum(HUBTEL_CS_SERVICE_KEYS as unknown as [string, ...string[]])
@@ -1382,7 +1387,7 @@ export const SERVICES_ENTRIES: CatalogEntry[] = [
       media_url: z.string().url().max(500).refine((v) => v.startsWith("https://"), "must be an https link").optional(),
       media_type: z.enum(["image", "document", "video"]).optional(), deliver: bool.optional(), reason: z.string().max(200).optional(),
     }).strict(),
-    kind: "change", risk: "normal", auth: "admin", timeoutMs: 60000, card: rcRequestsCard,
+    kind: "change", risk: "money", auth: "admin", timeoutMs: 60000, card: rcRequestsCard,
   }),
   mk({
     id: "results_check_requests.phones.read", page: RCR, summary: "Show the admin WhatsApp numbers alerted for results check requests.",
