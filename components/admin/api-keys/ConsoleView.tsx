@@ -16,6 +16,7 @@ import { RequestLogs } from "./RequestLogs"
 import { ConsoleTabBar } from "./ConsoleTabBar"
 import { OverviewTab } from "./OverviewTab"
 import { LegacyTab } from "./LegacyTab"
+import { DevelopersTab } from "./DevelopersTab"
 import { Panel } from "./ui"
 
 export interface ConsoleViewProps {
@@ -110,7 +111,7 @@ export function ConsoleView(p: ConsoleViewProps) {
           }}
         />
       )}
-      {tab === "developers" && <Pending title="Developers" />}
+      {tab === "developers" && <DevelopersTab />}
       {tab === "keys" && (
         <KeyList
           keys={p.keys}
