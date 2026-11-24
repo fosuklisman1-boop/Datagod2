@@ -1,10 +1,17 @@
 // Admin console: announcements (write half). Text is stored as typed and only ever rendered as text.
 import { bad, callWrite, charLen, NO_ADMIN, REFUSED_MULTI_LINE, REFUSED_SINGLE_LINE, UUID_RE, type RpcClient, type WriteResult } from "./write-common"
 
-const ISO_RE = /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/
+// Date AND time AND an explicit timezone (Z or +-HH:MM): a timezone-less time would silently mean server-local time.
+const ISO_RE = /^(\d{4})-(\d{2})-(\d{2})[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/
 
 function parseDate(v: unknown): string | null {
-  if (typeof v !== "string" || !ISO_RE.test(v.trim())) return null
+  if (typeof v !== "string") return null
+  const m = ISO_RE.exec(v.trim())
+  if (!m) return null
+  // Refuse impossible calendar dates (2026-02-31): Date.parse would roll them over into March.
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])]
+  const cal = new Date(Date.UTC(y, mo - 1, d))
+  if (cal.getUTCFullYear() !== y || cal.getUTCMonth() !== mo - 1 || cal.getUTCDate() !== d) return null
   const t = Date.parse(v.trim())
   return Number.isNaN(t) ? null : new Date(t).toISOString()
 }

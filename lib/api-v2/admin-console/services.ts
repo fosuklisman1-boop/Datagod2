@@ -14,7 +14,7 @@ export async function setServicePause(
   deps: Deps = DEFAULT_DEPS
 ): Promise<WriteResult> {
   if (!p.actorId) return NO_ADMIN
-  if (!SERVICES.some((s) => s.id === p.service)) return bad("Unknown service.", "not_found")
+  if (!SERVICES.some((s) => s.id === p.service)) return { status: 404, body: { error: "Unknown service.", code: "not_found" } }
   if (typeof p.paused !== "boolean") return bad("paused must be true or false.")
   if (p.message !== null && p.message !== undefined && typeof p.message !== "string") return bad("message must be text.", "bad_message")
   const message = typeof p.message === "string" ? p.message.trim() : ""

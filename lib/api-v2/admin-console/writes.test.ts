@@ -52,7 +52,7 @@ describe("validation before any rpc", () => {
       deleteAnnouncement(c, { id: "bad", actorId: ADMIN }),
       setDeveloperPause(c, { userId: UID, paused: true, reason: "ab", actorId: ADMIN }, { invalidate: inv }),
     ])
-    expect(rs.map((r) => r.status)).toEqual([400, 400, 400, 400, 400, 400, 400, 400, 400])
+    expect(rs.map((r) => r.status)).toEqual([400, 404, 400, 400, 400, 400, 400, 400, 400])
     expect(rpc).not.toHaveBeenCalled()
   })
 })
@@ -164,6 +164,86 @@ describe("announcements", () => {
     const r = await saveAnnouncement(client(null, { code: "XX" }).c, ann())
     expect(r.status).toBe(500)
     expect(r.body.ok).toBeUndefined()
+    spy.mockRestore()
+  })
+})
+
+describe("review fixes", () => {
+  const ch = (n: number) => String.fromCharCode(n)
+  const inv = { invalidate: vi.fn() }
+
+  it("unknown service is 404 not_found without an rpc", async () => {
+    const k = client()
+    const r = await setServicePause(k.c, { service: "everything", paused: true, message: null, actorId: ADMIN }, inv)
+    expect(r.status).toBe(404)
+    expect(r.body.code).toBe("not_found")
+    expect(k.rpc).not.toHaveBeenCalled()
+  })
+
+  it("announcement dates need an explicit timezone and a real date", async () => {
+    for (const startsAt of ["2026-12-01", "2026-12-01T10:00:00", "2026-12-01 10:00", "2026-02-31T10:00:00Z", "2026-13-01T10:00:00Z"]) {
+      const k = client()
+      const r = await saveAnnouncement(k.c, ann({ startsAt, endsAt: "2027-01-01T00:00:00Z" }))
+      expect(r.status, startsAt).toBe(400)
+      expect(k.rpc).not.toHaveBeenCalled()
+    }
+    const k = client()
+    expect((await saveAnnouncement(k.c, ann({ startsAt: "2026-12-01T10:00:00+02:00", endsAt: "2026-12-01T12:00:00Z" }))).status).toBe(200)
+    expect(k.rpc.mock.calls[0][1].p_starts).toBe("2026-12-01T08:00:00.000Z")
+    const k2 = client()
+    expect((await saveAnnouncement(k2.c, ann({ endsAt: "2026-12-01T12:00:00-0500" }))).status).toBe(200)
+  })
+
+  const invisible = [ch(0x200b), ch(0x202e), ch(0x3164)]
+  it("invisible characters refused in reason, title and body", async () => {
+    for (const c of invisible) {
+      const k = client()
+      expect((await setDeveloperPause(k.c, { userId: UID, paused: true, reason: "abuse" + c + "seen", actorId: ADMIN }, inv)).status).toBe(400)
+      expect((await saveAnnouncement(k.c, ann({ title: "ti" + c + "tle" }))).status).toBe(400)
+      expect((await saveAnnouncement(k.c, ann({ body: "bo" + c + "dy" }))).status).toBe(400)
+      expect(k.rpc).not.toHaveBeenCalled()
+    }
+  })
+  it("body refuses other control characters but allows tab, LF and CR", async () => {
+    const k = client()
+    expect((await saveAnnouncement(k.c, ann({ body: "a" + ch(7) + "b" }))).status).toBe(400)
+    expect(k.rpc).not.toHaveBeenCalled()
+    expect((await saveAnnouncement(k.c, ann({ body: "a\tb\nc\r\nd" }))).status).toBe(200)
+  })
+  it("NBSP-only or whitespace-only title and reason are refused", async () => {
+    const k = client()
+    for (const t of [ch(0xa0), "   ", ch(0xa0).repeat(5), "\t"]) {
+      expect((await saveAnnouncement(k.c, ann({ title: t }))).status).toBe(400)
+      expect((await setDeveloperPause(k.c, { userId: UID, paused: true, reason: t + t, actorId: ADMIN }, inv)).status).toBe(400)
+    }
+    expect(k.rpc).not.toHaveBeenCalled()
+  })
+  it("type confusion is 400 with zero rpc calls", async () => {
+    const k = client()
+    const odd: any[] = [123, ["abc"], { a: 1 }, true]
+    for (const v of odd) {
+      expect((await setDeveloperPause(k.c, { userId: UID, paused: true, reason: v, actorId: ADMIN }, inv)).status).toBe(400)
+      expect((await setServicePause(k.c, { service: "data", paused: true, message: v, actorId: ADMIN }, inv)).status).toBe(400)
+      expect((await saveAnnouncement(k.c, ann({ title: v }))).status).toBe(400)
+      expect((await saveAnnouncement(k.c, ann({ body: v }))).status).toBe(400)
+    }
+    for (const paused of ["yes", 1, null, undefined, [true]] as any[]) {
+      expect((await setDeveloperPause(k.c, { userId: UID, paused, reason: "abuse seen", actorId: ADMIN }, inv)).status).toBe(400)
+      expect((await setServicePause(k.c, { service: "data", paused, message: null, actorId: ADMIN }, inv)).status).toBe(400)
+    }
+    expect(k.rpc).not.toHaveBeenCalled()
+  })
+  it("unpause ignores the reason", async () => {
+    const k = client()
+    const r = await setDeveloperPause(k.c, { userId: UID, paused: false, reason: "x" + ch(0x200b), actorId: ADMIN }, inv)
+    expect(r.status).toBe(200)
+    expect(k.rpc.mock.calls[0][1].p_reason).toBeNull()
+  })
+  it("rpc 55P03 lock timeout is a generic 500", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const r = await setServicePause(client(null, { code: "55P03", message: "lock detail" }).c, { service: "data", paused: true, message: null, actorId: ADMIN }, inv)
+    expect(r.status).toBe(500)
+    expect(JSON.stringify(r.body)).not.toMatch(/lock detail/)
     spy.mockRestore()
   })
 })

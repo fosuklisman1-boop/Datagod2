@@ -94,7 +94,7 @@ describe("body-supplied identity is ignored", () => {
 describe("route behaviour", () => {
   it("invalid input is 400 before any rpc", async () => {
     expect((await pauseRoute(req({ paused: true, reason: "Abuse" }), ctx({ userId: "not-a-uuid" })))!.status).toBe(400)
-    expect((await serviceRoute(req({ paused: true }), ctx({ service: "nope" })))!.status).toBe(400)
+    expect((await serviceRoute(req({ paused: true }), ctx({ service: "nope" })))!.status).toBe(404)
     expect((await serviceRoute(req({ paused: "yes" }), ctx({ service: "data" })))!.status).toBe(400)
     expect((await annCreateRoute(req({ ...annBody, severity: "x" })))!.status).toBe(400)
     expect((await annCreateRoute({ url: "http://x", headers: new Headers(), json: async () => { throw new Error("bad json") } } as any))!.status).toBe(400)
@@ -132,3 +132,27 @@ describe("route files export only handlers", () => {
     expect(/^export\s+(?!async function)/m.test(src)).toBe(false)
   })
 })
+
+describe("review fixes (routes)", () => {
+  it("unknown service route -> 404 not_found", async () => {
+    const r = (await serviceRoute(req({ paused: true }), ctx({ service: "nope" })))!
+    expect(r.status).toBe(404)
+    expect((await r.json()).code).toBe("not_found")
+    expect(h.rpc).not.toHaveBeenCalled()
+  })
+  it("pause on a missing developer -> 404", async () => {
+    h.rpc.mockResolvedValueOnce({ data: { ok: false, code: "not_found" }, error: null })
+    expect((await pauseRoute(req({ paused: true, reason: "Abuse seen" }), ctx({ userId: UID })))!.status).toBe(404)
+    expect(h.invalidate).not.toHaveBeenCalled()
+  })
+  it("announcement too_many -> 409", async () => {
+    h.rpc.mockResolvedValueOnce({ data: { ok: false, code: "too_many" }, error: null })
+    expect((await annCreateRoute(req(annBody)))!.status).toBe(409)
+  })
+  it("non-boolean paused on both pause routes -> 400, no rpc", async () => {
+    expect((await pauseRoute(req({ paused: "true", reason: "Abuse seen" }), ctx({ userId: UID })))!.status).toBe(400)
+    expect((await serviceRoute(req({ paused: 1 }), ctx({ service: "data" })))!.status).toBe(400)
+    expect((await pauseRoute(req({ paused: ["x"], reason: { a: 1 } }), ctx({ userId: UID })))!.status).toBe(400)
+    expect(h.rpc).not.toHaveBeenCalled()
+  })
+});
