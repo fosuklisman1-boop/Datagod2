@@ -19,7 +19,7 @@ import { LegacyTab } from "./LegacyTab"
 import { DevelopersTab } from "./DevelopersTab"
 import { ServicesTab } from "./ServicesTab"
 import { AnnouncementsTab } from "./AnnouncementsTab"
-import { Panel } from "./ui"
+import { ReportTab } from "./ReportTab"
 
 export interface ConsoleViewProps {
   keys: ConsoleKey[]
@@ -43,15 +43,6 @@ export interface ConsoleViewProps {
   }
 }
 
-/** Placeholder for a tab whose panel lands later in this release. */
-function Pending({ title }: { title: string }) {
-  return (
-    <Panel>
-      <h2 className="text-base font-bold text-foreground">{title}</h2>
-      <p className="text-sm text-muted-foreground">This section is being set up.</p>
-    </Panel>
-  )
-}
 
 export function ConsoleView(p: ConsoleViewProps) {
   const [tab, setTab] = useState<ConsoleTab>(p.preview?.tab ?? "overview")
@@ -130,7 +121,7 @@ export function ConsoleView(p: ConsoleViewProps) {
       {tab === "logs" && <RequestLogs keys={p.keys} preset={p.preview?.logs} />}
       {tab === "services" && <ServicesTab />}
       {tab === "announcements" && <AnnouncementsTab />}
-      {tab === "report" && <Pending title="Report" />}
+      {tab === "report" && <ReportTab />}
       {tab === "legacy" && <LegacyTab keys={p.keys} busy={p.busy} handlers={p.handlers} loading={p.loading} sourceErrors={sourceErrors("v1")} onRetry={retry} />}
     </div>
   )

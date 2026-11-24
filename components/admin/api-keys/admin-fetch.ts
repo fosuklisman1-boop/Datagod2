@@ -37,3 +37,40 @@ export async function adminFetch<T>(url: string, init: RequestInit = {}): Promis
     return { ok: false, status: 0, data: null, error: "Network error" }
   }
 }
+
+/**
+ * Downloads an admin file (e.g. the report CSV) with the session bearer token. A bare link cannot carry the
+ * token, so the body is fetched as a blob and saved through a temporary object URL. Never throws.
+ */
+export async function adminDownload(url: string, filename: string): Promise<{ ok: boolean; error: string | null }> {
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+    const headers: Record<string, string> = {}
+    if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`
+    const res = await fetch(url, { headers })
+    if (!res.ok) {
+      let msg = `Download failed (${res.status})`
+      try {
+        const j = (await res.json()) as { error?: unknown }
+        if (typeof j.error === "string") msg = j.error
+      } catch {
+        // not JSON
+      }
+      return { ok: false, error: msg }
+    }
+    const blob = await res.blob()
+    const href = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = href
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(href), 1000)
+    return { ok: true, error: null }
+  } catch {
+    return { ok: false, error: "Network error" }
+  }
+}
