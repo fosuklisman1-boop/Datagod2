@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { Inbox, KeyRound, RefreshCw, ScrollText } from "lucide-react"
+import { RefreshCw } from "lucide-react"
 import { initialConsoleTab, type ConsoleTab } from "@/lib/api-v2/console-tabs"
 import { ApprovalsPanel, useApprovalCount } from "./approvals/ApprovalsPanel"
 import { PageHeaderBanner } from "@/components/shared/page-header-banner"
@@ -11,13 +11,12 @@ import type { AdminStats, KeyActivity } from "@/lib/api-v2/admin-stats"
 import type { ApiConfig, RoleOption, SourceErrors } from "./use-console-data"
 import type { KeyRowHandlers } from "./KeyRow"
 import type { LogRow } from "./LogTable"
-import { OverviewTiles } from "./OverviewTiles"
-import { FeatureControls } from "./FeatureControls"
 import { KeyList } from "./KeyList"
 import { RequestLogs } from "./RequestLogs"
-import { Segmented } from "./ui"
-import { V1RetirementCard } from "./V1RetirementCard"
-import { StuckV2Panel } from "./StuckV2Panel"
+import { ConsoleTabBar } from "./ConsoleTabBar"
+import { OverviewTab } from "./OverviewTab"
+import { LegacyTab } from "./LegacyTab"
+import { Panel } from "./ui"
 
 export interface ConsoleViewProps {
   keys: ConsoleKey[]
@@ -37,15 +36,25 @@ export interface ConsoleViewProps {
     open?: Record<string, { activity?: boolean; limits?: boolean }>
     activity?: Record<string, KeyActivity>
     logs?: { rows: LogRow[]; total: number }
-    tab?: "keys" | "logs"
+    tab?: ConsoleTab
   }
 }
 
+/** Placeholder for a tab whose panel lands later in this release. */
+function Pending({ title }: { title: string }) {
+  return (
+    <Panel>
+      <h2 className="text-base font-bold text-foreground">{title}</h2>
+      <p className="text-sm text-muted-foreground">This section is being set up.</p>
+    </Panel>
+  )
+}
+
 export function ConsoleView(p: ConsoleViewProps) {
-  const [tab, setTab] = useState<ConsoleTab>(p.preview?.tab ?? "keys")
-  const pending = statusCounts(p.keys).pending
+  const [tab, setTab] = useState<ConsoleTab>(p.preview?.tab ?? "overview")
+  const pending = statusCounts(p.keys.filter((k) => k.source === "v2")).pending
   const approvals = useApprovalCount()
-  // The first tab: ?tab= (e.g. from an alert link), else Approvals while anything waits. Chosen once.
+  // The first tab: ?tab= (e.g. from an alert link), else Approvals while anything waits, else Overview. Chosen once.
   const chosen = useRef(Boolean(p.preview?.tab))
   useEffect(() => {
     if (chosen.current || approvals.count === null) return
@@ -57,17 +66,18 @@ export function ConsoleView(p: ConsoleViewProps) {
     chosen.current = true
     setTab(t)
   }
-  const sourceErrors = [
-    p.errors.v2 && `v2 keys could not be loaded: ${p.errors.v2}`,
-    p.errors.v1 && `Legacy v1 keys could not be loaded: ${p.errors.v1}`,
-  ].filter((e): e is string => !!e)
+  const sourceErrors = (source: "v1" | "v2") =>
+    [source === "v2" && p.errors.v2 && `v2 keys could not be loaded: ${p.errors.v2}`, source === "v1" && p.errors.v1 && `Legacy v1 keys could not be loaded: ${p.errors.v1}`].filter(
+      (e): e is string => !!e,
+    )
+  const retry = () => void p.refresh()
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-5 p-4 sm:p-6">
-      <PageHeaderBanner title="API Key Management" subtitle="Approve, revoke, and set per-key rate limits">
+      <PageHeaderBanner title="API Console" subtitle="Developers, keys, services, announcements and the business report">
         <button
           type="button"
-          onClick={() => void p.refresh()}
+          onClick={retry}
           disabled={p.loading}
           className="inline-flex h-9 items-center gap-2 rounded-xl border border-white/30 bg-white/10 px-3.5 text-sm font-semibold text-white transition-colors hover:bg-white/20 disabled:opacity-70"
         >
@@ -76,79 +86,49 @@ export function ConsoleView(p: ConsoleViewProps) {
         </button>
       </PageHeaderBanner>
 
-      <OverviewTiles keys={p.keys} stats={p.stats} statsError={p.errors.stats} loading={p.loading} onRetry={() => void p.refresh()} />
+      <ConsoleTabBar value={tab} onChange={pickTab} approvals={approvals.count} pendingKeys={pending} />
 
-      <FeatureControls
-        config={p.config}
-        roles={p.roles ?? null}
-        error={p.errors.config}
-        onSave={p.saveConfig}
-        onRetry={() => void p.refresh()}
-        onGlobalKill={p.globalKill}
-      />
-
-      <V1RetirementCard />
-
-      <StuckV2Panel />
-
-      <Segmented<ConsoleTab>
-        label="Console section"
-        value={tab}
-        onChange={pickTab}
-        className="w-full sm:w-auto"
-        options={[
-          {
-            value: "approvals",
-            label: (
-              <>
-                <Inbox className="size-4" aria-hidden />
-                Approvals
-                {(approvals.count ?? 0) > 0 && (
-                  <span className="rounded-full bg-amber-500 px-1.5 text-[11px] font-bold leading-5 text-white">{approvals.count}</span>
-                )}
-              </>
-            ),
-          },
-          {
-            value: "keys",
-            label: (
-              <>
-                <KeyRound className="size-4" aria-hidden />
-                API Keys
-                {pending > 0 && (
-                  <span className="rounded-full bg-amber-500 px-1.5 text-[11px] font-bold leading-5 text-white">{pending}</span>
-                )}
-              </>
-            ),
-          },
-          {
-            value: "logs",
-            label: (
-              <>
-                <ScrollText className="size-4" aria-hidden />
-                Request Logs
-              </>
-            ),
-          },
-        ]}
-      />
-
-      {tab === "approvals" ? (
-        <ApprovalsPanel onChanged={() => { void approvals.refresh(); void p.refresh() }} />
-      ) : tab === "keys" ? (
+      {/* Each tab mounts (and loads its own data) only when it is open. */}
+      {tab === "overview" && (
+        <OverviewTab
+          keys={p.keys}
+          stats={p.stats}
+          config={p.config}
+          roles={p.roles ?? null}
+          errors={p.errors}
+          loading={p.loading}
+          onRetry={retry}
+          saveConfig={p.saveConfig}
+          globalKill={p.globalKill}
+        />
+      )}
+      {tab === "approvals" && (
+        <ApprovalsPanel
+          onChanged={() => {
+            void approvals.refresh()
+            void p.refresh()
+          }}
+        />
+      )}
+      {tab === "developers" && <Pending title="Developers" />}
+      {tab === "keys" && (
         <KeyList
           keys={p.keys}
+          source="v2"
           busy={p.busy}
           handlers={p.handlers}
           loading={p.loading}
-          sourceErrors={sourceErrors}
-          onRetry={() => void p.refresh()}
+          sourceErrors={sourceErrors("v2")}
+          onRetry={retry}
           previewOpen={p.preview?.open}
           previewActivity={p.preview?.activity}
         />
-      ) : (
-        <RequestLogs keys={p.keys} preset={p.preview?.logs} />
       )}
+      {tab === "logs" && <RequestLogs keys={p.keys} preset={p.preview?.logs} />}
+      {tab === "services" && <Pending title="Services and status" />}
+      {tab === "announcements" && <Pending title="Announcements" />}
+      {tab === "report" && <Pending title="Report" />}
+      {tab === "legacy" && <LegacyTab keys={p.keys} busy={p.busy} handlers={p.handlers} loading={p.loading} sourceErrors={sourceErrors("v1")} onRetry={retry} />}
     </div>
   )
 }

@@ -36,6 +36,9 @@ export function GlobalKill({ onConfirm }: { onConfirm: () => Promise<void> }) {
         <div className="min-w-0 text-sm">
           <p className="font-semibold text-foreground">Emergency kill switch</p>
           <p className="text-muted-foreground">Disables every v1 key, revokes every v2 key and turns the v2 API off.</p>
+          <p className="mt-1 text-xs font-semibold text-rose-700 dark:text-rose-300">
+            Irreversible: revoked keys stay revoked. For a stop you can undo, pause a developer or a service instead (pauses revoke nothing).
+          </p>
         </div>
       </div>
       <AlertDialog open={open} onOpenChange={(v) => !running && setOpen(v)}>
