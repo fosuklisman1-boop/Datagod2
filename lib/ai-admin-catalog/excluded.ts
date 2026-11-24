@@ -29,6 +29,7 @@ export const EXCLUDED: ExcludedRoute[] = [
   { path: "/api/admin/fix-orphaned-blacklisted", method: "POST", reason: "one-off data repair script, bulk writes outside normal flows" },
   { path: "/api/admin/fulfillment/bulk-manual-fulfill", method: "POST", reason: "long-running (up to 1000 orders, one supplier send each in sequence); use the page, or queue orders with fulfillment/enqueue" },
   { path: "/api/admin/initialize-balance", method: "GET", reason: "a GET that rewrites every shop's available balance from at most the first 1000 profit rows (the database's row cap), so on a bigger table it would save wrong balances; one-off setup script, use the page or ops" },
+  { path: "/api/admin/momo-claims/reconcile", method: "POST", reason: "takes the whole MTN statement as CSV text in the body (up to 5 MB), a spreadsheet upload that cannot be driven from chat; use the page" },
   { path: "/api/admin/mtn-registration/batch/:id/download", method: "GET", reason: "file download (CSV/XLSX/binary) response, not JSON" },
   { path: "/api/admin/mtn-registration/export", method: "GET", reason: "file download (CSV/XLSX/binary) response, not JSON" },
   { path: "/api/admin/mtn-whitelist/batch-verify", method: "POST", reason: "long-running (up to 300 s, checks up to 1000 registry numbers per call with every supplier); use the page" },
@@ -42,6 +43,9 @@ export const EXCLUDED: ExcludedRoute[] = [
   { path: "/api/admin/setup-rls", method: "POST", reason: "one-off RLS setup script, alters database security policy" },
   { path: "/api/admin/set-admin-by-email", method: "POST", reason: "use users.set_admin by id (shows the account, writes an audit row); a masked email on a card cannot show which account gets full admin rights" },
   { path: "/api/admin/stale-tracking/recheck", method: "POST", reason: "long-running (up to 300 s, paced supplier calls); use the page" },
+  { path: "/api/admin/sync-shop-balances", method: "GET", reason: "a GET that rewrites the balance of every shop, one database call and one write per shop in a loop with no time limit set; use withdrawals/recalibrate (a single database call) or the page" },
   { path: "/api/admin/users/bulk", method: "POST", reason: "long-running (up to 300 s: role or suspension changes for up to 200 users, or a message to up to 5000); use the page. Single users: users/update-role and users/suspend, or roles/members/move" },
   { path: "/api/admin/users/export", method: "GET", reason: "returns up to 5000 users' contact details in one reply, the same data as users list but unpaged for the model; use the page, or the users list lookup" },
+  { path: "/api/admin/withdrawals/bulk-approve", method: "POST", reason: "long-running (up to 300 s: serial real payouts, one Moolre or Paystack transfer per withdrawal); use prepare_withdrawal_action, which approves each withdrawal under one confirm card, or the page" },
+  { path: "/api/admin/withdrawals/list", method: "GET", reason: "returns a bare JSON array (every withdrawal with the shop's balance), which the lookup filter cannot select fields from; use the list_withdrawals tool or the page" },
 ]
