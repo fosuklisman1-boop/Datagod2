@@ -1,15 +1,15 @@
-// lib/api-v2/migration-0196.test.ts
-// migrations/0196_api_admin_console.sql and its self-test, run in PGlite (WASM Postgres). Nothing here touches a real database.
-// 0196 builds on 0128 (api_v2_keys, api_v2_logs, api_v2_config, loaded for real), 0131 (api_v2_admin_stats and api_v2_key_activity,
+// lib/api-v2/migration-0197.test.ts
+// migrations/0197_api_admin_console.sql and its self-test, run in PGlite (WASM Postgres). Nothing here touches a real database.
+// 0197 builds on 0128 (api_v2_keys, api_v2_logs, api_v2_config, loaded for real), 0131 (api_v2_admin_stats and api_v2_key_activity,
 // loaded for real), 0195 (api_v2_access_grants, stubbed) and the admin_audit_log of 0069 + 0176 (stubbed).
 import { describe, it, expect, afterEach } from "vitest"
 import { readFileSync } from "fs"
 import { join } from "path"
-import { buildRunString, code } from "./migration-0196-run"
+import { buildRunString, code } from "./migration-0197-run"
 
 const read = (f: string) => readFileSync(join(process.cwd(), "migrations", f), "utf8").replace(/\r\n/g, "\n")
-const FILE = "0196_api_admin_console.sql"
-const SELFTEST_FILE = "0196_api_admin_console.selftest.sql"
+const FILE = "0197_api_admin_console.sql"
+const SELFTEST_FILE = "0197_api_admin_console.selftest.sql"
 const migration = () => read(FILE)
 
 const FUNCTIONS = [
@@ -26,8 +26,8 @@ const FUNCTIONS = [
 const TABLES = ["api_v2_developer_pauses", "api_v2_service_controls", "api_v2_announcements"]
 const SERVICES = ["data", "airtime", "bills", "bundles", "results", "afa", "sms"]
 
-describe("0196 migration text", () => {
-  it("text: one BEGIN, both SET LOCALs, one COMMIT, no txn-ending statement outside function bodies; run string ends RAISE 'SELFTEST_OK 0196' and has no COMMIT", () => {
+describe("0197 migration text", () => {
+  it("text: one BEGIN, both SET LOCALs, one COMMIT, no txn-ending statement outside function bodies; run string ends RAISE 'SELFTEST_OK 0197' and has no COMMIT", () => {
     const c = code(migration())
     expect(c.match(/^BEGIN;\s*$/gm)).toHaveLength(1)
     expect(c).toMatch(/SET LOCAL lock_timeout = '2s';/)
@@ -37,12 +37,12 @@ describe("0196 migration text", () => {
     const run = buildRunString(migration(), read(SELFTEST_FILE))
     const s = code(run)
     expect(s).not.toMatch(/\bCOMMIT\b/i)
-    expect(s.trimEnd()).toMatch(/RAISE EXCEPTION 'SELFTEST_OK 0196';\s*END\s*\$selftest\$;$/)
+    expect(s.trimEnd()).toMatch(/RAISE EXCEPTION 'SELFTEST_OK 0197';\s*END\s*\$selftest\$;$/)
     const doBlock = s.slice(s.lastIndexOf("DO $selftest$"))
     expect(doBlock).not.toMatch(/^\s*END\s*;/im)
     // the builder refuses a migration without its COMMIT line, and a self-test that could end the transaction
-    expect(() => buildRunString(migration().replace(/^COMMIT;$/m, ""), read(SELFTEST_FILE))).toThrow(/0196:no COMMIT/)
-    expect(() => buildRunString(migration(), read(SELFTEST_FILE).replace("DO $selftest$", "DO $selftest$ -- x\nDECLARE v int; BEGIN ROLLBACK; END; $selftest$;\nDO $selftest$"))).toThrow(/0196:/)
+    expect(() => buildRunString(migration().replace(/^COMMIT;$/m, ""), read(SELFTEST_FILE))).toThrow(/0197:no COMMIT/)
+    expect(() => buildRunString(migration(), read(SELFTEST_FILE).replace("DO $selftest$", "DO $selftest$ -- x\nDECLARE v int; BEGIN ROLLBACK; END; $selftest$;\nDO $selftest$"))).toThrow(/0197:/)
   })
 
   it("text: header lists pre-checks, verify queries, every lock, 'quiet window', harmless lock timeout; no ALTER of api_v2_keys/api_v2_logs/api_v2_config/api_orders", () => {
@@ -91,8 +91,8 @@ const ROLES = `
   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO anon, authenticated, service_role;
 `
-// auth.users with a real FK target; public.users with the columns 0196 reads; admin_audit_log as 0069 + 0176 leave it;
-// the order tables as far as 0196 reads them.
+// auth.users with a real FK target; public.users with the columns 0197 reads; admin_audit_log as 0069 + 0176 leave it;
+// the order tables as far as 0197 reads them.
 const STUBS = `
   CREATE SCHEMA auth;
   CREATE TABLE auth.users(id uuid PRIMARY KEY);
@@ -202,7 +202,7 @@ async function fails(db: any, sql: string, msg?: RegExp): Promise<any> {
 }
 const SINCE = "now() - interval '30 days'"
 
-describe.skipIf(!PGliteCtor)("0196 in PGlite", () => {
+describe.skipIf(!PGliteCtor)("0197 in PGlite", () => {
   it("tables: RLS on, zero policies, anon/authenticated have no privilege, service_role does", async () => {
     const db = await fresh96()
     for (const t of TABLES) {
@@ -713,7 +713,7 @@ describe.skipIf(!PGliteCtor)("0196 in PGlite", () => {
     expect(JSON.stringify(p)).not.toContain("1234\"")
   }, 60_000)
 
-  it("selftest: raises SELFTEST_OK 0196 inside a transaction that leaves nothing behind (count rows before/after in the test)", async () => {
+  it("selftest: raises SELFTEST_OK 0197 inside a transaction that leaves nothing behind (count rows before/after in the test)", async () => {
     const db = await fresh()
     const u = await mkUser(db, { email: "probe@example.test" })
     const k = await mkKey(db, u)
@@ -734,7 +734,7 @@ describe.skipIf(!PGliteCtor)("0196 in PGlite", () => {
         await rows(db, "SELECT id, xmin::text AS x FROM public.users ORDER BY id"),
       ])
     const before = await counts()
-    await expect(db.exec(buildRunString(migration(), read(SELFTEST_FILE)))).rejects.toThrow(/^SELFTEST_OK 0196/)
+    await expect(db.exec(buildRunString(migration(), read(SELFTEST_FILE)))).rejects.toThrow(/^SELFTEST_OK 0197/)
     await db.exec("ROLLBACK")
     expect(await counts()).toBe(before)
     for (const t of TABLES) expect((await one(db, `SELECT to_regclass('public.${t}') AS t`)).t).toBeNull()
@@ -743,7 +743,7 @@ describe.skipIf(!PGliteCtor)("0196 in PGlite", () => {
 
   it("selftest: also passes on an empty database (no users at all) and against the already-applied schema (run alone after the real apply)", async () => {
     const empty = await fresh()
-    await expect(empty.exec(buildRunString(migration(), read(SELFTEST_FILE)))).rejects.toThrow(/^SELFTEST_OK 0196/)
+    await expect(empty.exec(buildRunString(migration(), read(SELFTEST_FILE)))).rejects.toThrow(/^SELFTEST_OK 0197/)
     await empty.exec("ROLLBACK")
 
     const db = await fresh96()
@@ -759,7 +759,7 @@ describe.skipIf(!PGliteCtor)("0196 in PGlite", () => {
     const st = read(SELFTEST_FILE)
     const doBlock = st.split("\n").slice(st.split("\n").findIndex((l) => /^DO\b/.test(l))).join("\n")
     await db.exec("BEGIN")
-    await expect(db.exec(doBlock)).rejects.toThrow(/^SELFTEST_OK 0196/)
+    await expect(db.exec(doBlock)).rejects.toThrow(/^SELFTEST_OK 0197/)
     await db.exec("ROLLBACK")
     // the real pause survived the self-test
     expect(await one(db, "SELECT paused, message FROM api_v2_service_controls WHERE service = 'bills'")).toEqual({ paused: true, message: "real pause" })

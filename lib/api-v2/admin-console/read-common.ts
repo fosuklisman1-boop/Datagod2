@@ -1,4 +1,4 @@
-// Admin console reads: one rpc/table read with a generic error, and a clear "Not set up yet" when migration 0196
+// Admin console reads: one rpc/table read with a generic error, and a clear "Not set up yet" when migration 0197
 // has not been applied (function or table missing). Logs carry only the function/table name and the error code.
 import type { RpcClient, WriteResult } from "./write-common"
 
@@ -13,7 +13,7 @@ interface DbError {
   message?: string
 }
 
-/** Function or table missing (0196 not applied). Codes first; wording only as a fallback for PostgREST. */
+/** Function or table missing (0197 not applied). Codes first; wording only as a fallback for PostgREST. */
 export function isNotSetUp(err: unknown): boolean {
   const e = (err ?? {}) as DbError
   if (e.code === "42883" || e.code === "PGRST202" || e.code === "42P01" || e.code === "PGRST205") return true

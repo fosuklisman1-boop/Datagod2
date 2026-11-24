@@ -1,4 +1,4 @@
-// Shared by the admin console write libs: result shape, the refused-character class (mirrors migration 0196),
+// Shared by the admin console write libs: result shape, the refused-character class (mirrors migration 0197),
 // UUID check and rpc outcome mapping. Never logs anything but the error code.
 import type { RpcClient } from "@/lib/api-v2/approvals"
 

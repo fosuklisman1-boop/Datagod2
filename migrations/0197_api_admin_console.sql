@@ -1,4 +1,4 @@
--- 0196_api_admin_console.sql
+-- 0197_api_admin_console.sql
 --
 -- API admin console release (R4), Task 1: three new service-role-only tables and nine SECURITY DEFINER functions behind the
 -- admin API console (developer pause, per-service pause, announcements, and the read side of the Developers, Overview, Report
@@ -81,7 +81,7 @@
 --   SELECT count(*), count(*) FILTER (WHERE paused) FROM public.api_v2_service_controls;                 -- 7, 0
 --   SELECT count(*) FROM public.api_v2_developer_pauses;                                                 -- 0
 --
--- Dry run: migrations/0196_api_admin_console.selftest.sql (build the run string by code, as lib/api-v2/migration-0196.test.ts does).
+-- Dry run: migrations/0197_api_admin_console.selftest.sql (build the run string by code, as lib/api-v2/migration-0197.test.ts does).
 
 BEGIN;
 SET LOCAL lock_timeout = '2s';

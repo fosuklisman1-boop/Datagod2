@@ -1,4 +1,4 @@
-// Browser-safe form rules for the Services and Announcements tabs. They mirror the SQL checks in 0196 so the
+// Browser-safe form rules for the Services and Announcements tabs. They mirror the SQL checks in 0197 so the
 // admin sees the problem before sending; the server still re-checks everything.
 
 export const TITLE_MAX = 80

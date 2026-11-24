@@ -1,12 +1,12 @@
--- 0196_api_admin_console.selftest.sql
+-- 0197_api_admin_console.selftest.sql
 --
--- NOT A MIGRATION. Self-rolling-back dry run for 0196_api_admin_console.sql.
+-- NOT A MIGRATION. Self-rolling-back dry run for 0197_api_admin_console.sql.
 --
 -- IMPORTANT: the run string must be built by CODE, never by hand or by a regex strip, and that code must
 -- ASSERT before anything is sent to production that the run string contains no transaction-ending word and that this DO
 -- block has no bare end statement and finishes by raising. (The 0130 incident lesson.) Build it as
--- lib/api-v2/migration-0196-run.ts does:
---   1. 0196_api_admin_console.sql with BEGIN kept (and both SET LOCALs) and ONLY its final transaction-ending line removed;
+-- lib/api-v2/migration-0197-run.ts does:
+--   1. 0197_api_admin_console.sql with BEGIN kept (and both SET LOCALs) and ONLY its final transaction-ending line removed;
 --   2. followed by this file from the line that STARTS (column 0) with the DO keyword onward. The header
 --      is not part of the run string (it names the forbidden words).
 --   The DO body has no bare end statement: nested blocks are labelled and the block closes with the $selftest$ tag.
@@ -296,6 +296,6 @@ BEGIN
     IF SQLERRM <> 'range too large' THEN RAISE EXCEPTION 'FAIL range_wrong_error %', SQLERRM; END IF;
   END chk_range;
 
-  RAISE EXCEPTION 'SELFTEST_OK 0196';
+  RAISE EXCEPTION 'SELFTEST_OK 0197';
 END
 $selftest$;

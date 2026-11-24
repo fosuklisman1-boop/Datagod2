@@ -1,4 +1,4 @@
-// Builds the self-rolling-back dry-run string for migrations/0196_api_admin_console.sql (prod runbook, dry-run step).
+// Builds the self-rolling-back dry-run string for migrations/0197_api_admin_console.sql (prod runbook, dry-run step).
 // Pure and dependency-free so both the vitest suite and any print script use the same code.
 // Never hand-build this string: the 0130 incident came from a hand-built dry run that could commit.
 
@@ -21,7 +21,7 @@ const TXN_END = /\b(END\s*(;|\s+(TRANSACTION|WORK|TRAN)\b)|ABORT\b|ROLLBACK\b|PR
 export function buildRunString(migrationSql: string, selftestSql: string): string {
   const lines = migrationSql.split("\n")
   const commitAt = lines.map((l) => l.trim()).lastIndexOf("COMMIT;")
-  if (commitAt < 0) throw new Error("0196:no COMMIT line")
+  if (commitAt < 0) throw new Error("0197:no COMMIT line")
   const head = lines.filter((_, i) => i !== commitAt).join("\n")
   const st = selftestSql.split("\n")
   const doAt = st.findIndex((l) => /^DO\b/.test(l))
@@ -29,13 +29,13 @@ export function buildRunString(migrationSql: string, selftestSql: string): strin
   const doBlock = st.slice(doAt).join("\n")
   const run = head + "\n" + doBlock
 
-  if (/\bCOMMIT\b/i.test(run)) throw new Error("0196:run string could commit")
+  if (/\bCOMMIT\b/i.test(run)) throw new Error("0197:run string could commit")
   const lead = run.replace(/^(\s|--[^\n]*\n)*/, "")
   if (!/^BEGIN;\s*(--[^\n]*\n\s*)*SET LOCAL lock_timeout = '[^']*';\s*(--[^\n]*\n\s*)*SET LOCAL statement_timeout = '[^']*';/.test(lead)) {
-    throw new Error("0196:run string must begin with BEGIN; and both SET LOCAL lines")
+    throw new Error("0197:run string must begin with BEGIN; and both SET LOCAL lines")
   }
-  if (TXN_END.test(withoutDollarBodies(head))) throw new Error("0196:migration part has a transaction-ending statement outside a function body")
-  if (TXN_END.test(doBlock)) throw new Error("0196:selftest has a transaction-ending statement")
-  if (!/RAISE EXCEPTION 'SELFTEST_OK[^']*';\s*END\s*\$selftest\$;\s*$/.test(run)) throw new Error("0196:run string does not end by raising")
+  if (TXN_END.test(withoutDollarBodies(head))) throw new Error("0197:migration part has a transaction-ending statement outside a function body")
+  if (TXN_END.test(doBlock)) throw new Error("0197:selftest has a transaction-ending statement")
+  if (!/RAISE EXCEPTION 'SELFTEST_OK[^']*';\s*END\s*\$selftest\$;\s*$/.test(run)) throw new Error("0197:run string does not end by raising")
   return run
 }
