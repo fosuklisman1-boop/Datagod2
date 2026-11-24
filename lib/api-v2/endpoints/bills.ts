@@ -35,6 +35,7 @@
 import type { V2Context, V2HandlerResult } from "../handler"
 import type { V2ErrorStatus } from "../envelope"
 import type { ClaimOutcome } from "../idempotency"
+import { guardSpend, settleOwned, type SpendHook } from "../spend"
 import {
   billErrorResponse,
   billHash,
@@ -140,6 +141,8 @@ export interface BillsV2Deps {
     place(p: BillSandboxPlaceParams): Promise<BillSandboxPlaceResult>
   }
   now(): number
+  /** Release 5 daily spending limit (absent in unit tests that do not exercise it). */
+  spend?: SpendHook
 }
 
 // ---------------------------------------------------------------- messages
@@ -377,6 +380,13 @@ async function livePay(deps: BillsV2Deps, input: BillPayInput, ctx: V2Context): 
     return fail(403, MSG_PHONE_GATE)
   }
 
+  // 3b. Daily spending limit (live, caps on): the face amount is reserved; a refusal frees the reference.
+  const spend = await guardSpend(deps.spend, ctx, "bill", input.reference, input.amount)
+  if (!spend.proceed) {
+    await safeRelease(deps, claimId, ctx.userId)
+    return spend.result
+  }
+
   // 4. The engine.
   let paid: BillPayEngineResult
   try {
@@ -396,6 +406,7 @@ async function livePay(deps: BillsV2Deps, input: BillPayInput, ctx: V2Context): 
   if (!result.ok) {
     if (typeof result.status === "number" && isNoDebitStatus(result.status)) {
       await safeRelease(deps, claimId, ctx.userId)
+      await settleOwned(deps.spend, spend.owned, ctx, "bill", input.reference, "released")
       return refusalResult(result, input.expectedPay)
     }
     // Conservative by design: of payBill's 500s only "debit uncertain" (service.ts ~267) can have moved
@@ -412,12 +423,15 @@ async function livePay(deps: BillsV2Deps, input: BillPayInput, ctx: V2Context): 
   //    path): this request debited nothing, and that payment belongs to another reference.
   if (paid.fresh !== true) {
     await safeRelease(deps, claimId, ctx.userId)
+    await settleOwned(deps.spend, spend.owned, ctx, "bill", input.reference, "released")
     console.error(LOG_TOKEN_REUSED)
     return tokenReuseResult(deps, ctx.userId, order)
   }
 
   const code = order?.reference_code
   if (typeof code !== "string" || !code) return ambiguous(deps, claimId, ctx.userId)
+
+  await settleOwned(deps.spend, spend.owned, ctx, "bill", input.reference, "spent")
 
   // 6. Success: store the engine code as order_ref and the allow-listed order as the response.
   const pub = mapBillOrder(order, input.reference)
