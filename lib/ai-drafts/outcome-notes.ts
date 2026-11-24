@@ -53,6 +53,15 @@ function shortOutcome(d: Pick<AiDraft, "status" | "outcome">): string {
   if (d.status === "unknown" && typeof o.pageLink === "string" && SAFE_PAGE.test(o.pageLink)) {
     parts.push(`no answer, tell the admin to check the page ${o.pageLink}`)
   }
+  // A GET change entry (a balance check) keeps its filtered result: give it to the model inside the usual <data> fence,
+  // as untrusted data. Fence and note tags inside it are neutralised so it can neither close the fence nor forge a note.
+  if (d.status === "succeeded" && o.data !== undefined && o.data !== null) {
+    const json = (JSON.stringify(o.data) ?? "")
+      .slice(0, 2600)
+      .replace(/<\s*(\/?)\s*(data|card_results)\b[^>\n]{0,200}>?/gi, (_m, slash: string) => (slash ? "[/data]" : "[data]"))
+      .replace(/\[\s*card\b/gi, "[ card")
+    if (json) parts.push(`result data: <data>${json}</data>`)
+  }
   return parts.join(", ")
 }
 

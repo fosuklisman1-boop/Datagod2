@@ -6,6 +6,7 @@ import { walletOrderPrice } from "@/lib/pricing/wallet-order-price"
 import { createStandingOrderTask } from "./standing-order"
 import { getEntry } from "@/lib/ai-admin-catalog/index"
 import { matchesEntry } from "@/lib/ai-admin-catalog/resolve"
+import { filterLookupResult } from "@/lib/ai-admin-catalog/filter"
 import { ResolvedRequestSchema, type ResolvedRequest } from "@/lib/ai-admin-catalog/types"
 
 // Runs a confirmed draft by calling the SAME endpoint the normal UI uses, with the caller's own JWT. This is the
@@ -460,6 +461,8 @@ async function executeBulk(draft: AiDraft, p: Record<string, any>, call: ExecCal
 // ---------------------------------------------------------------------------------------------------------------------
 
 export const MAX_ROUTE_TIMEOUT_MS = 60_000
+/** Size budget (JSON chars) for the filtered data a GET change entry keeps in its outcome. */
+const ROUTE_DATA_BUDGET = 2600
 
 /** The entry and stored request of an admin_route_call draft, only while the stored request still fits the entry. */
 function storedAdminRoute(draft: AiDraft) {
@@ -492,13 +495,28 @@ async function executeAdminRoute(draft: AiDraft, call: ExecCall): Promise<ExecRe
   const r = await sendRequest(call, { method: req.method, path: req.path, query: req.query, body }, timeoutMs)
   if (!r.reached) return unknownResult({ pageLink: entry.page })
   // 2xx: the response body is never stored (it may carry a freshly generated secret).
+  // Exception: a GET change entry with resultKeep (a balance check) stores the FILTERED data, same hiding as lookups.
   if (is2xx(r.status)) {
-    return { status: "succeeded", outcome: { httpStatus: r.status, ...(typed.length > 0 ? { secretsSet: typed.map((f) => f.label) } : {}) } }
+    let data: unknown
+    if (entry.method === "GET" && entry.resultKeep) {
+      const f = filterLookupResult(entry, r.body, ROUTE_DATA_BUDGET)
+      if (f.data !== null && f.data !== undefined) data = f.data
+    }
+    return {
+      status: "succeeded",
+      outcome: {
+        httpStatus: r.status,
+        ...(typed.length > 0 ? { secretsSet: typed.map((f) => f.label) } : {}),
+        ...(data !== undefined ? { data } : {}),
+      },
+    }
   }
   if (r.status >= 500) return { status: "failed", outcome: { code: "endpoint_error" } }
   if (r.status >= 400) {
     const message = errText(r.body)
-    const code = typeof r.body.code === "string" && /^[a-z0-9_]{1,40}$/i.test(r.body.code) ? r.body.code : "rejected"
+    const rawCode = typeof r.body.code === "string" && /^[a-z0-9_]{1,40}$/i.test(r.body.code) ? r.body.code : "rejected"
+    // A typed secret (an OTP is short enough to look like a code) must never come back as the error code.
+    const code = secretValues.some((s) => s && rawCode.includes(s)) ? "rejected" : scrub(rawCode, secretValues)
     return { status: "failed", outcome: { code, ...(message ? { message: scrub(message, secretValues) } : {}) } }
   }
   // 1xx / 3xx: not an answer we can call success.
