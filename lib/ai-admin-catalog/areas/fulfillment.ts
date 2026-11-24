@@ -3,7 +3,7 @@ import type { CardCtx, CardLine, CatalogEntry, EntryInput } from "../types"
 import { pageTitleFor } from "../pages"
 import { maskPhone } from "@/lib/ai-drafts/user-label"
 
-// Fulfillment group: /api/admin/ fulfillment, afa-registrations, auto-fulfil, mtn-registration, phone-verify,
+// Fulfillment group: /api/admin/ fulfillment, auto-fulfil, mtn-registration, phone-verify,
 // phone-verifications, blocked-numbers, blacklist, kuntanii, hubnet, apexprime, agentportalgh, bundleportal,
 // datakazina. Every handler here is guarded by verifyAdminAccess.
 //
@@ -17,7 +17,7 @@ import { maskPhone } from "@/lib/ai-drafts/user-label"
 //     JSON of unknown shape: use the page.
 //   - no input anywhere in this group is a key or secret, so no entry needs secretFields.
 //
-// Left out on purpose (see EXCLUDED): afa-fulfillment, mtn-whitelist/batch-verify, blocked-numbers/check-all and
+// Left out on purpose (see EXCLUDED): afa-registrations (one auth lookup per row), afa-fulfillment, mtn-whitelist/batch-verify, blocked-numbers/check-all and
 // /recheck (all maxDuration 300), fulfillment/bulk-manual-fulfill (up to 1000 sequential supplier sends) and
 // phone-verify/sessions (bare array response, which the lookup filter cannot select from).
 
@@ -27,6 +27,13 @@ const pageNo = z.number().int().min(1).max(100000)
 const limit500 = z.number().int().min(1).max(500)
 const providerName = z.string().regex(/^[a-z0-9_]{1,40}$/)
 const orderType = z.enum(["bulk", "shop", "api", "ussd", "ussd_shop"])
+
+/** The only address the assistant may register with AgentPortalGH: our own webhook route (app/api/webhooks/mtn/agentportalgh), exactly. */
+const OWN_WEBHOOK_URLS = [
+  "https://datagod.store/api/webhooks/mtn/agentportalgh",
+  "https://www.datagod.store/api/webhooks/mtn/agentportalgh",
+]
+const ownWebhookUrl = z.string().refine((u) => OWN_WEBHOOK_URLS.includes(u), "url must be our own AgentPortalGH webhook address")
 
 const where = (page: string) => ({ page, pageTitle: pageTitleFor(page) ?? page })
 
@@ -81,15 +88,6 @@ function maskAny(p: unknown): string {
   const digits = String(p ?? "").replace(/\D/g, "")
   const local = digits.startsWith("233") && digits.length === 12 ? `0${digits.slice(3)}` : digits
   return local.length >= 7 ? maskPhone(local) : "***"
-}
-
-/** Host only: webhook URLs often carry a token in the path or query. */
-function hostOf(url: unknown): string {
-  try {
-    return new URL(String(url)).host || "the given address"
-  } catch {
-    return "the given address"
-  }
 }
 
 const SIDE = {
@@ -203,7 +201,13 @@ async function manualFulfillCard(i: EntryInput, ctx: CardCtx): Promise<Card> {
     label: "Messages",
     value: "On success the admins get a push notice and an MTN order sends the customer a payment-confirmed text (and an email if one is on file).",
   })
-  lines.push({ label: "Refused when", value: "The order is already completed, its number is blacklisted, or its network is not supported" })
+  lines.push({
+    label: "Refused when",
+    value:
+      kind === "ussd" || kind === "ussd_shop"
+        ? "The order is not found. USSD orders go through the USSD fulfilment path, which forces a manual send and has its own checks; the page shows the exact outcome."
+        : "The order is already completed, its number is blacklisted, or its network is not supported",
+  })
   return { summary: `Send ${kind} order ${short(id)} to a supplier now`, lines }
 }
 
@@ -597,7 +601,11 @@ async function kuntaniiPostCard(i: EntryInput, ctx: CardCtx): Promise<Card> {
     const lines: CardLine[] = [{ label: "Order tracking record", value: row ? `${short(row.id)} · ${row.network ?? "?"} ${row.size_gb ?? "?"} GB · ${row.status}` : id ? short(id) : "(no tracking id given)" }]
     if (str(b.reasonCode)) lines.push({ label: "Reason code", value: str(b.reasonCode) })
     if (str(b.description)) lines.push({ label: "Description", value: str(b.description) })
-    lines.push({ label: "Effect", value: "Files a not-received report with Kuntanii for this delivery and saves the report here. It does not refund the customer or resend the data by itself." })
+    lines.push({ label: "Effect", value: "Files a not-received report with Kuntanii for this delivery and saves the report here. Only completed Kuntanii orders can be reported. It does not refund the customer or resend the data by itself." })
+    lines.push({
+      label: "Later effect",
+      value: "If Kuntanii resolves the report with a refund, the system detects it and automatically reverses this order, so it is flagged reversed and can then be re-sent to a supplier.",
+    })
     return { summary: "Report a Kuntanii order as not received", lines }
   }
   const id = str(b.reportId)
@@ -743,9 +751,9 @@ async function agentportalghPostCard(i: EntryInput): Promise<Card> {
 async function agentportalghPutCard(i: EntryInput): Promise<Card> {
   const b = asBody(i)
   return {
-    summary: `${b.enabled ? "Point" : "Disable"} the AgentPortalGH webhook${b.enabled ? ` at ${hostOf(b.url)}` : ""}`,
+    summary: `${b.enabled ? "Point" : "Disable"} the AgentPortalGH webhook${b.enabled ? ` at ${str(b.url)}` : ""}`,
     lines: [
-      { label: "Sends delivery updates to", value: hostOf(b.url) },
+      { label: "Sends delivery updates to", value: str(b.url) },
       { label: "Enabled", value: b.enabled ? "yes" : "no" },
       { label: "Effect", value: "AgentPortalGH reports order results to this address. A wrong address, or turning it off, stops delivery updates arriving, so orders can stay processing." },
       { label: "Secret", value: "The signing secret is not changed" },
@@ -928,30 +936,6 @@ export const FULFILLMENT_ENTRIES: CatalogEntry[] = [
     resultKeep: ["count", "synced_at"],
   },
   {
-    id: "afa.registrations",
-    area: "fulfillment",
-    ...where("/admin/afa-registrations"),
-    summary: "List AFA registrations with their status, fulfilment status and any fulfilment error (no customer details).",
-    method: "GET",
-    path: "/api/admin/afa-registrations",
-    kind: "lookup",
-    risk: "normal",
-    auth: "admin",
-    timeoutMs: 60000, // the handler looks up the account of every registration, so it is slow on a large list
-    resultKeep: [
-      "submissions[].id",
-      "submissions[].order_code",
-      "submissions[].amount",
-      "submissions[].status",
-      "submissions[].fulfillment_status",
-      "submissions[].fulfillment_error",
-      "submissions[].fulfillment_attempts",
-      "submissions[].fulfilled_at",
-      "submissions[].region",
-      "submissions[].created_at",
-    ],
-  },
-  {
     id: "auto_fulfil.get",
     area: "fulfillment",
     ...where("/admin/order-payment-status"),
@@ -1112,15 +1096,14 @@ export const FULFILLMENT_ENTRIES: CatalogEntry[] = [
     id: "kuntanii.get",
     area: "fulfillment",
     ...where("/admin/settings/mtn"),
-    summary: "Show the Kuntanii delivery mode (action settings), or the not-received reports for one order (action disputes, needs trackingId).",
+    summary: "Show the Kuntanii not-received reports filed for one order (needs the order's trackingId). The delivery mode is on the page.",
     method: "GET",
     path: "/api/admin/kuntanii",
-    query: z.object({ action: z.enum(["settings", "disputes"]), trackingId: uuid.optional() }).strict(),
+    query: z.object({ action: z.literal("disputes"), trackingId: uuid }).strict(),
     kind: "lookup",
     risk: "normal",
     auth: "admin",
     resultKeep: [
-      "mode",
       "disputes[].id",
       "disputes[].tracking_id",
       "disputes[].order_reference",
@@ -1629,7 +1612,7 @@ export const FULFILLMENT_ENTRIES: CatalogEntry[] = [
         service: z.string().max(60).optional(),
         items: z.array(z.record(z.string(), z.unknown())).max(500).optional(),
         msisdns: z.array(z.string().max(20)).max(500).optional(),
-        id: z.union([z.string().max(60), z.number().int()]).optional(),
+        id: z.union([z.string().regex(/^[A-Za-z0-9_-]{1,60}$/), z.number().int().positive()]).optional(),
       })
       .strict(),
     kind: "change",
@@ -1646,7 +1629,7 @@ export const FULFILLMENT_ENTRIES: CatalogEntry[] = [
     method: "PUT",
     path: "/api/admin/agentportalgh",
     query: z.object({ action: z.literal("webhook-config") }).strict(),
-    body: z.object({ url: z.string().url().max(500), enabled: z.boolean() }).strict(),
+    body: z.object({ url: ownWebhookUrl, enabled: z.boolean() }).strict(),
     kind: "change",
     risk: "danger",
     auth: "admin",

@@ -13,7 +13,6 @@ const CATALOGUED = [
   "DELETE /api/admin/blacklist",
   "DELETE /api/admin/fulfillment/logs",
   "DELETE /api/admin/fulfillment/mtn-logs",
-  "GET /api/admin/afa-registrations",
   "GET /api/admin/agentportalgh",
   "GET /api/admin/apexprime",
   "GET /api/admin/auto-fulfil",
@@ -63,6 +62,7 @@ const CATALOGUED = [
 
 const EXCLUDED_ROUTES: Array<[string, RegExp]> = [
   ["POST /api/admin/afa-fulfillment", /use the page/],
+  ["GET /api/admin/afa-registrations", /one auth lookup per row.*use the page/],
   ["POST /api/admin/blocked-numbers/check-all", /use the page/],
   ["POST /api/admin/blocked-numbers/recheck", /use the page/],
   ["POST /api/admin/fulfillment/bulk-manual-fulfill", /use the page/],
@@ -170,6 +170,35 @@ describe("fulfillment catalog rules", () => {
     expect(byKey("PUT /api/admin/agentportalgh").body!.safeParse({ url: "https://x.test/h", enabled: true, regenerate_secret: true }).success).toBe(false)
     expect(byKey("GET /api/admin/agentportalgh").query!.safeParse({ action: "webhook-config" }).success).toBe(false)
     expect(byKey("GET /api/admin/agentportalgh").query!.safeParse({ action: "balance" }).success).toBe(true)
+  })
+
+  it("agentportalgh webhook url is limited to our own webhook route", () => {
+    const body = byKey("PUT /api/admin/agentportalgh").body!
+    const ok = (url: string) => body.safeParse({ url, enabled: true }).success
+    expect(ok("https://www.datagod.store/api/webhooks/mtn/agentportalgh")).toBe(true)
+    expect(ok("https://datagod.store/api/webhooks/mtn/agentportalgh")).toBe(true)
+    expect(ok("https://evil.example/api/webhooks/mtn/agentportalgh")).toBe(false)
+    expect(ok("http://www.datagod.store/api/webhooks/mtn/agentportalgh")).toBe(false)
+    expect(ok("https://www.datagod.store/api/webhooks/mtn/agentportalgh?x=1")).toBe(false)
+    expect(ok("https://www.datagod.store/api/webhooks/mtn/xpress")).toBe(false)
+    expect(ok("https://www.datagod.store.evil.example/api/webhooks/mtn/agentportalgh")).toBe(false)
+  })
+
+  it("webhook-resend id is a plain token or positive number", () => {
+    const body = byKey("POST /api/admin/agentportalgh").body!
+    const ok = (id: unknown) => body.safeParse({ id }).success
+    expect(ok("abc_12-3")).toBe(true)
+    expect(ok(42)).toBe(true)
+    expect(ok("../wallet/topup")).toBe(false)
+    expect(ok("a?b=1")).toBe(false)
+    expect(ok(-1)).toBe(false)
+    expect(ok(1.5)).toBe(false)
+  })
+
+  it("kuntanii lookup requires the tracking id", () => {
+    const q = byKey("GET /api/admin/kuntanii").query!
+    expect(q.safeParse({ action: "disputes" }).success).toBe(false)
+    expect(q.safeParse({ action: "disputes", trackingId: U1 }).success).toBe(true)
   })
 
   it("sync-status cannot start the bulk sync from the assistant", () => {
@@ -340,7 +369,7 @@ const CARD_INPUTS: Record<string, { params?: any; query?: any; body?: any }> = {
   "POST /api/admin/mtn-registration/release-held": {},
   "POST /api/admin/phone-verifications/reset": { body: { all: true } },
   "POST /api/admin/phone-verify/process": { body: { sessionId: U1 } },
-  "PUT /api/admin/agentportalgh": { query: { action: "webhook-config" }, body: { url: "https://example.com/hook", enabled: true } },
+  "PUT /api/admin/agentportalgh": { query: { action: "webhook-config" }, body: { url: "https://www.datagod.store/api/webhooks/mtn/agentportalgh", enabled: true } },
   "PUT /api/admin/auto-fulfil": {
     body: {
       enabled: true,
@@ -514,6 +543,23 @@ describe("fulfillment change cards", () => {
     expect(c).toContain("GHS 50.00")
     expect(c).toContain("024 *** 4567")
     expect(c).toMatch(/MoMo/)
+  })
+
+  it("webhook card shows the full address", async () => {
+    const c = JSON.stringify(await run("PUT /api/admin/agentportalgh", CARD_INPUTS["PUT /api/admin/agentportalgh"]))
+    expect(c).toContain("https://www.datagod.store/api/webhooks/mtn/agentportalgh")
+  })
+
+  it("kuntanii report card names the later refund reversal", async () => {
+    const c = JSON.stringify(await run("POST /api/admin/kuntanii", { body: { action: "report-not-received", trackingId: U1 } }))
+    expect(c).toMatch(/reverses this order/i)
+    expect(c).toMatch(/completed Kuntanii orders/)
+  })
+
+  it("manual fulfil for a USSD order does not claim the shop-order refusals", async () => {
+    const c = JSON.stringify(await run("POST /api/admin/fulfillment/manual-fulfill", { body: { shop_order_id: U1, order_type: "ussd" } }))
+    expect(c).toMatch(/USSD fulfilment path/)
+    expect(c).not.toMatch(/blacklisted, or its network/)
   })
 
   it("sync-status says a direct lookup reads only and a tracking sync can update the order", async () => {

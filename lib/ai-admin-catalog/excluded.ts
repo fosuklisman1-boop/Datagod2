@@ -7,6 +7,7 @@ export interface ExcludedRoute {
 // Routes the AI must never call. Keep every row justified.
 export const EXCLUDED: ExcludedRoute[] = [
   { path: "/api/admin/afa-fulfillment", method: "POST", reason: "long-running (up to 300 s; fulfill-pending sends every unfulfilled AFA order to the supplier in a loop); use the page" },
+  { path: "/api/admin/afa-registrations", method: "GET", reason: "fans out one auth lookup per row (up to 10000); use the page" },
   { path: "/api/admin/ai-config", method: "GET", reason: "AI configuration endpoint, the assistant must not read or change its own settings" },
   { path: "/api/admin/airtime/download", method: "POST", reason: "file download (CSV/XLSX/binary) response, not JSON" },
   { path: "/api/admin/backfill/airtime-payments", method: "GET", reason: "one-off data backfill script, bulk writes outside normal flows" },
