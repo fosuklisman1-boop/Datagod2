@@ -1,6 +1,6 @@
 export { audiencesFor } from "./audience"
 export type { AudienceContext } from "./audience"
-export { renderSiteGuide, SITE_GUIDE_BUDGET_CHARS } from "./guide"
+export { renderSiteGuide, checkSiteGuideLimits, SITE_GUIDE_BUDGET_CHARS } from "./guide"
 export { searchSite } from "./search"
 export { SITE_PAGES } from "./pages"
 export { ARTICLES } from "./articles"
