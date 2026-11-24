@@ -10,6 +10,7 @@ export const EXCLUDED: ExcludedRoute[] = [
   { path: "/api/admin/afa-registrations", method: "GET", reason: "fans out one auth lookup per row (up to 10000); use the page" },
   { path: "/api/admin/ai-config", method: "GET", reason: "AI configuration endpoint, the assistant must not read or change its own settings" },
   { path: "/api/admin/airtime/download", method: "POST", reason: "file download (CSV/XLSX/binary) response, not JSON" },
+  { path: "/api/admin/api-v1/retirement/notify", method: "POST", reason: "long-running (up to 300 s; sends an SMS and an email to every user with an active v1 key, up to 5000 people) and a mass send with no preview or queue; use the page" },
   { path: "/api/admin/backfill/airtime-payments", method: "GET", reason: "one-off data backfill script, bulk writes outside normal flows" },
   { path: "/api/admin/backfill/airtime-payments", method: "POST", reason: "one-off data backfill script, bulk writes outside normal flows" },
   { path: "/api/admin/blocked-numbers/check-all", method: "POST", reason: "long-running (up to 300 s, asks every supplier about up to 100 numbers); use the page" },
