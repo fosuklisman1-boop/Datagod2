@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest"
 import { buildDocsNav, activeNavHref } from "./nav"
+
+describe("Status entry (Release 4)", () => {
+  it("Reference lists API status once", () => {
+    const ref = buildDocsNav().find((g) => g.label === "Reference")!.items
+    expect(ref.filter((i) => i.href === "/developers/status")).toEqual([{ label: "API status", href: "/developers/status" }])
+  })
+})
 import { DOC_PAGES, STATIC_DOC_PAGES, sectionHref, sectionsForPage } from "./pages"
 import { v2DocsRegistry } from "./registry"
 

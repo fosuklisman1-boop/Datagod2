@@ -45,6 +45,18 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
       "docs/superpowers/specs/2026-11-12-retire-api-v1-design.md (410 gate); date in docs/superpowers/specs/2026-11-22-api-rebuild-roadmap.md",
   },
   {
+    date: "2026-11-24",
+    status: "released",
+    title: "Service status, announcements and pauses",
+    items: [
+      "A new public status page shows whether each service is operational, degraded or paused, with its 24-hour success rate.",
+      "Datagod can pause one service for everyone: new purchases and sends then return HTTP 503 \"This service is temporarily unavailable\" (or a note from Datagod); order lookups keep working. Retry with the same reference once it is back.",
+      "Datagod can pause API access for one account: every key of that account then returns HTTP 403 \"API access paused by Datagod\". Nothing is revoked; access returns when the pause is lifted.",
+      "Maintenance and other announcements now appear at the top of the developer docs and the developer dashboard.",
+    ],
+    source: "feat/api-admin-r4 (Release 4 admin console); messages in lib/api-v2/access.ts",
+  },
+  {
     date: "2026-11-23",
     status: "released",
     title: "Live keys need admin approval",

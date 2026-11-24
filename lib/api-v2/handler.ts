@@ -8,10 +8,14 @@ import {
   MSG_RATE_LIMITED,
   MSG_UNAVAILABLE,
   MSG_ROLE_NOT_ALLOWED,
+  MSG_PAUSED,
+  MSG_SERVICE_PAUSED_DEFAULT,
 } from "./access"
 import { errorBody, successBody, v2Response, type V2ErrorStatus } from "./envelope"
 import { hashV2Key, parseV2Key, type Environment, type KeyType } from "./keys"
 import { resolveLimit, type LimitGroup } from "./limits"
+import type { ControlsSnapshot } from "./controls"
+import { blocksMethod, serviceForEndpoint } from "./services"
 import {
   findKeyByHash,
   getAdminClient,
@@ -23,6 +27,7 @@ import {
   type V2KeyOwner,
   type V2KeyRow,
 } from "./store"
+import { getControls } from "./controls"
 
 export interface V2Context {
   keyId: string
@@ -67,6 +72,11 @@ export interface V2Deps {
     opts?: { pgFallback?: boolean }
   ): Promise<{ allowed: boolean; remaining: number; resetAt: number; degraded?: boolean; fallback?: boolean }>
   now(): Date
+  /**
+   * Developer and service pause snapshot (spec 6). Optional: without it nothing is ever paused (legacy tests).
+   * Read only after decideAccess succeeded, so a denied caller learns nothing about pauses.
+   */
+  controls?: { read(): Promise<ControlsSnapshot | "error"> }
   /**
    * Runs post-response work (the request log and last_used touch). withV2 passes next's after(), so the
    * writes survive the function freezing. Optional: without it the work runs fire-and-forget.
@@ -135,7 +145,8 @@ export async function runV2(
    *   4. key owner row found (401)
    *   5. decideAccess: config disabled 503 > suspended > key status > key type > role (logged);
    *      a role that is not allowed is retried once with the user's grant (read only then)
-   *   6. handler; error results and non-2xx statuses map to the error envelope (logged)
+   *   6. (when deps.controls) developer pause 403 > service pause 503 (writes only); snapshot error 503
+   *   7. handler; error results and non-2xx statuses map to the error envelope (logged)
    */
   const row = await deps.store.findKeyByHash(hashV2Key(raw))
   // A failed lookup is an outage, not a bad key: never tell a developer their key is invalid because our DB is down.
@@ -213,6 +224,25 @@ export async function runV2(
   }
   if (!access.ok) return failLogged(access.status, access.message)
 
+  if (deps.controls) {
+    let controls: ControlsSnapshot | "error"
+    try {
+      controls = await deps.controls.read()
+    } catch {
+      controls = "error"
+    }
+    // A pause is a safety control: with no usable snapshot we do not guess "open".
+    if (controls === "error") return failLogged(503, MSG_UNAVAILABLE)
+    if (controls.pausedUsers.has(row.user_id)) return failLogged(403, MSG_PAUSED)
+    const service = serviceForEndpoint(opts.endpoint)
+    const paused = service ? controls.services.get(service) : undefined
+    if (paused && blocksMethod(input.method)) {
+      // The admin text is the response body only; the log message is the fixed marker (closed slug set).
+      const text = paused.message?.trim() ? paused.message : MSG_SERVICE_PAUSED_DEFAULT
+      return finish(fail(503, text), 503, MSG_SERVICE_PAUSED_DEFAULT)
+    }
+  }
+
   const ctx: V2Context = {
     keyId: row.id,
     userId: row.user_id,
@@ -253,6 +283,7 @@ export function withV2(
       },
       rateLimit: applyRateLimit,
       now: () => new Date(),
+      controls: getControls(),
       schedule: (work) => after(work),
     }
     try {

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest"
 import { runV2, type V2Context } from "./handler"
 import { generateV2Key, hashV2Key } from "./keys"
+import { MSG_PAUSED, MSG_SERVICE_PAUSED_DEFAULT, MSG_UNAVAILABLE } from "./access"
 
 const OPTS = { requiredType: "standard" as const, group: "status" as const, endpoint: "/api/v2/account/role" }
 
@@ -500,5 +501,171 @@ describe("runV2 request logging", () => {
     await new Promise((res) => setTimeout(res, 0))
     expect(deps.store.logRequest).toHaveBeenCalledTimes(1)
     expect(deps.store.touchLastUsed).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("runV2 pauses (developer and service)", () => {
+  function snap(over: { users?: string[]; services?: Record<string, string | null> } = {}): any {
+    return {
+      pausedUsers: new Set(over.users ?? []),
+      services: new Map(Object.entries(over.services ?? {}).map(([k, v]) => [k, { message: v }])),
+      at: 0,
+    }
+  }
+  function withControls(over: any = {}, snapshot: any = snap()) {
+    const deps: any = makeDeps(over)
+    deps.controls = { read: vi.fn(async () => snapshot) }
+    return deps
+  }
+  const post = (key: string) => {
+    const h = new Headers()
+    h.set("authorization", `Bearer ${key}`)
+    return { headers: h, method: "POST", request: { headers: h } as any }
+  }
+  const flush = () => new Promise((res) => setTimeout(res, 0))
+  const lastLog = (deps: any) => (deps.store.logRequest as any).mock.calls.at(-1)?.[0]
+
+  it("paused user + live key -> 403, logged developer_paused, handler not called", async () => {
+    const deps = withControls({}, snap({ users: ["user-1"] }))
+    const handler = vi.fn(ok)
+    const r = await runV2(deps, OPTS, handler, input(validKey()))
+    expect(r.status).toBe(403)
+    expect(r.body).toMatchObject({ success: false, error: { code: 403, message: MSG_PAUSED } })
+    expect(MSG_PAUSED).toBe("API access paused by Datagod")
+    expect(handler).not.toHaveBeenCalled()
+    await flush()
+    expect(lastLog(deps)).toMatchObject({ statusCode: 403, errorReason: "developer_paused" })
+  })
+
+  it("paused user: test key, X-API-Key header and a second key of the same person are all 403", async () => {
+    const handler = vi.fn(ok)
+    const test = withControls({ row: { environment: "test" } }, snap({ users: ["user-1"] }))
+    expect((await runV2(test, OPTS, handler, input(generateV2Key("standard", "test").key))).status).toBe(403)
+    const viaHeader = withControls({}, snap({ users: ["user-1"] }))
+    const h = new Headers()
+    h.set("x-api-key", validKey())
+    expect((await runV2(viaHeader, OPTS, handler, { headers: h, method: "GET", request: { headers: h } as any })).status).toBe(403)
+    const second = withControls({ row: { id: "key-2" } }, snap({ users: ["user-1"] }))
+    expect((await runV2(second, OPTS, handler, input(validKey()))).status).toBe(403)
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it("unpaused user: handler runs, controls read once, no extra store call", async () => {
+    const deps = withControls({}, snap({ users: ["someone-else"] }))
+    const handler = vi.fn(ok)
+    const r = await runV2(deps, OPTS, handler, input(validKey()))
+    expect(r.status).toBe(200)
+    expect(handler).toHaveBeenCalledTimes(1)
+    expect(deps.controls.read).toHaveBeenCalledTimes(1)
+    expect(deps.store.findKeyByHash).toHaveBeenCalledTimes(1)
+    expect(deps.store.getUserForKey).toHaveBeenCalledTimes(1)
+    expect(deps.store.getConfig).toHaveBeenCalledTimes(1)
+    expect(deps.store.hasGrant).not.toHaveBeenCalled()
+  })
+
+  it("order: config disabled, suspended and key-status messages beat developer pause; developer pause beats service pause", async () => {
+    const paused = snap({ users: ["user-1"], services: { data: null } })
+    const dataOpts = { ...OPTS, endpoint: "/api/v2/data/buy" }
+    const disabled = withControls({ enabled: false }, paused)
+    expect((await runV2(disabled, OPTS, ok, input(validKey()))).status).toBe(503)
+    expect(disabled.controls.read).not.toHaveBeenCalled()
+    const susp = withControls({ suspended: true }, paused)
+    expect(((await runV2(susp, OPTS, ok, input(validKey()))).body as any).error.message).toBe("This account is suspended")
+    const pend = withControls({ row: { status: "pending" } }, paused)
+    expect(((await runV2(pend, OPTS, ok, input(validKey()))).body as any).error.message).toBe("This API key is awaiting approval")
+    const rev = withControls({ row: { status: "revoked" } }, paused)
+    expect(((await runV2(rev, OPTS, ok, input(validKey()))).body as any).error.message).toBe("This API key has been revoked")
+    const both = withControls({}, paused)
+    const r = await runV2(both, dataOpts, ok, post(validKey()))
+    expect(r.status).toBe(403)
+    expect((r.body as any).error.message).toBe(MSG_PAUSED)
+  })
+
+  it("denied callers (bad key, 429, 401, no owner) never read controls", async () => {
+    const paused = snap({ users: ["user-1"] })
+    const none = withControls({ noKey: true }, paused)
+    await runV2(none, OPTS, ok, input(validKey()))
+    const limited = withControls({ allowed: false }, paused)
+    expect((await runV2(limited, OPTS, ok, input(validKey()))).status).toBe(429)
+    const noKeyHeader = withControls({}, paused)
+    await runV2(noKeyHeader, OPTS, ok, input())
+    const noUser = withControls({ noUser: true }, paused)
+    await runV2(noUser, OPTS, ok, input(validKey()))
+    for (const d of [none, limited, noKeyHeader, noUser]) expect(d.controls.read).not.toHaveBeenCalled()
+  })
+
+  it("service paused + POST -> 503 with the admin message; log is the fixed marker, never the admin text", async () => {
+    const deps = withControls({}, snap({ services: { data: "Back at 6pm, secret-admin-text" } }))
+    const handler = vi.fn(ok)
+    const r = await runV2(deps, { ...OPTS, endpoint: "/api/v2/data/buy" }, handler, post(validKey()))
+    expect(r.status).toBe(503)
+    expect(r.body).toMatchObject({ error: { code: 503, message: "Back at 6pm, secret-admin-text" } })
+    expect(handler).not.toHaveBeenCalled()
+    await flush()
+    const entry = lastLog(deps)
+    expect(entry).toMatchObject({ statusCode: 503, errorReason: "service_paused" })
+    expect(JSON.stringify(entry)).not.toContain("secret-admin-text")
+  })
+
+  it("service paused + GET -> handler runs (reads stay up)", async () => {
+    const deps = withControls({}, snap({ services: { data: null } }))
+    const handler = vi.fn(ok)
+    const r = await runV2(deps, { ...OPTS, endpoint: "/api/v2/orders/list" }, handler, input(validKey()))
+    expect(r.status).toBe(200)
+    expect(handler).toHaveBeenCalled()
+  })
+
+  it("service paused with no message -> default text, logged service_paused", async () => {
+    const deps = withControls({}, snap({ services: { airtime: null } }))
+    const r = await runV2(deps, { ...OPTS, endpoint: "/api/v2/airtime/buy" }, ok, post(validKey()))
+    expect((r.body as any).error.message).toBe(MSG_SERVICE_PAUSED_DEFAULT)
+    expect(MSG_SERVICE_PAUSED_DEFAULT).toBe("This service is temporarily unavailable")
+    await flush()
+    expect(lastLog(deps)).toMatchObject({ errorReason: "service_paused" })
+  })
+
+  it("an endpoint with no service (account, wallet) is never blocked by a service pause", async () => {
+    const all = snap({ services: { data: null, airtime: null, bills: null, bundles: null, results: null, afa: null, sms: null } })
+    for (const endpoint of ["/api/v2/account/role", "/api/v2/wallet/balance"]) {
+      const r = await runV2(withControls({}, all), { ...OPTS, endpoint }, ok, post(validKey()))
+      expect(r.status).toBe(200)
+    }
+  })
+
+  it("controls.read -> error: 503 MSG_UNAVAILABLE logged as unavailable, handler not called", async () => {
+    const deps = withControls({}, "error")
+    const handler = vi.fn(ok)
+    const r = await runV2(deps, OPTS, handler, input(validKey()))
+    expect(r.status).toBe(503)
+    expect((r.body as any).error.message).toBe(MSG_UNAVAILABLE)
+    expect(handler).not.toHaveBeenCalled()
+    await flush()
+    expect(lastLog(deps)).toMatchObject({ statusCode: 503, errorReason: "unavailable" })
+  })
+
+  it("controls.read throws -> 503, no unhandled rejection", async () => {
+    const deps: any = makeDeps()
+    deps.controls = { read: vi.fn(async () => { throw new Error("boom") }) }
+    const handler = vi.fn(ok)
+    const r = await runV2(deps, OPTS, handler, input(validKey()))
+    expect(r.status).toBe(503)
+    expect((r.body as any).error.message).toBe(MSG_UNAVAILABLE)
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it("no controls dep behaves as before even with a service endpoint and POST", async () => {
+    const r = await runV2(makeDeps(), { ...OPTS, endpoint: "/api/v2/data/buy" }, ok, post(validKey()))
+    expect(r.status).toBe(200)
+  })
+
+  it("deploy order: real createControls over missing tables (42P01) -> request succeeds", async () => {
+    const { createControls } = await import("./controls")
+    const missing = { data: null, error: { code: "42P01", message: "relation does not exist" } }
+    const chain: any = { select: () => chain, limit: () => chain, then: (res: any) => Promise.resolve(missing).then(res) }
+    const client: any = { from: () => chain }
+    const deps: any = makeDeps()
+    deps.controls = createControls({ client, now: () => 1000 })
+    const r = await runV2(deps, { ...OPTS, endpoint: "/api/v2/data/buy" }, ok, post(validKey()))
+    expect(r.status).toBe(200)
   })
 })

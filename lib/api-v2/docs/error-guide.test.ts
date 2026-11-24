@@ -1,6 +1,25 @@
 import { describe, expect, it } from "vitest"
 import { v2DocsRegistry, type V2DocSection } from "./registry"
 import { buildErrorGuide, filterErrorGuide } from "./error-guide"
+import { MSG_PAUSED, MSG_SERVICE_PAUSED_DEFAULT } from "../access"
+
+describe("pause errors (Release 4)", () => {
+  it("lists the 403 developer pause and the 503 service pause once each, API-wide", () => {
+    const guide = buildErrorGuide()
+    const paused = guide.filter((e) => e.messages.includes(MSG_PAUSED))
+    expect(paused).toHaveLength(1)
+    expect(paused[0]).toMatchObject({ status: 403, group: "Access and keys", endpoints: [] })
+    expect(paused[0].appliesTo).toMatch(/every endpoint/i)
+    expect(paused[0].fix).toMatch(/nothing is revoked|keys still/i)
+    const service = guide.filter((e) => e.messages.includes(MSG_SERVICE_PAUSED_DEFAULT))
+    expect(service).toHaveLength(1)
+    expect(service[0]).toMatchObject({ status: 503, group: "Availability" })
+    expect(service[0].appliesTo).toMatch(/purchase/i)
+    expect(service[0].fix).toMatch(/same reference/i)
+    expect(service[0].fix).toContain("/developers/status")
+    expect(new Set(guide.map((e) => e.anchor)).size).toBe(guide.length)
+  })
+})
 import { errorAnchor } from "./error-key"
 import {
   MSG_UNAUTHORIZED,
@@ -26,7 +45,8 @@ describe("buildErrorGuide", () => {
     const pairs = registryPairs()
     expect(pairs.size).toBe(145)
     const seen = new Map<string, number>()
-    for (const entry of guide) for (const m of entry.messages) {
+    // API-wide entries (admin pauses, appliesTo set) are not in any endpoint's error list by design.
+    for (const entry of guide.filter((e) => !e.appliesTo)) for (const m of entry.messages) {
       const k = `${entry.status}|${m}`
       seen.set(k, (seen.get(k) ?? 0) + 1)
     }
@@ -39,7 +59,8 @@ describe("buildErrorGuide", () => {
       expect(e.meaning.trim().length, e.anchor).toBeGreaterThan(0)
       expect(e.fix.trim().length, e.anchor).toBeGreaterThan(0)
       expect(e.fix, e.anchor).not.toBe(e.meaning)
-      expect(e.endpoints.length, e.anchor).toBeGreaterThan(0)
+      if (e.appliesTo) expect(e.appliesTo.trim().length, e.anchor).toBeGreaterThan(0)
+      else expect(e.endpoints.length, e.anchor).toBeGreaterThan(0)
       for (const ep of e.endpoints) expect(ep.href).toContain(`#endpoint-${ep.id}`)
     }
   })

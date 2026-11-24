@@ -3,6 +3,7 @@ import Image from "next/image"
 import { DocsSidebar } from "@/components/developer/docs/DocsSidebar"
 import { DocsSearch } from "@/components/developer/docs/DocsSearch"
 import { buildDocsNav } from "@/lib/api-v2/docs/nav"
+import { AnnouncementBanner } from "@/components/developer/AnnouncementBanner"
 
 // Static: no request headers are read here, so every docs page can be statically generated.
 const NAV = buildDocsNav()
@@ -30,6 +31,12 @@ export default function DevelopersLayout({ children }: { children: React.ReactNo
             </div>
             <nav aria-label="Site" className="flex items-center gap-1 sm:gap-2">
               <Link
+                href="/developers/status"
+                className="hidden min-h-10 items-center rounded-xl px-3 text-sm font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:inline-flex"
+              >
+                Status
+              </Link>
+              <Link
                 href="/dashboard/developer"
                 className="inline-flex min-h-10 items-center rounded-xl px-3 text-sm font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               >
@@ -51,7 +58,10 @@ export default function DevelopersLayout({ children }: { children: React.ReactNo
           <DocsSidebar nav={NAV}>
             <DocsSearch />
           </DocsSidebar>
-          <main className="min-w-0 space-y-6">{children}</main>
+          <main className="min-w-0 space-y-6">
+            <AnnouncementBanner className="pt-4 lg:pt-0" />
+            {children}
+          </main>
         </div>
       </div>
     </div>

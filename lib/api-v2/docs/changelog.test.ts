@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest"
 import { CHANGELOG, changelogAt } from "./changelog"
+
+describe("Release 4 entry", () => {
+  it("one released entry names the pause errors and the status page", () => {
+    const e = CHANGELOG.filter((x) => x.title === "Service status, announcements and pauses")
+    expect(e).toHaveLength(1)
+    const text = e[0].items.join(" ")
+    expect(text).toContain("API access paused by Datagod")
+    expect(text).toContain("This service is temporarily unavailable")
+    expect(text).toMatch(/status page/i)
+  })
+})
 import { V2_BASE_URL, v2DocsRegistry } from "./registry"
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/

@@ -20,7 +20,8 @@ const STATUS_CHIPS: { value: KeyFilter["status"]; label: string; dot?: string }[
 const SORT_LABELS: Record<KeyFilter["sort"], string> = { newest: "Newest", oldest: "Oldest", most_used: "Most used (24h)" }
 
 export function KeyList({
-  keys,
+  keys: allKeys,
+  source = "all",
   busy,
   handlers,
   loading,
@@ -30,6 +31,8 @@ export function KeyList({
   previewActivity,
 }: {
   keys: ConsoleKey[]
+  /** Which keys to list: the Keys tab shows v2 only, the Legacy tab v1 only. */
+  source?: "all" | "v1" | "v2"
   busy: Record<string, boolean>
   handlers: KeyRowHandlers
   loading: boolean
@@ -39,6 +42,7 @@ export function KeyList({
   previewOpen?: Record<string, { activity?: boolean; limits?: boolean }>
   previewActivity?: Record<string, KeyActivity>
 }) {
+  const keys = useMemo(() => (source === "all" ? allKeys : allKeys.filter((k) => k.source === source)), [allKeys, source])
   const [filter, setFilter] = useState<KeyFilter>({ q: "", status: "all", role: "all", sort: "newest" })
   const counts = useMemo(() => statusCounts(keys), [keys])
   const roles = useMemo(() => roleOptions(keys), [keys])

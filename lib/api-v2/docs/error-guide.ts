@@ -5,7 +5,7 @@
 import { v2DocsRegistry, type V2DocSection } from "./registry"
 import { errorAnchor, errorCode } from "./error-key"
 import { endpointHref } from "./pages"
-import { MSG_UNAUTHORIZED, MSG_UNAVAILABLE, MSG_SUSPENDED, MSG_PENDING, MSG_REVOKED, MSG_ROLE_NOT_ALLOWED, MSG_RATE_LIMITED } from "../access"
+import { MSG_UNAUTHORIZED, MSG_UNAVAILABLE, MSG_SUSPENDED, MSG_PENDING, MSG_REVOKED, MSG_ROLE_NOT_ALLOWED, MSG_RATE_LIMITED, MSG_PAUSED, MSG_SERVICE_PAUSED_DEFAULT } from "../access"
 
 export type ErrorGroup =
   | "Access and keys"
@@ -25,7 +25,32 @@ export interface GuideError {
   meaning: string
   fix: string
   endpoints: { id: string; method: "GET" | "POST"; path: string; href: string }[]
+  /** For API-wide errors that are not listed per endpoint: where they can appear. */
+  appliesTo?: string
 }
+
+/**
+ * Errors any endpoint (or every purchase) can return because of an admin pause. They are not repeated in every
+ * endpoint's error list (OpenAPI stays per-endpoint); the guide lists them once, API-wide.
+ */
+const API_WIDE: { status: number; message: string; group: ErrorGroup; meaning: string; fix: string; appliesTo: string }[] = [
+  {
+    status: 403,
+    message: MSG_PAUSED,
+    group: "Access and keys",
+    meaning: "Datagod has paused API access for your account. Every key you own is refused until the pause is lifted.",
+    fix: "Contact Datagod (Message admin or support) to find out why. Nothing is revoked: your keys still work as soon as access is restored.",
+    appliesTo: "Every endpoint, with any of your keys (live and test).",
+  },
+  {
+    status: 503,
+    message: MSG_SERVICE_PAUSED_DEFAULT,
+    group: "Availability",
+    meaning: "This service is paused for everyone (for example during supplier maintenance). The message may carry a note from Datagod.",
+    fix: "Check /developers/status for when it is back, then retry the purchase with the same reference: nothing was charged, and the reference makes the retry safe. Order lookups keep working while a service is paused.",
+    appliesTo: "Purchase and send endpoints of the paused service (requests that change something). Lookups are not affected.",
+  },
+]
 
 export const GROUP_ORDER: readonly ErrorGroup[] = [
   "Access and keys",
@@ -421,6 +446,25 @@ export function buildErrorGuide(registry: V2DocSection[] = v2DocsRegistry): Guid
         }
       }
     }
+  }
+  for (const w of API_WIDE) {
+    const anchor = errorAnchor(w.status, w.message)
+    const existing = byAnchor.get(anchor)
+    if (existing) {
+      existing.appliesTo = w.appliesTo
+      continue
+    }
+    byAnchor.set(anchor, {
+      anchor,
+      status: w.status,
+      code: errorCode(w.message),
+      group: w.group,
+      messages: [w.message],
+      meaning: w.meaning,
+      fix: w.fix,
+      endpoints: [],
+      appliesTo: w.appliesTo,
+    })
   }
   return [...byAnchor.values()].sort(
     (a, b) =>
