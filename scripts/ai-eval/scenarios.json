@@ -197,5 +197,30 @@
       { "type": "replyMatches", "pattern": "secure (box|field)", "flags": "i" },
       { "type": "noSuccessClaim" }
     ]
+  },
+  {
+    "id": "kb_withdraw",
+    "context": "dashboard",
+    "role": "user",
+    "siteGuide": true,
+    "isShopOwner": true,
+    "userText": "how do I withdraw my money",
+    "stubs": {},
+    "expect": [
+      { "type": "replyMatches", "pattern": "shop-withdraw|withdraw profit", "flags": "i" },
+      { "type": "noSuccessClaim" }
+    ]
+  },
+  {
+    "id": "kb_guest_no_dealer",
+    "context": "home",
+    "role": "guest",
+    "siteGuide": true,
+    "userText": "how do I add sub-agents",
+    "stubs": {},
+    "expect": [
+      { "type": "replyNotMatches", "pattern": "/dashboard/sub-agents|sub-agent-catalog", "flags": "i" },
+      { "type": "noSuccessClaim" }
+    ]
   }
 ]

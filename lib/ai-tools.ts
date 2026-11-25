@@ -7,6 +7,7 @@ import { buyerPriceRole } from "@/lib/ussd/price-role"
 import type { WaShopSession } from "@/lib/whatsapp-bot/shop-types"
 import { dialerRateRole } from "@/lib/sub-agents/dealer-rates"
 import { RoleReadError } from "@/lib/roles/repo"
+import { audiencesFor, queryTokens, searchSite } from "@/lib/ai-site-guide"
 import { adminLookup, adminLookupTool, findAdminActions, findAdminActionsTool, prepareAdminChange, prepareAdminChangeTool } from "@/lib/ai-admin-catalog/tools"
 
 const supabaseAdmin = createClient(
@@ -1223,6 +1224,8 @@ export interface ToolContext {
   storefrontServices?: StorefrontServiceFlags
   // Admin context only: the admin catalog switch (default off). Background/cron callers never set it.
   adminCatalog?: boolean
+  // Dashboard chat: the verified user owns a shop (derived server-side). Scopes get_knowledge_base site articles.
+  isShopOwner?: boolean
 }
 
 // Admin-only tool names. These either mutate platform state or read data via the
@@ -3170,18 +3173,56 @@ export async function executeToolCall(
 
       case "get_knowledge_base": {
         const contextLabel = ctx.userRole === "admin" ? "admin" : ctx.userId ? "dashboard" : "storefront"
-        // Escape ilike wildcards to prevent full-table dumps via % or _ injection
-        const q = String(input.query ?? "").replace(/[%_\\]/g, "\\$&").slice(0, 200)
-        const { data, error } = await supabaseAdmin
-          .from("ai_knowledge")
-          .select("category, question, answer")
-          .eq("is_active", true)
-          .contains("contexts", [contextLabel])
-          .or(`question.ilike.%${q}%,answer.ilike.%${q}%,category.ilike.%${q}%`)
-          .limit(5)
-        if (error) return { error: error.message }
-        if (!data?.length) return { found: 0, message: "No relevant entries found in the knowledge base." }
-        return { found: data.length, entries: data }
+        const rawQuery = String(input.query ?? "").slice(0, 200)
+        // Site guide articles, scoped to the verified audience (same rules as the system prompt). Shop surfaces
+        // (storefront, shop bot) never see articles about the platform's own channels.
+        const siteHits = searchSite(
+          rawQuery,
+          audiencesFor({ context: ctx.context, role: ctx.userRole, isShopOwner: ctx.isShopOwner, signedIn: !!ctx.userId }),
+          5,
+          undefined,
+          { surface: ctx.context === "storefront" || ctx.context === "whatsapp_shop" ? ctx.context : undefined },
+        ).map((a) => ({ category: "site", question: a.title, answer: a.body }))
+
+        // DB rows: the filter is built ONLY from [a-z0-9] tokens (max 6), each escaped for ILIKE; the raw query never
+        // reaches the PostgREST .or() string. No tokens = no DB read (an empty filter would dump the table).
+        const dbTokens = queryTokens(rawQuery).filter((t) => t.length >= 3).map((t) => t.replace(/[%_\\]/g, "\\$&"))
+        let dbRows: Array<{ category: string; question: string; answer: string }> = []
+        let dbError: string | null = null
+        if (dbTokens.length > 0) {
+          const { data, error } = await supabaseAdmin
+            .from("ai_knowledge")
+            .select("category, question, answer")
+            .eq("is_active", true)
+            .contains("contexts", [contextLabel])
+            .or(dbTokens.flatMap((t) => [`question.ilike.%${t}%`, `answer.ilike.%${t}%`, `category.ilike.%${t}%`]).join(","))
+            .order("category", { ascending: true })
+            .order("question", { ascending: true })
+            .limit(5)
+          if (error) dbError = error.message
+          else dbRows = data ?? []
+        }
+
+        // The owner's DB rows come first (up to 3) so site articles can never crowd them out; site articles then
+        // fill the remaining slots, and any DB rows beyond the first 3 take whatever is still free. Max 5 in all.
+        const seen = new Set<string>()
+        const entries: Array<{ category: string; question: string; answer: string }> = []
+        const take = (list: typeof entries, max: number) => {
+          for (const e of list) {
+            if (entries.length >= max) break
+            const key = e.question.trim().toLowerCase()
+            if (seen.has(key)) continue
+            seen.add(key)
+            entries.push(e)
+          }
+        }
+        take(dbRows, 3)
+        take(siteHits, 5)
+        take(dbRows, 5)
+        if (entries.length === 0) {
+          return dbError ? { error: dbError } : { found: 0, message: "No relevant entries found in the knowledge base." }
+        }
+        return { found: entries.length, entries }
       }
 
       case "show_action_buttons": {

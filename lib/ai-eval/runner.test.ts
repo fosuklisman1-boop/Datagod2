@@ -147,3 +147,36 @@ describe("runScenario (fake provider, stubbed tools)", () => {
     expect(JSON.stringify(f.requests[0].system)).toContain("5 to 30 minutes")
   })
 })
+
+describe("site guide in scenarios", () => {
+  it("a scenario with siteGuide gets the guide for its audience: shop owner sees shop pages", async () => {
+    const f = fake([{ text: "Open Withdraw profit (/dashboard/shop-withdraw) and submit a request." }])
+    const s = byId("kb_withdraw")
+    expect(s.siteGuide).toBe(true)
+    expect(s.isShopOwner).toBe(true)
+    const o = await runScenario(s, { provider: f.provider, model: "fake" })
+    expect(JSON.stringify(f.requests[0].system)).toContain("/dashboard/shop-withdraw")
+    expect(JSON.stringify(f.requests[0].system)).toContain("Site guide")
+    expect(o.pass).toBe(true)
+  })
+
+  it("kb_withdraw fails when the reply does not point to the withdrawals page", async () => {
+    const f = fake([{ text: "Please contact support." }])
+    expect((await runScenario(byId("kb_withdraw"), { provider: f.provider, model: "fake" })).pass).toBe(false)
+  })
+
+  it("a guest scenario never receives shop-owner pages, and the reply must not send the guest to them", async () => {
+    const f = fake([{ text: "Sub-agents are managed by shop owners after they sign in." }])
+    const o = await runScenario(byId("kb_guest_no_dealer"), { provider: f.provider, model: "fake" })
+    expect(JSON.stringify(f.requests[0].system)).not.toContain("/dashboard/sub-agents")
+    expect(o.pass).toBe(true)
+    const bad = fake([{ text: "Go to /dashboard/sub-agents and tap Invite." }])
+    expect((await runScenario(byId("kb_guest_no_dealer"), { provider: bad.provider, model: "fake" })).pass).toBe(false)
+  })
+
+  it("scenarios without siteGuide get no guide section", async () => {
+    const f = fake([{ text: "Delivery usually takes 5 to 30 minutes." }])
+    await runScenario(byId("home-delivery-time-from-knowledge"), { provider: f.provider, model: "fake" })
+    expect(JSON.stringify(f.requests[0].system)).not.toContain("## Site guide")
+  })
+})

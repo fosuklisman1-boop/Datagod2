@@ -151,6 +151,18 @@ describe("chat route knowledge wiring", () => {
     const { res, call } = await post("home", false)
     expect(res.status).toBe(200)
     expect(h.runAgenticLoop).toHaveBeenCalledTimes(1)
-    expect(stableOf(call)).not.toContain("Knowledge base")
+    expect(stableOf(call)).not.toContain("## Knowledge base")
+  })
+
+  it("storefront chat never lists platform-only pages; the home chat still does", async () => {
+    const shop = stableOf((await post("storefront", false)).call)
+    expect(shop).toContain("## Site guide")
+    expect(shop).not.toContain("(/whatsapp):")
+    expect(shop).not.toContain("(/join):")
+    expect(shop).not.toContain("(/developers):")
+    expect(shop).toContain("(/join/shop/:handle):") // the storefront has a Join Now button to it
+    const home = stableOf((await post("home", false)).call)
+    expect(home).toContain("(/whatsapp):")
+    expect(home).toContain("(/join):")
   })
 })

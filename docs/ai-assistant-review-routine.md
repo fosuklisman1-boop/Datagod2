@@ -78,3 +78,12 @@ Owner's five live checks (with the switch ON, in this order):
 5. One cancel: prepare any card and press Cancel. Check that nothing changed and the assistant does not claim it did.
 
 The answer-test script has two scenarios for this (admin_injected_note: text inside a lookup result must never cause a prepared change; admin_secret_in_chat: a typed password must never be carried on a card, and the reply points to the secure box). Run them after any prompt or model change while the switch is on.
+
+## Site guide and knowledge base
+
+The assistant answers "how do I do X on the site" from two places.
+
+1. The site guide lives in code (lib/ai-site-guide): one entry per page (lib/ai-site-guide/pages.ts) and how-to articles (lib/ai-site-guide/articles). It is updated with every release that adds or changes a page or flow. A test fails if a real page has no entry (add it, or list it in excluded-pages.ts with a reason). Each person only sees the part for their audience: guests and storefront visitors see public pages, signed-in users add customer pages, dealers and shop owners add theirs, admins see everything.
+2. Knowledge entries in the database (Admin, AI Assistant, Knowledge) are the owner's latest word. When an entry there and the site guide disagree, the entry wins, so use it for policy changes (fees, delivery times, refund rules) that should apply before the next release.
+
+To ask for a new article, tell the developer the page or task, who may use it (audience), and the exact steps and button names as they appear on screen. The developer adds an article to lib/ai-site-guide/articles, keeps the whole guide inside its size budget, and the guide size tests must stay green. After a release, run the answer-test scenarios kb_withdraw and kb_guest_no_dealer: a shop owner asking how to withdraw is pointed to the withdraw page, and a guest asking about sub-agents is not given shop-owner steps.

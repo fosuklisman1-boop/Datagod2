@@ -13,6 +13,8 @@ import { shopBotOtpFallback } from "@/lib/whatsapp-bot/shop-bot-flows"
 import { logMessage } from "@/lib/whatsapp-bot/log-message"
 import { maybeNotifyAdmins, isHumanRequest } from "@/lib/whatsapp-bot/notify-admins"
 import { runAgenticLoop } from "@/lib/ai-agentic-loop"
+import { withSiteGuide } from "@/lib/ai-prompts/knowledge"
+import { audiencesFor } from "@/lib/ai-site-guide"
 import { resolveProviderForContext, DEFAULT_CONFIG, AIProviderConfig } from "@/lib/ai-providers"
 import { describeImage } from "@/lib/ai-vision"
 import { loadAIConfig } from "@/lib/ai-console/load-config"
@@ -710,9 +712,11 @@ STYLE:
   // steer the AI to require it (and not re-file the same complaint).
   const { getPendingComplaint } = await import("@/lib/whatsapp-bot/pending-complaint")
   const hasPendingComplaint = await getPendingComplaint(phone)
+  // Site guide for this sender's verified audience (DB role from the number match above; WhatsApp is never admin).
+  const guidedSystem = withSiteGuide(baseSystem, audiencesFor({ context: "whatsapp", role: userRole, signedIn: !!userId }))
   const system = hasPendingComplaint
-    ? `${baseSystem}\n\nPENDING COMPLAINT — IMPORTANT: A complaint is already captured for this customer and is waiting ONLY for their photo/screenshot to be submitted. Do NOT call file_complaint again. In one short line, remind them to send the screenshot here so it can be submitted. If they say they cannot send one, call request_human_handoff (we never log a complaint without proof).`
-    : baseSystem
+    ? `${guidedSystem}\n\nPENDING COMPLAINT — IMPORTANT: A complaint is already captured for this customer and is waiting ONLY for their photo/screenshot to be submitted. Do NOT call file_complaint again. In one short line, remind them to send the screenshot here so it can be submitted. If they say they cannot send one, call request_human_handoff (we never log a complaint without proof).`
+    : guidedSystem
 
   let result: { text: string; toolsUsed: string[] }
   try {
