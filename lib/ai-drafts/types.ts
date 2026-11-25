@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { ResolvedRequestSchema } from "@/lib/ai-admin-catalog/types"
 
 export const DRAFT_ACTIONS = [
   "wallet_order",
@@ -7,6 +8,7 @@ export const DRAFT_ACTIONS = [
   "user_suspension",
   "role_change",
   "bulk_status_update",
+  "admin_route_call",
 ] as const
 export type DraftAction = (typeof DRAFT_ACTIONS)[number]
 
@@ -128,6 +130,8 @@ export const BulkStatusParams = z
   })
   .strict()
 
+export const AdminRouteCallParams = z.object({ entryId: z.string().min(1), req: ResolvedRequestSchema }).strict()
+
 const SCHEMAS = {
   wallet_order: WalletOrderParams,
   wallet_adjustment: WalletAdjustmentParams,
@@ -135,6 +139,7 @@ const SCHEMAS = {
   user_suspension: UserSuspensionParams,
   role_change: RoleChangeParams,
   bulk_status_update: BulkStatusParams,
+  admin_route_call: AdminRouteCallParams,
 } as const
 
 export function paramsSchemaFor(action: DraftAction) {

@@ -194,6 +194,68 @@ describe("confirm / recheck", () => {
   })
 })
 
+describe("confirm body (secure box)", () => {
+  const withBody = (body: string | undefined, headers: Record<string, string> = {}) =>
+    new NextRequest(`http://localhost/api/ai/drafts/${ID}/confirm`, {
+      method: "POST",
+      headers: { authorization: "Bearer tok", ...headers },
+      ...(body === undefined ? {} : { body }),
+    })
+
+  it("a missing or empty body is {} (existing confirms keep working)", async () => {
+    h.confirmDraft.mockResolvedValue({ status: "succeeded", outcome: {}, display: {} })
+    expect((await confirm(req("POST"), ctx())).status).toBe(200)
+    expect((await confirm(withBody(""), ctx())).status).toBe(200)
+    expect((await confirm(withBody("{}"), ctx())).status).toBe(200)
+    for (const call of h.confirmDraft.mock.calls) expect(call[3]).toBeUndefined()
+  })
+
+  it("passes the secrets object through to confirmDraft", async () => {
+    h.confirmDraft.mockResolvedValue({ status: "succeeded", outcome: {}, display: {} })
+    await confirm(withBody(JSON.stringify({ secrets: { apiKey: "abcdefgh1" } })), ctx())
+    expect(h.confirmDraft.mock.calls[0][3]).toEqual({ apiKey: "abcdefgh1" })
+  })
+
+  it("a refusal from the lib is a 400 with its code, and never echoes the body", async () => {
+    h.confirmDraft.mockResolvedValue({ refused: true, code: "missing_secret", message: "Enter API key (8-100 characters) in the box on the card." })
+    const res = await confirm(withBody(JSON.stringify({ secrets: { apiKey: "SECRET-VALUE-1" } })), ctx())
+    expect(res.status).toBe(400)
+    const text = await res.text()
+    expect(JSON.parse(text).code).toBe("missing_secret")
+    expect(text).not.toContain("SECRET-VALUE-1")
+  })
+
+  it("bad_secret is also a 400", async () => {
+    h.confirmDraft.mockResolvedValue({ refused: true, code: "bad_secret", message: "Unexpected secret field." })
+    const res = await confirm(withBody(JSON.stringify({ secrets: { nope: "x" } })), ctx())
+    expect(res.status).toBe(400)
+    expect((await res.json()).code).toBe("bad_secret")
+  })
+
+  it("a body over 4 KB is 413 and confirmDraft is not called", async () => {
+    const big = JSON.stringify({ secrets: { apiKey: "x".repeat(5000) } })
+    expect((await confirm(withBody(big), ctx())).status).toBe(413)
+    // A lying content-length does not help: the real size is checked too.
+    expect((await confirm(withBody(big, { "content-length": "10" }), ctx())).status).toBe(413)
+    expect(h.confirmDraft).not.toHaveBeenCalled()
+  })
+
+  it("malformed JSON is a 400 and confirmDraft is not called", async () => {
+    const res = await confirm(withBody("{not json"), ctx())
+    expect(res.status).toBe(400)
+    expect(h.confirmDraft).not.toHaveBeenCalled()
+  })
+
+  it("the secret never reaches the logs on a failure", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    h.confirmDraft.mockRejectedValue(new Error("boom"))
+    const res = await confirm(withBody(JSON.stringify({ secrets: { apiKey: "SECRET-VALUE-2" } })), ctx())
+    expect(res.status).toBe(500)
+    expect(JSON.stringify(spy.mock.calls)).not.toContain("SECRET-VALUE-2")
+    spy.mockRestore()
+  })
+})
+
 describe("get", () => {
   it("get_returns_stored_state", async () => {
     h.getOwnDraft.mockResolvedValue(draft({ status: "succeeded", outcome: { order_code: "A1" } }))

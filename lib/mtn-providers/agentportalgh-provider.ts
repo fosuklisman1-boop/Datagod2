@@ -586,7 +586,7 @@ export class AgentPortalGHProvider implements MTNProvider {
   }
 
   async resendWebhookDelivery(id: string | number): Promise<any> {
-    const res = await apiFetch(`/api/webhooks/deliveries/${id}/resend`, { method: "POST" })
+    const res = await apiFetch(`/api/webhooks/deliveries/${encodeURIComponent(String(id))}/resend`, { method: "POST" })
     return res.json()
   }
 

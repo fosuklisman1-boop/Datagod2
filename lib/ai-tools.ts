@@ -7,6 +7,7 @@ import { buyerPriceRole } from "@/lib/ussd/price-role"
 import type { WaShopSession } from "@/lib/whatsapp-bot/shop-types"
 import { dialerRateRole } from "@/lib/sub-agents/dealer-rates"
 import { RoleReadError } from "@/lib/roles/repo"
+import { adminLookup, adminLookupTool, findAdminActions, findAdminActionsTool, prepareAdminChange, prepareAdminChangeTool } from "@/lib/ai-admin-catalog/tools"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -1109,6 +1110,10 @@ const TOOL_REGISTRY: readonly ToolEntry[] = [
   { tool: manageRateLimitsTool, contexts: ["admin"], adminOnly: true, acts: "ops" },
   // Stats & plans
   { tool: getAdminStatsTool, contexts: ["admin"], adminOnly: true, acts: "none" },
+  // Admin route catalog (offered only while the admin catalog switch is on): search, read-only lookups, change cards.
+  { tool: findAdminActionsTool, contexts: ["admin"], adminOnly: true, acts: "none", background: "deny", catalogOnly: true },
+  { tool: adminLookupTool, contexts: ["admin"], adminOnly: true, acts: "none", background: "deny", catalogOnly: true },
+  { tool: prepareAdminChangeTool, contexts: ["admin"], adminOnly: true, acts: "draft", background: "deny", catalogOnly: true },
   { tool: manageSubscriptionPlansTool, contexts: ["admin"], adminOnly: true, acts: "ops" },
   // Scheduled tasks & notifications
   { tool: manageScheduledTaskTool, contexts: ["admin"], adminOnly: true, acts: "ops" },
@@ -1136,13 +1141,22 @@ const REGISTRY_BY_NAME = new Map<string, ToolEntry>(TOOL_REGISTRY.map((e) => [e.
  * The tools a context offers the model, in registry order. Storefront service flags (default: all on) drop tools
  * whose `storefrontNeeds` services are all off, so a results-checker-only shop never sees data-only tools.
  */
-function toolsFor(context: AIChatContext, storefrontServices?: StorefrontServiceFlags): Anthropic.Tool[] {
-  return TOOL_REGISTRY.filter((e) => entryAllowed(e, context, storefrontServices)).map((e) => e.tool)
+function toolsFor(context: AIChatContext, storefrontServices?: StorefrontServiceFlags, adminCatalog?: boolean): Anthropic.Tool[] {
+  return TOOL_REGISTRY.filter((e) => entryAllowed(e, context, storefrontServices, adminCatalog)).map((e) => e.tool)
 }
 
-/** Context membership plus (storefront only) the shop's service flags; absent flags mean every service is sold. */
-function entryAllowed(e: ToolEntry, context: AIChatContext, storefrontServices?: StorefrontServiceFlags): boolean {
+/**
+ * Context membership plus (storefront only) the shop's service flags; absent flags mean every service is sold.
+ * Admin catalog switch (default off = today's list): on, the catalog tools appear and every admin tool that acts
+ * (ops, money, account) is dropped, because the catalog's confirm cards replace them.
+ */
+function entryAllowed(e: ToolEntry, context: AIChatContext, storefrontServices?: StorefrontServiceFlags, adminCatalog?: boolean): boolean {
   if (!e.contexts.includes(context)) return false
+  if (context === "admin") {
+    const catalogOn = adminCatalog === true
+    if (e.catalogOnly && !catalogOn) return false
+    if (catalogOn && e.adminOnly && (e.acts === "ops" || e.acts === "money" || e.acts === "account")) return false
+  }
   if (context !== "storefront" || !e.storefrontNeeds) return true
   const { sellsData = true, sellsAirtime = true, sellsResultsChecker = true } = storefrontServices ?? {}
   const sells = { data: sellsData, airtime: sellsAirtime, results: sellsResultsChecker }
@@ -1150,15 +1164,20 @@ function entryAllowed(e: ToolEntry, context: AIChatContext, storefrontServices?:
 }
 
 /** True when `name` may run in `context`: registered for it and, on a storefront, its needed services are sold. Same rule as toolsFor, so visible == callable. */
-function isToolAllowed(name: string, context: AIChatContext, storefrontServices?: StorefrontServiceFlags): boolean {
+function isToolAllowed(name: string, context: AIChatContext, storefrontServices?: StorefrontServiceFlags, adminCatalog?: boolean): boolean {
   const e = REGISTRY_BY_NAME.get(name)
-  return e ? entryAllowed(e, context, storefrontServices) : false
+  return e ? entryAllowed(e, context, storefrontServices, adminCatalog) : false
 }
 
 export { TOOL_REGISTRY, toolsFor, isToolAllowed }
 
-export function aiTools(context: AIChatContext, storefrontServices?: StorefrontServiceFlags): Anthropic.Tool[] {
-  return toolsFor(context, storefrontServices)
+export function aiTools(context: AIChatContext, storefrontServices?: StorefrontServiceFlags, adminCatalog?: boolean): Anthropic.Tool[] {
+  return toolsFor(context, storefrontServices, adminCatalog)
+}
+
+/** The admin tool names offered with the catalog switch on or off, in model-visible order. */
+export function adminToolNames(catalogOn: boolean): string[] {
+  return toolsFor("admin", undefined, catalogOn).map((t) => t.name)
 }
 
 // ─── Sanitize tool results ───────────────────────────────────────────────────
@@ -1202,6 +1221,8 @@ export interface ToolContext {
   context: AIChatContext
   // Storefront only: the services this shop/domain sells (same flags that narrow the offered list). Absent = all.
   storefrontServices?: StorefrontServiceFlags
+  // Admin context only: the admin catalog switch (default off). Background/cron callers never set it.
+  adminCatalog?: boolean
 }
 
 // Admin-only tool names. These either mutate platform state or read data via the
@@ -1245,7 +1266,7 @@ export async function executeToolCall(
   try {
     // Context scope: a tool not registered for this request's context never runs, whatever the model asked for.
     // Fixed, PII-free log marker (tool name + context only).
-    if (!isToolAllowed(name, ctx.context, ctx.storefrontServices)) {
+    if (!isToolAllowed(name, ctx.context, ctx.storefrontServices, ctx.adminCatalog)) {
       console.warn(`[AI-TOOLS] tool_not_available tool=${name.slice(0, 64).replace(/[^\w.-]/g, "_")} context=${String(ctx.context)}`)
       return { error: "tool_not_available" }
     }
@@ -1537,6 +1558,15 @@ export async function executeToolCall(
         }
         return sanitize(await admin.prepareBulkStatusUpdate(supabaseAdmin, actx, { status: String(input.status ?? ""), filters }))
       }
+
+      case "find_admin_actions":
+        return findAdminActions(input)
+
+      case "admin_lookup":
+        return adminLookup(input, ctx) // already filtered to the entry's resultKeep fields; sanitize() would drop profit fields admins may read
+
+      case "prepare_admin_change":
+        return sanitize(await prepareAdminChange(supabaseAdmin, input, ctx))
 
       case "start_ordering_bot": {
         const { setWaSession } = await import("@/lib/whatsapp-bot/session")

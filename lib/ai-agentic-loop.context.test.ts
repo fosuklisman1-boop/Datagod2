@@ -57,6 +57,24 @@ describe("agentic loop passes its context to tool execution", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1)
   })
 
+  it("cron admin run, catalog switch ON: an acting ops tool is refused and never runs", async () => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal("fetch", fetchSpy)
+    for (const tool of ["toggle_ordering", "update_order_status", "send_notification", "manage_blacklist"]) {
+      const out = await run("admin", tool, { toolFilter: adminBackgroundTools, adminCatalog: true }, { userRole: "admin", jwtToken: "cron", background: true })
+      expect(out).toContain("not available")
+    }
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it("cron admin run, catalog switch ON: even without the filter the allow-check refuses an acting tool", async () => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal("fetch", fetchSpy)
+    const out = await run("admin", "toggle_ordering", { adminCatalog: true }, { userRole: "admin", jwtToken: "cron", background: true })
+    expect(out).toContain("tool_not_available")
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
   it("cron dashboard run: prepare_wallet_order stays refused by the background filter", async () => {
     const fetchSpy = vi.fn()
     vi.stubGlobal("fetch", fetchSpy)

@@ -1,4 +1,5 @@
 import { cardNonceRule } from "@/lib/ai-drafts/outcome-notes"
+import { adminCatalogBlock } from "./admin-catalog-block"
 import { appendKnowledge } from "./knowledge"
 import { draftCardRule, formattingRules, withAssistantExtras, type AssistantExtras, type PromptParts } from "./shared"
 
@@ -12,6 +13,8 @@ export interface AdminPromptInput extends AssistantExtras {
   /** YYYY-MM-DD */
   today: string
   cardNonce: string
+  /** Admin catalog switch. Default off: the prompt is then byte-identical to before. */
+  adminCatalog?: boolean
 }
 
 /** Admin prompt. Only the admin's name, today's date and the card nonce are per-request (volatile). */
@@ -132,5 +135,6 @@ ${formattingRules}`
 You are assisting admin ${i.firstName} ${i.lastName}.
 When filtering by date/time use ISO format. Today's date is ${i.today}. Use this as the base for "today", "this week", "this month" etc.${cardNonceRule(i.cardNonce)}`
 
-  return { stable: appendKnowledge(withAssistantExtras(stable, i), i.knowledge), volatile }
+  const base = appendKnowledge(withAssistantExtras(stable, i), i.knowledge)
+  return { stable: i.adminCatalog === true ? base + adminCatalogBlock() : base, volatile }
 }

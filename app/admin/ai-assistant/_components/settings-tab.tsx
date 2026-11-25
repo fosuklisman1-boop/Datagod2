@@ -23,6 +23,7 @@ function toForm(d: any): { form: ConsoleForm; keyInfo: KeyInfo } {
     keyInfo,
     form: {
       assistant_name: d.assistant_name, tone: d.tone, audiences: d.audiences, max_tool_steps: d.max_tool_steps ?? null,
+      admin_catalog_enabled: d.admin_catalog_enabled === true,
       storefront_provider: d.storefront_provider, storefront_model: d.storefront_model,
       dashboard_provider: d.dashboard_provider, dashboard_model: d.dashboard_model,
       admin_provider: d.admin_provider, admin_model: d.admin_model,
@@ -117,6 +118,8 @@ export function SettingsTab() {
           <AudienceCard
             audiences={form.audiences}
             onChange={(a) => setForm({ ...form, audiences: a })}
+            adminCatalog={form.admin_catalog_enabled}
+            onAdminCatalog={(v) => setForm({ ...form, admin_catalog_enabled: v })}
             maxSteps={stepsText}
             onMaxSteps={setStepsText}
             stepsError={steps.error}

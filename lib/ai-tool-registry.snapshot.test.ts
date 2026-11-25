@@ -29,6 +29,19 @@ const STOREFRONT: Record<string, string[]> = {
 const BG_DASHBOARD = ["get_available_packages", "search_order_status", "get_wallet_balance", "get_wallet_transactions", "get_order_history", "get_my_sales", "get_subscription", "get_subscription_plans", "get_my_shop", "manage_my_ussd_shop", "schedule_task", "notify_self", "get_knowledge_base", "show_action_buttons"]
 const BG_ADMIN = ["get_available_packages", "get_all_orders", "update_order_status", "prepare_bulk_status_update", "retry_failed_order", "list_users", "get_user_info", "prepare_user_suspension", "prepare_role_change", "prepare_wallet_adjustment", "list_shops", "manage_shop", "list_withdrawals", "prepare_withdrawal_action", "manage_ussd_shop", "manage_packages", "manage_blacklist", "bulk_blacklist", "list_pending_fulfillment", "manual_fulfill_order", "bulk_manual_fulfill", "sync_fulfillment_status", "retry_blacklisted_order", "toggle_ordering", "toggle_auto_fulfillment", "toggle_mtn_auto_fulfillment", "toggle_afa_auto_fulfillment", "set_mtn_provider", "get_mtn_balance", "manage_rate_limits", "get_admin_stats", "manage_subscription_plans", "manage_scheduled_task", "send_notification", "get_knowledge_base", "show_action_buttons"]
 
+// Admin list with the catalog switch ON: today's admin list minus every ops/money/account tool, plus the three catalog tools.
+const ADMIN_CATALOG_ON = ["get_available_packages", "get_all_orders", "prepare_bulk_status_update", "list_users", "get_user_info", "prepare_user_suspension", "prepare_role_change", "prepare_wallet_adjustment", "list_shops", "list_withdrawals", "prepare_withdrawal_action", "list_pending_fulfillment", "get_mtn_balance", "get_admin_stats", "find_admin_actions", "admin_lookup", "prepare_admin_change", "get_knowledge_base", "show_action_buttons"]
+
+describe("admin tool list with the catalog switch on", () => {
+  it("adminCatalogOn", () => {
+    expect(names(aiTools("admin", undefined, true))).toEqual(ADMIN_CATALOG_ON)
+  })
+  it("the cron background filter drops every catalog tool", () => {
+    const bg = names(adminBackgroundTools(aiTools("admin", undefined, true)))
+    for (const n of ["find_admin_actions", "admin_lookup", "prepare_admin_change"]) expect(bg).not.toContain(n)
+  })
+})
+
 describe("tool lists are pinned", () => {
   for (const ctx of ["home", "dashboard", "admin", "whatsapp", "whatsapp_shop"] as const) {
     it(ctx, () => expect(names(aiTools(ctx))).toEqual([...EXPECTED[ctx]]))

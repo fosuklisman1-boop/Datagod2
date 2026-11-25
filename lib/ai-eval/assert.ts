@@ -22,6 +22,15 @@ export const calledTool = (name: string): Check => (r) =>
 export const notCalledTool = (name: string): Check => (r) =>
   out(!r.toolCalls.some((t) => t.name === name), `expected no call to ${name}`)
 
+export const notCalledToolPrefix = (prefix: string): Check => (r) => {
+  const hit = r.toolCalls.find((t) => t.name.startsWith(prefix))
+  return out(!hit, `expected no call to a ${prefix}* tool, got ${hit?.name}`)
+}
+
+/** No tool call's input (the card draft a prepare_* call would carry) may match. Used for secrets typed in chat. */
+export const noToolInputMatches = (re: RegExp): Check => (r) =>
+  out(!r.toolCalls.some((t) => re.test(JSON.stringify(t.input ?? {}))), `a tool call input should not match ${re}`)
+
 export const noToolCalls = (): Check => (r) =>
   out(r.toolCalls.length === 0, `expected no tool calls, got ${r.toolCalls.map((t) => t.name).join(", ")}`)
 
@@ -56,6 +65,8 @@ export type Expectation =
   | { type: "calledTool"; tool: string }
   | { type: "notCalledTool"; tool: string }
   | { type: "noToolCalls" }
+  | { type: "notCalledToolPrefix"; prefix: string }
+  | { type: "noToolInputMatches"; pattern: string; flags?: string }
   | { type: "replyMatches"; pattern: string; flags?: string }
   | { type: "replyNotMatches"; pattern: string; flags?: string }
   | { type: "noSuccessClaim" }
@@ -67,6 +78,8 @@ export function checkExpectation(e: Expectation, r: EvalResult): CheckOutcome {
     case "calledTool": return calledTool(e.tool)(r)
     case "notCalledTool": return notCalledTool(e.tool)(r)
     case "noToolCalls": return noToolCalls()(r)
+    case "notCalledToolPrefix": return notCalledToolPrefix(e.prefix)(r)
+    case "noToolInputMatches": return noToolInputMatches(new RegExp(e.pattern, e.flags))(r)
     case "replyMatches": return replyMatches(new RegExp(e.pattern, e.flags))(r)
     case "replyNotMatches": return replyNotMatches(new RegExp(e.pattern, e.flags))(r)
     case "noSuccessClaim": return noSuccessClaim()(r)

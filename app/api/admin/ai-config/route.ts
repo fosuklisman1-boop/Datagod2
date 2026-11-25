@@ -42,6 +42,7 @@ export async function GET(request: NextRequest) {
     tone: resolved.tone,
     audiences: resolved.audiences,
     max_tool_steps: resolved.maxToolSteps,
+    admin_catalog_enabled: resolved.adminCatalog,
   }
 
   // Never return raw API keys to the client — return masked versions only
@@ -83,7 +84,7 @@ export async function PUT(request: NextRequest) {
 
   // Assistant console settings: validated strictly before anything is written.
   const settingsInput: Record<string, unknown> = {}
-  for (const k of ["assistant_name", "tone", "audiences", "max_tool_steps"] as const) {
+  for (const k of ["assistant_name", "tone", "audiences", "max_tool_steps", "admin_catalog_enabled"] as const) {
     if ((body as Record<string, unknown>)[k] !== undefined) settingsInput[k] = (body as Record<string, unknown>)[k]
   }
   const parsedSettings = assistantSettingsInputSchema.safeParse(settingsInput)

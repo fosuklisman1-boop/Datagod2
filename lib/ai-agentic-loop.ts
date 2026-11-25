@@ -1,7 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk"
 import type { AIProvider, SystemPrompt } from "@/lib/ai-providers"
+import { MAX_TOOL_RESULT_CHARS } from "@/lib/ai-tool-result-limit"
 import { aiTools, executeToolCall } from "@/lib/ai-tools"
 import type { AIChatContext, StorefrontServiceFlags, ToolContext } from "@/lib/ai-tools"
+
+export { MAX_TOOL_RESULT_CHARS }
 
 export interface AgenticToolCtx {
   userId?: string
@@ -29,6 +32,8 @@ export interface RunAgenticLoopParams {
   toolCtx: AgenticToolCtx
   /** context === "storefront" only: which services this shop/domain actually sells, gating the tool list to match. */
   storefrontServices?: StorefrontServiceFlags
+  /** Admin context only: the admin catalog switch (default off = today's tool list). */
+  adminCatalog?: boolean
   maxIterations?: number
   maxTokens?: number
   /** Called for each SSE-style event (text, tool_call, action_buttons, etc.) — omit for silent/cron runs */
@@ -56,6 +61,7 @@ export async function runAgenticLoop({
   messages,
   toolCtx,
   storefrontServices,
+  adminCatalog,
   maxIterations = 10,
   maxTokens = 1500,
   onEvent,
@@ -63,7 +69,7 @@ export async function runAgenticLoop({
   executeTool = executeToolCall,
 }: RunAgenticLoopParams): Promise<AgenticLoopResult> {
   const emit = onEvent ?? (() => {})
-  const allTools = aiTools(context, storefrontServices)
+  const allTools = aiTools(context, storefrontServices, adminCatalog)
   const tools = toolFilter ? toolFilter(allTools) : allTools
   const allowedNames = new Set(tools.map((t) => t.name))
   const currentMessages: Anthropic.MessageParam[] = [...messages]
@@ -102,7 +108,7 @@ export async function runAgenticLoop({
         // A filtered run never executes a tool it was not offered (a model can name one anyway).
         const result = toolFilter && !allowedNames.has(tc.name)
           ? { error: "This tool is not available in this run." }
-          : await executeTool(tc.name, tc.input, { ...toolCtx, context, storefrontServices })
+          : await executeTool(tc.name, tc.input, { ...toolCtx, context, storefrontServices, ...(adminCatalog ? { adminCatalog: true } : {}) })
 
         if (tc.name === "prepare_checkout") {
           emit({ type: "checkout_prefill", data: result })
@@ -126,7 +132,7 @@ export async function runAgenticLoop({
         // at most 200 non-newline chars, and end-of-string only terminates a SHORT unterminated tag, so a stray
         // "<data-x" can never swallow real data up to the end. A tag with no bounded end is replaced on its own.
         const resultStr = (JSON.stringify(result) ?? "null").replace(/<\s*(\/?)\s*data\b(?:[^>\n]{0,200}>|[^>\n]{0,200}$)?/gi, (_m, slash: string) => (slash ? "[/data]" : "[data]"))
-        const truncated = resultStr.length > 3000 ? resultStr.slice(0, 3000) + "…[truncated]" : resultStr
+        const truncated = resultStr.length > MAX_TOOL_RESULT_CHARS ? resultStr.slice(0, MAX_TOOL_RESULT_CHARS) + "…[truncated]" : resultStr
         toolResults.push({
           type: "tool_result",
           tool_use_id: tc.id,

@@ -14,6 +14,7 @@ import { widgetVisible, isAssistantOffResponse, assistantOffMessage, showTryAgai
 import { followupsFor } from "@/lib/ai-chat-ui/suggestions"
 import { pingConversationEvent } from "@/lib/ai-chat-ui/conversation-events"
 import { safeClear, safeLoad, safeSave, trimHistory } from "@/lib/ai-chat-ui/history"
+import { scrollToEnd } from "@/lib/ai-chat-ui/scroll"
 
 interface CardData {
   draftId: string
@@ -180,7 +181,7 @@ export function DashboardAIChatWidget() {
   }, [])
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+    scrollToEnd(scrollContainerRef.current)
   }, [messages, streamingContent, actionButtons])
 
   useEffect(() => {
@@ -340,7 +341,7 @@ export function DashboardAIChatWidget() {
   }
 
   function scrollToBottom() {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+    scrollToEnd(scrollContainerRef.current)
   }
 
   function buttonClass(style?: string) {
@@ -372,8 +373,8 @@ export function DashboardAIChatWidget() {
             </div>
           </div>
 
-          <div className="flex-1 relative overflow-hidden">
-            <div ref={scrollContainerRef} onScroll={handleScroll} className="h-full overflow-y-auto p-4 space-y-3">
+          <div className="flex-1 min-h-0 relative overflow-hidden">
+            <div ref={scrollContainerRef} onScroll={handleScroll} className="absolute inset-0 overflow-y-auto overscroll-contain p-4 space-y-3">
               {messages.length === 0 && !isStreaming && (
                 <ChatWelcome context="dashboard" name={assistantName} firstName={firstName} onSend={(t) => sendMessage(t)} disabled={isStreaming} />
               )}

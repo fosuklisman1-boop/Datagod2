@@ -4,6 +4,10 @@ import { recordProgress } from "./repo"
 import { resolveBulkStatusIds, type BulkStatusFilters, type BulkStatusIds } from "./bulk-status-ids"
 import { walletOrderPrice } from "@/lib/pricing/wallet-order-price"
 import { createStandingOrderTask } from "./standing-order"
+import { getEntry } from "@/lib/ai-admin-catalog/index"
+import { matchesEntry } from "@/lib/ai-admin-catalog/resolve"
+import { filterLookupResult } from "@/lib/ai-admin-catalog/filter"
+import { ResolvedRequestSchema, type ResolvedRequest } from "@/lib/ai-admin-catalog/types"
 
 // Runs a confirmed draft by calling the SAME endpoint the normal UI uses, with the caller's own JWT. This is the
 // money path: every branch maps the endpoint's answer to exactly one terminal status, and anything ambiguous
@@ -27,6 +31,8 @@ export interface ExecCall {
   timeoutMs?: number
   /** Ids/orders dropped at revalidation; any skipped item makes a clean multi-id run `partial`. */
   skipped?: number
+  /** Secure-box values for an admin_route_call. Merged into the ONE outgoing body; never stored, logged or returned. */
+  secrets?: Record<string, string>
 }
 
 export const FETCH_TIMEOUT_MS = 15_000
@@ -65,14 +71,23 @@ const BULK_COUNT_FIELD: Record<BulkTable, string> = {
 
 type Posted = { reached: true; status: number; body: Record<string, any> } | { reached: false }
 
-async function post(call: ExecCall, path: string, body: unknown): Promise<Posted> {
+/**
+ * One HTTP request to our own origin with the caller's JWT. Never throws: any failure to get an answer (network error,
+ * timeout, abort) is `{ reached: false }`. A body is sent only when the request carries one and is not a GET.
+ */
+async function sendRequest(
+  call: ExecCall,
+  req: { method: string; path: string; query?: string; body?: unknown },
+  timeoutMs: number,
+): Promise<Posted> {
   const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), call.timeoutMs ?? FETCH_TIMEOUT_MS)
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+  const hasBody = req.body !== undefined && req.body !== null && req.method !== "GET"
   try {
-    const r = await (call.fetchImpl ?? fetch)(`${call.baseUrl}${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${call.jwt}` },
-      body: JSON.stringify(body),
+    const r = await (call.fetchImpl ?? fetch)(`${call.baseUrl}${req.path}${req.query ? `?${req.query}` : ""}`, {
+      method: req.method,
+      headers: { ...(hasBody ? { "Content-Type": "application/json" } : {}), Authorization: `Bearer ${call.jwt}` },
+      ...(hasBody ? { body: JSON.stringify(req.body) } : {}),
       signal: ctrl.signal,
     })
     let json: any = null
@@ -88,6 +103,9 @@ async function post(call: ExecCall, path: string, body: unknown): Promise<Posted
     clearTimeout(timer)
   }
 }
+
+const post = (call: ExecCall, path: string, body: unknown): Promise<Posted> =>
+  sendRequest(call, { method: "POST", path, body }, call.timeoutMs ?? FETCH_TIMEOUT_MS)
 
 const errText = (body: Record<string, any>): string | undefined =>
   typeof body.error === "string" && body.error ? body.error.slice(0, 200) : undefined
@@ -123,6 +141,11 @@ const fail = (code: string, extra: Record<string, unknown> = {}): RevalidateResu
  */
 export async function revalidateDraft(db: SupabaseClient, draft: AiDraft): Promise<RevalidateResult> {
   const p = draft.params as Record<string, any>
+
+  if (draft.action === "admin_route_call") {
+    const stored = storedAdminRoute(draft)
+    return stored ? { ok: true, draft } : fail("entry_changed", { message: "This action changed since the card was made. Prepare it again." })
+  }
 
   if (draft.action === "wallet_order") {
     // packageId ONLY: the stored network/size are display values and never used for lookup.
@@ -224,6 +247,8 @@ export async function executeDraft(draft: AiDraft, call: ExecCall): Promise<Exec
     }
     case "bulk_status_update":
       return executeBulk(draft, p, call)
+    case "admin_route_call":
+      return executeAdminRoute(draft, call)
     default:
       return { status: "failed", outcome: { code: "unsupported_action" } }
   }
@@ -429,4 +454,71 @@ async function executeBulk(draft: AiDraft, p: Record<string, any>, call: ExecCal
   else if (results.every((x) => x.ok)) status = "succeeded"
   else status = applied > 0 ? "partial" : "failed"
   return { status: settle(status, skipped), outcome: snapshot() }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// admin_route_call: one generic request built from the catalog (spec 5.3 / 5.8)
+// ---------------------------------------------------------------------------------------------------------------------
+
+export const MAX_ROUTE_TIMEOUT_MS = 60_000
+/** Size budget (JSON chars) for the filtered data a GET change entry keeps in its outcome. */
+const ROUTE_DATA_BUDGET = 2600
+
+/** The entry and stored request of an admin_route_call draft, only while the stored request still fits the entry. */
+function storedAdminRoute(draft: AiDraft) {
+  const p = draft.params as Record<string, any>
+  const entry = typeof p?.entryId === "string" ? getEntry(p.entryId) : undefined
+  if (!entry || entry.kind !== "change" || entry.typedCard) return null
+  const parsed = ResolvedRequestSchema.safeParse(p.req)
+  if (!parsed.success) return null
+  const req: ResolvedRequest = parsed.data
+  return matchesEntry(entry, req) ? { entry, req } : null
+}
+
+const scrub = (text: string, secrets: string[]) => secrets.reduce((t, s) => (s ? t.split(s).join("[hidden]") : t), text)
+
+async function executeAdminRoute(draft: AiDraft, call: ExecCall): Promise<ExecResult> {
+  // Checked again here so executeDraft is safe on its own, not only behind revalidateDraft.
+  const stored = storedAdminRoute(draft)
+  if (!stored) return { status: "failed", outcome: { code: "entry_changed", message: "This action changed since the card was made. Prepare it again." } }
+  const { entry, req } = stored
+
+  // Merge the secure-box values into a COPY of the stored body: only the entry's declared secret fields.
+  const declared = entry.secretFields ?? []
+  const typed = declared.filter((f) => typeof call.secrets?.[f.name] === "string" && !(f.optional && call.secrets[f.name] === ""))
+  const body = typed.length > 0 ? { ...(req.body ?? {}), ...Object.fromEntries(typed.map((f) => [f.name, call.secrets![f.name]])) } : req.body
+  const secretValues = typed.map((f) => call.secrets![f.name])
+
+  const wanted = Number(entry.timeoutMs ?? call.timeoutMs ?? FETCH_TIMEOUT_MS)
+  const timeoutMs = Math.min(Number.isFinite(wanted) && wanted > 0 ? wanted : FETCH_TIMEOUT_MS, MAX_ROUTE_TIMEOUT_MS)
+
+  const r = await sendRequest(call, { method: req.method, path: req.path, query: req.query, body }, timeoutMs)
+  if (!r.reached) return unknownResult({ pageLink: entry.page })
+  // 2xx: the response body is never stored (it may carry a freshly generated secret).
+  // Exception: a GET change entry with resultKeep (a balance check) stores the FILTERED data, same hiding as lookups.
+  if (is2xx(r.status)) {
+    let data: unknown
+    if (entry.method === "GET" && entry.resultKeep) {
+      const f = filterLookupResult(entry, r.body, ROUTE_DATA_BUDGET)
+      if (f.data !== null && f.data !== undefined) data = f.data
+    }
+    return {
+      status: "succeeded",
+      outcome: {
+        httpStatus: r.status,
+        ...(typed.length > 0 ? { secretsSet: typed.map((f) => f.label) } : {}),
+        ...(data !== undefined ? { data } : {}),
+      },
+    }
+  }
+  if (r.status >= 500) return { status: "failed", outcome: { code: "endpoint_error" } }
+  if (r.status >= 400) {
+    const message = errText(r.body)
+    const rawCode = typeof r.body.code === "string" && /^[a-z0-9_]{1,40}$/i.test(r.body.code) ? r.body.code : "rejected"
+    // A typed secret (an OTP is short enough to look like a code) must never come back as the error code.
+    const code = secretValues.some((s) => s && rawCode.includes(s)) ? "rejected" : scrub(rawCode, secretValues)
+    return { status: "failed", outcome: { code, ...(message ? { message: scrub(message, secretValues) } : {}) } }
+  }
+  // 1xx / 3xx: not an answer we can call success.
+  return { status: "failed", outcome: { code: "rejected", httpStatus: r.status } }
 }

@@ -871,3 +871,21 @@ describe("final-review fixes", () => {
     expect((await revalidateDraft(fakeDb(baseTables()), d)).ok).toBe(true)
   })
 })
+
+// Task 5 replaced the Task 4 `not_available` stub: execution is real now (see confirm-admin-route.test.ts). This keeps
+// the fail-closed case for a draft whose entry is not in the real catalog.
+describe("admin_route_call with an unknown catalog entry", () => {
+  it("fails closed with entry_changed and sends nothing", async () => {
+    const d = draftRow({
+      context: "admin",
+      action: "admin_route_call",
+      amount_ghs: null,
+      params: { entryId: "x", req: { method: "POST", path: "/api/admin/x", query: "", body: null } },
+    })
+    const db = fakeDb(baseTables({ ai_drafts: [d], users: [{ id: USER, role: "admin" }] }))
+    const fetchFn = vi.fn()
+    const out = await confirmDraft(db, DRAFT, caller(fetchFn, { isAdmin: true }))
+    expect(fetchFn).not.toHaveBeenCalled()
+    expect(out).toMatchObject({ status: "failed", outcome: { code: "entry_changed" } })
+  })
+})

@@ -34,7 +34,9 @@ export function cardNonceRule(nonce: string): string {
 export const OUTCOME_LOOKBACK_MS = 24 * 60 * 60 * 1000
 
 const SAFE_CODE = /^[a-z0-9_]{1,40}$/i
-const SAFE_ORDER_CODE = /^[A-Za-z0-9_-]{1,40}$/
+const SAFE_LABEL = /^[A-Za-z0-9 _-]{1,40}$/
+const SAFE_PAGE = /^\/[A-Za-z0-9/_-]{1,100}$/
+const SAFE_ORDER_CODE =/^[A-Za-z0-9_-]{1,40}$/
 
 function shortOutcome(d: Pick<AiDraft, "status" | "outcome">): string {
   const o = (d.outcome ?? {}) as Record<string, unknown>
@@ -43,6 +45,23 @@ function shortOutcome(d: Pick<AiDraft, "status" | "outcome">): string {
   if (typeof o.applied === "number" && typeof o.total === "number") parts.push(`${o.applied} of ${o.total} done`)
   if (typeof o.code === "string" && SAFE_CODE.test(o.code)) parts.push(o.code)
   if (parts.length === 0) parts.push(d.status === "succeeded" ? "done" : d.status)
+  // Secure-box fields: only that they were set, never anything typed. Labels come from the catalog and are re-checked.
+  if (d.status === "succeeded" && Array.isArray(o.secretsSet)) {
+    for (const label of o.secretsSet) if (typeof label === "string" && SAFE_LABEL.test(label)) parts.push(`${label} was set`)
+  }
+  // An unanswered admin request: the page itself is the truth, so point the admin there.
+  if (d.status === "unknown" && typeof o.pageLink === "string" && SAFE_PAGE.test(o.pageLink)) {
+    parts.push(`no answer, tell the admin to check the page ${o.pageLink}`)
+  }
+  // A GET change entry (a balance check) keeps its filtered result: give it to the model inside the usual <data> fence,
+  // as untrusted data. Fence and note tags inside it are neutralised so it can neither close the fence nor forge a note.
+  if (d.status === "succeeded" && o.data !== undefined && o.data !== null) {
+    const json = (JSON.stringify(o.data) ?? "")
+      .slice(0, 2600)
+      .replace(/<\s*(\/?)\s*(data|card_results)\b[^>\n]{0,200}>?/gi, (_m, slash: string) => (slash ? "[/data]" : "[data]"))
+      .replace(/\[\s*card\b/gi, "[ card")
+    if (json) parts.push(`result data: <data>${json}</data>`)
+  }
   return parts.join(", ")
 }
 
