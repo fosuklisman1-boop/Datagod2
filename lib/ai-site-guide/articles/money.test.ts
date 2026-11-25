@@ -166,6 +166,13 @@ describe("money articles: content rules", () => {
     expect(wd.body).toMatch(/Wallet page has no withdraw/)
   })
 
+  it("never reveals the shape of withdrawal waiting rules or review limits", () => {
+    for (const a of ARTICLES.filter((x) => !x.audiences.includes("admin"))) {
+      expect([a.title, a.summary, a.body, ...a.keywords].join("\n"), a.id).not.toMatch(/first withdrawal|between withdrawals|cooling|waiting period|held for review|sent by hand/i)
+    }
+    expect(byId("withdraw-shop-profit").body).toContain("the page tells you when you can try again")
+  })
+
   it("describes cashback as a lower price at checkout, not a separate payout", () => {
     const a = byId("cashback-instant-discount")
     expect(a.body).toMatch(/You pay/)

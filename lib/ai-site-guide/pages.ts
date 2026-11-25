@@ -51,7 +51,7 @@ export const SITE_PAGES: SitePage[] = [
   // Dashboard: orders and money
   { path: "/dashboard/my-orders", title: "My orders", audiences: CUS, purpose: "All your orders and whether they were delivered.", tasks: ["Search or filter orders", "Check a status"] },
   { path: "/dashboard/wallet", title: "Wallet", audiences: CUS, purpose: "Balance, top-up (may be off for some accounts), Send and Claim.", tasks: ["Top up when available", "Use the Send and Claim tab", "See recent wallet activity"] },
-  { path: "/dashboard/transactions", title: "Transactions", audiences: CUS, purpose: "History of every payment and wallet movement.", tasks: ["Search your history", "See totals"] },
+  { path: "/dashboard/transactions", title: "Transactions", audiences: CUS, purpose: "History of every payment and wallet movement.", tasks: ["Browse your history by tab", "See totals on the Stats tab"] },
   { path: "/dashboard/payment-reverify", title: "Payment re-check", audiences: SHOP, purpose: "Your shop's pending orders; re-check their payments.", tasks: ["Search pending orders by reference, phone or name", "Re-check payment"] },
   { path: "/dashboard/notifications", title: "Notifications", audiences: CUS, purpose: "Messages and alerts about your account.", tasks: ["Read alerts", "Mark as read"] },
   // Dashboard: account

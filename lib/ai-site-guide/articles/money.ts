@@ -97,7 +97,7 @@ Where: Wallet (/dashboard/wallet), on the Send & Claim tab.
 
 How:
 1. Open the Send & Claim tab. The box called "How Send & Claim works" explains the steps.
-2. Type the amount in "Amount (GHS)". The page shows the fee, if any, and what you get. The smallest and largest amounts are shown on the page. Payments above the largest amount are held for review.
+2. Type the amount in "Amount (GHS)". The page shows the fee, if any, and what you get. The smallest and largest amounts are shown on the page. Some payments are checked before the money appears, and the page shows the status.
 3. Tap Generate Payment Details.
 4. You see a Mobile Money number and a short reference code. Open your MoMo menu or app and choose Send Money.
 5. Send the exact amount to that number and type the reference code in the reference or narration box. Approve with your PIN.
@@ -129,7 +129,7 @@ How:
 5. Tap Verify. The account holder name is checked and shown. If checking keeps failing you can tap Verify Manually and type the name, but then the team reviews it before paying.
 6. Tap Submit Withdrawal Request.
 
-What happens next: the request shows in Withdrawal History as pending. It then moves through processing to completed, or ends as rejected or failed. Payouts are processed on business days, so weekends and holidays wait. Only one request can be open at a time. A waiting period may apply for the first withdrawal and between withdrawals; the page tells you if you need to wait.
+What happens next: the request shows in Withdrawal History as pending. It then moves through processing to completed, or ends as rejected or failed. Payouts are processed on business days, so weekends and holidays wait. Only one request can be open at a time. If you can't withdraw yet, the page tells you when you can try again.
 
 If something goes wrong:
 - "Insufficient balance" or an amount below the minimum: change the amount.
@@ -155,7 +155,7 @@ How:
 4. Look at your phone for an SMS saying the order could not be completed and the amount was refunded.
 5. If you see nothing, open Support chat (/dashboard/complaints) and give the order details. Write the number, the time and the amount.
 
-What happens next: the Datagod team checks the order and decides. A refund goes back to your wallet or to the way you paid, and in some cases it is sent by hand to the Mobile Money number that paid. An order that was delivered cannot be refunded. An order that is still being sent may need to wait until it either arrives or fails.
+What happens next: the Datagod team checks the order and decides. Refunds are made by the support team, and they appear as described above. An order that was delivered cannot be refunded. An order that is still being sent may need to wait until it either arrives or fails.
 
 If something goes wrong: do not assume a refund is automatic or instant. Wallet refunds show on the Wallet page and Transactions once made. For a complaint about a delivered order, see the article on data that has not arrived.`,
   },
