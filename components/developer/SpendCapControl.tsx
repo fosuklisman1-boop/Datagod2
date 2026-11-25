@@ -85,6 +85,7 @@ function KeyLimit({ k }: { k: V2KeySummary }) {
       const cap = typeof d.cap === "number" ? d.cap : null
       setState({ spentToday: Number(d.spentToday) || 0, cap, adminLimitApplies: d.adminLimitApplies === true, active: d.active === true })
       setValue(cap === null ? "" : String(cap))
+      setError(null)
     } catch {
       setError("Could not load the limit")
     }

@@ -12,8 +12,10 @@ export const CAP_MAX = 1000000
 export function parseCapInput(v: unknown): { ok: true; cap: number | null } | { ok: false } {
   if (v === null || v === "") return { ok: true, cap: null }
   const n = typeof v === "number" ? v : typeof v === "string" && /^\d+(\.\d{1,2})?$/.test(v.trim()) ? Number(v.trim()) : NaN
-  if (!Number.isFinite(n) || n <= 0 || n > CAP_MAX || Math.round(n * 100) !== n * 100) return { ok: false }
-  return { ok: true, cap: n }
+  // Tolerance check: 19.99 * 100 is 1998.9999999999998 in floating point, which is still two decimals.
+  if (!Number.isFinite(n) || n <= 0 || n > CAP_MAX || Math.abs(n * 100 - Math.round(n * 100)) > 1e-6) return { ok: false }
+  const cap = Math.round(n * 100) / 100
+  return cap > 0 ? { ok: true, cap } : { ok: false }
 }
 
 const bad = (error: string): WriteResult => ({ status: 400, body: { error, code: "bad_input" } })

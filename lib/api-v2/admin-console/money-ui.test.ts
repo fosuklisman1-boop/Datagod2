@@ -38,6 +38,9 @@ describe("MoneyProtectionCardView", () => {
     expect(card({ settings: null, error: "Money protection is not set up yet" })).toContain("Money protection is not set up yet")
     expect(card({ notice: { kind: "ok", text: "Saved." } })).toContain("Saved.")
   })
+  it("gate fix: a reload error is shown even while (possibly stale) settings are on screen", () => {
+    expect(card({ error: "Could not reload the settings" })).toContain("Could not reload the settings")
+  })
 })
 
 describe("switchConfirmCopy", () => {
@@ -84,6 +87,10 @@ describe("DeveloperMoneyView", () => {
   })
   it("says when limits are not active yet; no alerts; errors", () => {
     expect(view({ capsEnabled: false })).toMatch(/Not active yet/)
+    // gate fix: an unknown switch state (settings fetch failed) is never shown as "Not active yet"
+    const unknown = view({ capsEnabled: null })
+    expect(unknown).not.toMatch(/Not active yet/)
+    expect(unknown).toMatch(/Limit status unknown/)
     expect(view({ spend: { ...spend, alerts: [] } })).toMatch(/No alerts/)
     expect(view({ error: "The limit must be an amount" })).toContain("The limit must be an amount")
   })

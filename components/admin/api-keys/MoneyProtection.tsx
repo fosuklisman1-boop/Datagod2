@@ -180,6 +180,7 @@ export function MoneyProtectionCardView(p: {
           </details>
         </>
       ) : null}
+      {s && p.error && <InlineError message={p.error} onRetry={p.onRetry} />}
       <NoticeLine notice={p.notice} />
     </Panel>
   )
@@ -209,6 +210,18 @@ export function MoneyProtectionCard() {
     const r = await adminFetch("/api/admin/api-v2/money-settings", { method: "PUT", body: JSON.stringify(body) })
     setBusy(false)
     setNotice(r.ok ? { kind: "ok", text: ok } : { kind: "error", text: r.error ?? "Could not save." })
+    // A saved switch shows its new state even if the reload below fails (the reload error is shown too).
+    if (r.ok) {
+      setSettings((cur) =>
+        cur
+          ? {
+              ...cur,
+              ...(typeof body.capsEnabled === "boolean" ? { capsEnabled: body.capsEnabled } : {}),
+              ...(typeof body.alertsEnabled === "boolean" ? { alertsEnabled: body.alertsEnabled } : {}),
+            }
+          : cur,
+      )
+    }
     await load()
     return r.ok
   }
@@ -241,7 +254,8 @@ export interface DeveloperSpendView {
 export function DeveloperMoneyView(p: {
   spend: DeveloperSpendView | null
   keyLabels: Record<string, string>
-  capsEnabled: boolean
+  /** null = the settings could not be read: never shown as "Not active yet". */
+  capsEnabled: boolean | null
   value: string
   busy: boolean
   loading: boolean
@@ -259,7 +273,8 @@ export function DeveloperMoneyView(p: {
           <Eyebrow>Money protection</Eyebrow>
           <h3 className="text-base font-bold text-foreground">Daily spending</h3>
         </div>
-        {!p.capsEnabled && <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-bold text-muted-foreground">Not active yet</span>}
+        {p.capsEnabled === false && <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-bold text-muted-foreground">Not active yet</span>}
+        {p.capsEnabled === null && <span className="rounded-full border border-amber-500/40 px-2 py-0.5 text-[11px] font-bold text-amber-700 dark:text-amber-300">Limit status unknown</span>}
       </div>
       {p.loading && !s ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" aria-hidden /> Loading</p>
@@ -332,7 +347,7 @@ export function DeveloperMoneyView(p: {
 export function DeveloperMoneyPanel({ userId, keyLabels }: { userId: string; keyLabels: Record<string, string> }) {
   const url = `/api/admin/api-v2/developers/${encodeURIComponent(userId)}/spend-cap`
   const [spend, setSpend] = useState<DeveloperSpendView | null>(null)
-  const [capsEnabled, setCapsEnabled] = useState(false)
+  const [capsEnabled, setCapsEnabled] = useState<boolean | null>(null)
   const [value, setValue] = useState("")
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -348,7 +363,7 @@ export function DeveloperMoneyPanel({ userId, keyLabels }: { userId: string; key
       setSpend(r.data)
       setValue(r.data.userCap === null ? "" : String(r.data.userCap))
     }
-    setCapsEnabled(m.ok && m.data?.capsEnabled === true)
+    setCapsEnabled(m.ok && m.data ? m.data.capsEnabled === true : null)
     setError(r.ok ? null : r.error)
     setLoading(false)
   }, [url])

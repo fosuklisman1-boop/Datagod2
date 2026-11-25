@@ -25,6 +25,14 @@ describe("parseCapInput", () => {
     expect(parseCapInput("12.50")).toEqual({ ok: true, cap: 12.5 })
     for (const bad of [0, -1, 1000001, "abc", 12.345, NaN, Infinity, [], {}, true]) expect(parseCapInput(bad).ok).toBe(false)
   })
+  it("gate fix: ordinary two-decimal amounts are accepted despite floating point (19.99, 1.15, 0.29, 4.35, 999999.99)", () => {
+    for (const [v, want] of [[19.99, 19.99], ["19.99", 19.99], [1.15, 1.15], [0.29, 0.29], [4.35, 4.35], ["999999.99", 999999.99], [0.01, 0.01]] as const) {
+      expect(parseCapInput(v)).toEqual({ ok: true, cap: want })
+    }
+    expect(parseCapInput("1e3").ok).toBe(false)
+    expect(parseCapInput(0.001).ok).toBe(false)
+    expect(parseCapInput(12.345).ok).toBe(false)
+  })
 })
 
 describe("setDeveloperCap", () => {
