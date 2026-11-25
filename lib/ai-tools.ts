@@ -3174,15 +3174,19 @@ export async function executeToolCall(
       case "get_knowledge_base": {
         const contextLabel = ctx.userRole === "admin" ? "admin" : ctx.userId ? "dashboard" : "storefront"
         const rawQuery = String(input.query ?? "").slice(0, 200)
-        // Site guide articles first, scoped to the verified audience (same rules as the system prompt).
+        // Site guide articles, scoped to the verified audience (same rules as the system prompt). Shop surfaces
+        // (storefront, shop bot) never see articles about the platform's own channels.
         const siteHits = searchSite(
           rawQuery,
           audiencesFor({ context: ctx.context, role: ctx.userRole, isShopOwner: ctx.isShopOwner, signedIn: !!ctx.userId }),
+          5,
+          undefined,
+          { shopSurface: ctx.context === "storefront" || ctx.context === "whatsapp_shop" },
         ).map((a) => ({ category: "site", question: a.title, answer: a.body }))
 
         // DB rows: the filter is built ONLY from [a-z0-9] tokens (max 6), each escaped for ILIKE; the raw query never
         // reaches the PostgREST .or() string. No tokens = no DB read (an empty filter would dump the table).
-        const dbTokens = queryTokens(rawQuery).filter((t) => t.length >= 2).map((t) => t.replace(/[%_\\]/g, "\\$&"))
+        const dbTokens = queryTokens(rawQuery).filter((t) => t.length >= 3).map((t) => t.replace(/[%_\\]/g, "\\$&"))
         let dbRows: Array<{ category: string; question: string; answer: string }> = []
         let dbError: string | null = null
         if (dbTokens.length > 0) {
@@ -3199,15 +3203,22 @@ export async function executeToolCall(
           else dbRows = data ?? []
         }
 
+        // The owner's DB rows come first (up to 3) so site articles can never crowd them out; site articles then
+        // fill the remaining slots, and any DB rows beyond the first 3 take whatever is still free. Max 5 in all.
         const seen = new Set<string>()
         const entries: Array<{ category: string; question: string; answer: string }> = []
-        for (const e of [...siteHits, ...dbRows]) {
-          const key = e.question.trim().toLowerCase()
-          if (seen.has(key)) continue
-          seen.add(key)
-          entries.push(e)
-          if (entries.length === 5) break
+        const take = (list: typeof entries, max: number) => {
+          for (const e of list) {
+            if (entries.length >= max) break
+            const key = e.question.trim().toLowerCase()
+            if (seen.has(key)) continue
+            seen.add(key)
+            entries.push(e)
+          }
         }
+        take(dbRows, 3)
+        take(siteHits, 5)
+        take(dbRows, 5)
         if (entries.length === 0) {
           return dbError ? { error: dbError } : { found: 0, message: "No relevant entries found in the knowledge base." }
         }

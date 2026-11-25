@@ -98,6 +98,7 @@ If something goes wrong:
   },
   {
     id: "results-checker-buy-vouchers",
+    platformOnly: true,
     title: "Buy a results checker voucher (WASSCE, BECE, NOVDEC)",
     audiences: ["public", "customer"],
     keywords: ["results checker", "voucher", "wassce", "bece", "novdec", "pin", "serial number", "checker pin", "exam results", "buy voucher", "waec", "resend pin", "download receipt", "quantity"],
@@ -152,6 +153,7 @@ Keep your PIN private. Anyone who has it can use the voucher.`,
   },
   {
     id: "check-results-service",
+    platformOnly: true,
     title: "Have Datagod check a candidate's results for you",
     audiences: ["public", "customer"],
     keywords: ["check results", "results check", "check my results", "no voucher", "index number", "date of birth", "whatsapp delivery", "wassce", "bece", "novdec", "school candidate", "private candidate", "own voucher", "exam year"],
@@ -181,7 +183,8 @@ If something goes wrong:
   },
   {
     id: "ussd-main-menu",
-    title: "Order by USSD on the main Datagod code",
+    platformOnly: true,
+    title: "Buy data and more by USSD on the main Datagod code",
     audiences: ["public"],
     keywords: ["ussd", "dial", "dial code", "no internet", "browse services", "main menu", "buy by ussd", "buy data ussd", "airtime ussd", "afa ussd", "results checker ussd", "momo prompt", "wallet", "feature phone", "short code"],
     summary: "Dial the main Datagod USSD code from any phone, pick a service from the menu and pay with Mobile Money, or your wallet if offered. The code is shown on the website.",
@@ -207,6 +210,7 @@ If something goes wrong:
   },
   {
     id: "sms-send-bulk",
+    platformOnly: true,
     title: "Send bulk SMS to your contacts",
     audiences: ["public", "customer", "shop_owner"],
     keywords: ["bulk sms", "send sms", "sms campaign", "compose", "recipients", "contacts", "groups", "csv", "template", "schedule sms", "send later", "sender id", "sms records", "message customers", "broadcast", "promo"],
@@ -291,6 +295,7 @@ If something goes wrong:
   },
   {
     id: "whatsapp-main-bot",
+    platformOnly: true,
     title: "Order on WhatsApp with the Datagod bot",
     audiences: ["public"],
     keywords: ["whatsapp", "whatsapp bot", "chat", "order on whatsapp", "buy data whatsapp", "airtime whatsapp", "afa whatsapp", "results checker whatsapp", "momo number", "chat on whatsapp", "bot", "wallet", "mobile money"],

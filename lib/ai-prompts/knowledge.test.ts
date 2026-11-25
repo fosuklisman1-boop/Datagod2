@@ -280,6 +280,31 @@ describe("buildKnowledgeSection", () => {
   })
 })
 
+describe("shop surface and tool hint options", () => {
+  const platformPage: SitePage = { ...page("/join", "PlatformPage", ["public"]), platformOnly: true }
+  const platformArt: SiteArticle = { ...article("p1", "PlatformHelp", ["public"]), platformOnly: true }
+  const P = [...PAGES, platformPage]
+  const A = [...ARTS, platformArt]
+
+  it("buildKnowledgeSection hides platformOnly items on a shop surface only", () => {
+    const shop = buildKnowledgeSection(["public"], [], P, A, { shopSurface: true })
+    expect(shop).toContain("PublicPage")
+    expect(shop).not.toContain("PlatformPage")
+    expect(shop).not.toContain("PlatformHelp")
+    const home = buildKnowledgeSection(["public"], [], P, A)
+    expect(home).toContain("PlatformPage")
+    expect(home).toContain("PlatformHelp")
+  })
+
+  it("withSiteGuide passes the options through (shop bot: no tool hint, no platform items)", () => {
+    const out = withSiteGuide("SYSTEM", ["public"], P, A, { shopSurface: true, toolHint: false })
+    expect(out).toContain("PublicPage")
+    expect(out).not.toContain("PlatformPage")
+    expect(out).not.toContain("get_knowledge_base")
+    expect(withSiteGuide("SYSTEM", ["public"], P, A)).toContain("get_knowledge_base")
+  })
+})
+
 describe("withSiteGuide", () => {
   it("returns the system text untouched when the guide is empty", () => {
     expect(withSiteGuide("SYSTEM", ["public"], [], [])).toBe("SYSTEM")

@@ -25,6 +25,7 @@ const EXPECTED_IDS = [
   "sub-agents-manage",
   "text-to-buy-customer",
   "text-to-buy-shop",
+  "text-to-buy-shop-line",
   "ussd-buy-from-a-shop",
   "ussd-shop-setup",
   "whatsapp-shop-bot",

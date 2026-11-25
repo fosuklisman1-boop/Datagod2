@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
-import { renderSiteGuide, type Audience, type SiteArticle, type SitePage } from "@/lib/ai-site-guide"
+import { renderSiteGuide, type Audience, type RenderOptions, type SiteArticle, type SitePage } from "@/lib/ai-site-guide"
 
 export const KNOWLEDGE_BUDGET_CHARS = 18000
 export const KNOWLEDGE_CACHE_MS = 60_000
@@ -82,8 +82,9 @@ export function buildKnowledgeSection(
   dbEntries: KnowledgeEntry[],
   pages?: SitePage[],
   articles?: SiteArticle[],
+  options?: RenderOptions,
 ): string {
-  const guide = renderSiteGuide(audiences, pages, articles)
+  const guide = renderSiteGuide(audiences, pages, articles, options)
   const separator = guide ? 2 : 0
   const db = renderKnowledge(dbEntries, KNOWLEDGE_BUDGET_CHARS - guide.length - separator)
   return [guide, db].filter(Boolean).join("\n\n")
@@ -95,8 +96,9 @@ export function withSiteGuide(
   audiences: Audience[],
   pages?: SitePage[],
   articles?: SiteArticle[],
+  options?: RenderOptions,
 ): string {
-  const guide = renderSiteGuide(audiences, pages, articles)
+  const guide = renderSiteGuide(audiences, pages, articles, options)
   return guide ? `${system}\n\n${SITE_GUIDE_RULE_LINE}\n\n${guide}` : system
 }
 

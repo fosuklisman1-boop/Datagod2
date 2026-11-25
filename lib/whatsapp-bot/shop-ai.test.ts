@@ -13,6 +13,7 @@ vi.mock("@/lib/whatsapp-bot/log-message", () => ({ logMessage: vi.fn() }))
 vi.mock("@/lib/ai-site-guide/pages", () => ({
   SITE_PAGES: [
     { path: "/pub", title: "PubPageTitle", audiences: ["public"], purpose: "p", tasks: ["t"] },
+    { path: "/plat", title: "PlatformPageTitle", audiences: ["public"], purpose: "p", tasks: ["t"], platformOnly: true },
     { path: "/cust", title: "CustPageTitle", audiences: ["customer"], purpose: "p", tasks: ["t"] },
     { path: "/adm", title: "AdminPageTitle", audiences: ["admin"], purpose: "p", tasks: ["t"] },
   ],
@@ -85,6 +86,15 @@ describe("handleShopWithAI", () => {
     expect(system).toContain("PubPageTitle")
     expect(system).not.toContain("CustPageTitle")
     expect(system).not.toContain("AdminPageTitle")
+  })
+
+  it("never offers the platform's own channels or the get_knowledge_base tool to the shop bot", async () => {
+    vi.mocked(getShopPref).mockResolvedValue(null)
+    vi.mocked(runAgenticLoop).mockResolvedValue({ text: "ok", toolsUsed: [] })
+    await handleShopWithAI("233559919037", "hi", "wamid.h")
+    const system = vi.mocked(runAgenticLoop).mock.calls[0][0].system as string
+    expect(system).not.toContain("PlatformPageTitle")
+    expect(system).not.toContain("get_knowledge_base")
   })
 
   it("includes the shop name in the system prompt for a known shop", async () => {

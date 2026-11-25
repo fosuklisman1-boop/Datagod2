@@ -3,7 +3,7 @@ import { audiencesFor } from "./audience"
 import { checkSiteGuideLimits, renderSiteGuide, SITE_GUIDE_BUDGET_CHARS } from "./guide"
 import { ARTICLES } from "./articles"
 import { SITE_PAGES } from "./pages"
-import { searchSite } from "./search"
+import { queryTokens, searchSite } from "./search"
 import type { SitePage, SiteArticle } from "./types"
 
 describe("audiencesFor", () => {
@@ -178,5 +178,86 @@ describe("searchSite", () => {
     ]
     expect(searchSite("refund", ["public"], 5, set).map((a) => a.id)).toEqual(["a1", "b2", "c3"])
     expect(searchSite("refund", ["public"], 1, set).map((a) => a.id)).toEqual(["a1"])
+  })
+})
+
+describe("shop surfaces (platformOnly)", () => {
+  const sPages: SitePage[] = [
+    { path: "/a", title: "Open Page", audiences: ["public"], purpose: "Fine.", tasks: ["x"] },
+    { path: "/join", title: "Platform Page", audiences: ["public"], purpose: "Platform.", tasks: ["x"], platformOnly: true },
+  ]
+  const sArts: SiteArticle[] = [
+    { id: "o", title: "Open Article", audiences: ["public"], keywords: ["thing"], summary: "thing", body: "thing" },
+    { id: "p", title: "Platform Article", audiences: ["public"], keywords: ["thing"], summary: "thing", body: "thing", platformOnly: true },
+  ]
+  it("renderSiteGuide hides platformOnly items on a shop surface and keeps them otherwise", () => {
+    const shop = renderSiteGuide(["public"], sPages, sArts, { shopSurface: true })
+    expect(shop).toContain("Open Page")
+    expect(shop).toContain("Open Article")
+    expect(shop).not.toContain("Platform Page")
+    expect(shop).not.toContain("Platform Article")
+    const home = renderSiteGuide(["public"], sPages, sArts)
+    expect(home).toContain("Platform Page")
+    expect(home).toContain("Platform Article")
+  })
+  it("searchSite hides platformOnly articles on a shop surface", () => {
+    expect(searchSite("thing", ["public"], 5, sArts, { shopSurface: true }).map((a) => a.id)).toEqual(["o"])
+    expect(searchSite("thing", ["public"], 5, sArts).map((a) => a.id)).toEqual(["o", "p"])
+  })
+  it("the real storefront guide and search never contain a platformOnly item; home still does", () => {
+    const poPages = SITE_PAGES.filter((p) => p.platformOnly)
+    const poArts = ARTICLES.filter((a) => a.platformOnly)
+    expect(poPages.length).toBeGreaterThan(0)
+    expect(poArts.length).toBeGreaterThan(0)
+    const shop = renderSiteGuide(["public"], SITE_PAGES, ARTICLES, { shopSurface: true })
+    const home = renderSiteGuide(["public"], SITE_PAGES, ARTICLES)
+    for (const p of poPages) {
+      expect(shop).not.toContain(`(${p.path}):`)
+      expect(home).toContain(`(${p.path}):`)
+    }
+    for (const a of poArts) {
+      expect(shop).not.toContain(a.title)
+      expect(home).toContain(a.title)
+      const hits = searchSite(a.title, ["public"], 50, ARTICLES, { shopSurface: true })
+      expect(hits.map((h) => h.id)).not.toContain(a.id)
+    }
+  })
+  it("keeps shop-line text to buy visible on shop surfaces", () => {
+    const shop = renderSiteGuide(["public"], SITE_PAGES, ARTICLES, { shopSurface: true })
+    expect(shop).toContain("shop's own number")
+  })
+  it("main WhatsApp, main USSD, join and developer docs are platformOnly", () => {
+    const poPaths = SITE_PAGES.filter((p) => p.platformOnly).map((p) => p.path)
+    for (const path of ["/whatsapp", "/join", "/bulk-sms", "/developers", "/auth/signup", "/auth/login"]) {
+      expect(poPaths).toContain(path)
+    }
+    const poIds = ARTICLES.filter((a) => a.platformOnly).map((a) => a.id)
+    for (const id of ["whatsapp-main-bot", "ussd-main-menu", "text-to-buy-customer", "become-a-dealer-or-agent", "developer-api-docs", "sms-send-bulk"]) {
+      expect(poIds).toContain(id)
+    }
+  })
+})
+
+describe("toolHint option", () => {
+  const a: SiteArticle[] = [{ id: "o", title: "Open Article", audiences: ["public"], keywords: [], summary: "s", body: "b" }]
+  const p: SitePage[] = [{ path: "/a", title: "Open Page", audiences: ["public"], purpose: "Fine.", tasks: ["x"] }]
+  it("mentions get_knowledge_base by default and not when toolHint is false", () => {
+    expect(renderSiteGuide(["public"], p, a)).toContain("get_knowledge_base")
+    const out = renderSiteGuide(["public"], p, a, { toolHint: false })
+    expect(out).not.toContain("get_knowledge_base")
+    expect(out).not.toContain("Open Article") // no tool to read it with, so the titles are dropped
+    expect(out).toContain("Open Page")
+  })
+  it("a guide with only articles and no tool hint is empty", () => {
+    expect(renderSiteGuide(["public"], [], a, { toolHint: false })).toBe("")
+  })
+})
+
+describe("short tokens", () => {
+  it("two-letter words match nothing", () => {
+    const arts: SiteArticle[] = [{ id: "o", title: "In of on", audiences: ["public"], keywords: ["in", "of"], summary: "in of", body: "in of on it no" }]
+    expect(searchSite("in", ["public"], 5, arts)).toEqual([])
+    expect(searchSite("of", ["public"], 5, arts)).toEqual([])
+    expect(queryTokens("in of on refunds")).toEqual(["refund"])
   })
 })

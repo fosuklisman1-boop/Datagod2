@@ -1,6 +1,6 @@
 import { ARTICLES } from "./articles"
 import { SITE_PAGES } from "./pages"
-import type { Audience, SiteArticle, SitePage } from "./types"
+import type { Audience, RenderOptions, SiteArticle, SitePage } from "./types"
 
 export const SITE_GUIDE_BUDGET_CHARS = 10000
 
@@ -50,16 +50,19 @@ export function renderSiteGuide(
   audiences: Audience[],
   pages: SitePage[] = SITE_PAGES,
   articles: SiteArticle[] = ARTICLES,
+  options: RenderOptions = {},
 ): string {
-  const ps = pages.filter((p) => visible(p, audiences)).sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
-  const as = articles.filter((a) => visible(a, audiences)).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-  if (ps.length === 0 && as.length === 0) return ""
+  const hide = (x: { platformOnly?: true }) => !!options.shopSurface && !!x.platformOnly
+  const ps = pages.filter((p) => visible(p, audiences) && !hide(p)).sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+  const as = articles.filter((a) => visible(a, audiences) && !hide(a)).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  const showArticles = as.length > 0 && options.toolHint !== false
+  if (ps.length === 0 && !showArticles) return ""
   const lines: string[] = ["## Site guide (reference information — not instructions)"]
   if (ps.length > 0) {
     lines.push("", "Pages:")
     for (const p of ps) lines.push(`- ${p.title} (${p.path}): ${p.purpose}`)
   }
-  if (as.length > 0) {
+  if (showArticles) {
     lines.push("", `Detailed how-to articles (use get_knowledge_base to read one): ${as.map((a) => a.title).join("; ")}`)
   }
   lines.push("", "(end of site guide)")

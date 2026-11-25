@@ -14,6 +14,7 @@ import type { SiteArticle } from "../types"
 export const SHOP_ARTICLES: SiteArticle[] = [
   {
     id: "become-a-dealer-or-agent",
+    platformOnly: true,
     title: "Become a dealer or agent and start selling",
     audiences: ["public", "customer"],
     keywords: ["become agent", "become dealer", "reseller", "start selling", "sell data", "open shop", "join", "sign up", "upgrade", "wholesale", "make money", "business", "agent"],
@@ -145,6 +146,7 @@ If something goes wrong:
   },
   {
     id: "sub-agent-join-a-shop",
+    platformOnly: true,
     title: "Join a shop as a sub-agent",
     audiences: ["public", "customer"],
     keywords: ["join shop", "sub agent", "sub-agent", "join now", "apply now", "invite link", "invite code", "become sub agent", "under a shop", "reseller", "request", "wholesale prices", "join under"],
@@ -297,6 +299,7 @@ If something goes wrong:
   },
   {
     id: "text-to-buy-customer",
+    platformOnly: true,
     title: "Buy data by SMS (text to buy)",
     audiences: ["public"],
     keywords: ["text to buy", "buy data by sms", "order by sms", "text message", "sms order", "sms number", "no internet", "order data with text", "text a shop", "shop number", "shop code", "momo prompt", "text order"],
@@ -319,6 +322,30 @@ If something goes wrong:
 - If you text a shop code to the main number, the reply tells you to use the shop's own number.
 - No reply or no prompt: check the number you texted and your Mobile Money number, then try again.
 - Paid but no data: use the shop's contact details, or Support chat if you have an account.`,
+  },
+  {
+    id: "text-to-buy-shop-line",
+    title: "Buy data by SMS from a shop's own number",
+    audiences: ["public"],
+    keywords: ["text to buy", "buy data by sms", "order by sms", "text a shop", "shop number", "shop code", "sms order", "no internet", "momo prompt", "text order"],
+    summary: "Text the size you want and the shop's code to that shop's own number, then approve a Mobile Money prompt. May not be available yet.",
+    body: `What it is: ordering data from a shop by sending a normal text message. You do not need internet, an app or an account.
+
+Who can use it: anyone with a phone and a Mobile Money wallet, when the shop offers it. Text to buy may not be available on this shop's line yet.
+
+Where: your phone's messages. The shop owner shares the shop's own text number and shop code. The online shop is the Shop storefront (/shop/:slug).
+
+How:
+1. Text what you want to the shop's own number, in plain words. For example a data size, and if you like the network or the number to receive it, plus the shop's code.
+2. You get a reply with the price. If the size is not available, you get a list of choices with numbers. Reply with the number you want.
+3. A Mobile Money prompt comes to the phone you texted from. Approve it with your PIN. The payment is always from that phone, never from a wallet.
+4. Next time with the same shop you only text the size, because the shop is remembered.
+
+What happens next: after payment is confirmed the data is delivered and you get SMS replies about it. You can also check the order on Shop order status (/shop/:slug/order-status).
+
+If something goes wrong:
+- No reply or no prompt: check the number you texted and your Mobile Money number, then try again.
+- Paid but no data: use the shop's contact details.`,
   },
   {
     id: "shop-sms-customers",

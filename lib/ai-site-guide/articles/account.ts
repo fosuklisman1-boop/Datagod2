@@ -16,6 +16,7 @@ import type { SiteArticle } from "../types"
 export const ACCOUNT_ARTICLES: SiteArticle[] = [
   {
     id: "account-sign-up",
+    platformOnly: true,
     title: "Create an account",
     audiences: ["public"],
     keywords: ["sign up", "signup", "register", "create account", "new account", "otp", "verify phone", "confirmation email", "confirm email", "check your email", "spam", "google", "terms of service", "i did not get the email", "code not coming"],
@@ -44,6 +45,7 @@ If something goes wrong:
   },
   {
     id: "account-log-in",
+    platformOnly: true,
     title: "Log in",
     audiences: ["public"],
     keywords: ["log in", "login", "sign in", "signin", "my account", "google login", "forgot password", "cannot login", "cant login", "wrong password", "create an account", "i go login"],
@@ -70,6 +72,7 @@ If something goes wrong:
   },
   {
     id: "account-forgot-password",
+    platformOnly: true,
     title: "Reset your password",
     audiences: ["public"],
     keywords: ["forgot password", "reset password", "change password", "lost password", "reset link", "send reset link", "password link", "cannot remember password", "email or phone"],
@@ -254,6 +257,7 @@ If something goes wrong:
   },
   {
     id: "developer-api-docs",
+    platformOnly: true,
     title: "Developer docs",
     audiences: ["public"],
     keywords: ["api docs", "documentation", "developer docs", "api reference", "changelog", "api errors", "go live", "starter kits", "status", "postman", "api base url", "developers", "sample code"],
@@ -280,6 +284,7 @@ If something goes wrong:
   },
   {
     id: "ai-assistant-customer",
+    platformOnly: true,
     title: "Using the AI assistant",
     audiences: ["public"],
     keywords: ["ai assistant", "chat assistant", "chatbot", "assistant", "confirm card", "tap confirm", "ask ai", "ai buy data", "ai cannot", "talk to a person", "can ai buy for me", "assistant prices", "help chat"],

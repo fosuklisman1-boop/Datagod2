@@ -1,9 +1,12 @@
 import { ARTICLES } from "./articles"
-import type { Audience, SiteArticle } from "./types"
+import type { Audience, SiteArticle, SiteViewOptions } from "./types"
 
 const STOPWORDS = new Set([
   "a", "an", "the", "i", "my", "me", "how", "do", "to", "go", "is", "can", "what", "where", "please", "pls",
 ])
+
+/** Two-letter words ("in", "of", "on") match nearly every article or row, so they carry no signal. */
+const MIN_TOKEN_LENGTH = 3
 
 function stem(word: string): string {
   let w = word
@@ -20,6 +23,7 @@ function tokens(text: string): string[] {
     .split(/[^a-z0-9]+/)
     .filter((t) => t.length > 0 && !STOPWORDS.has(t))
     .map(stem)
+    .filter((t) => t.length >= MIN_TOKEN_LENGTH)
 }
 
 /**
@@ -36,12 +40,14 @@ export function searchSite(
   audiences: Audience[],
   limit = 5,
   articles: SiteArticle[] = ARTICLES,
+  options: SiteViewOptions = {},
 ): SiteArticle[] {
   const q = Array.from(new Set(tokens(query)))
   if (q.length === 0) return []
   const scored: { a: SiteArticle; score: number }[] = []
   for (const a of articles) {
     if (!a.audiences.some((x) => audiences.includes(x))) continue
+    if (options.shopSurface && a.platformOnly) continue
     const title = new Set(tokens(a.title))
     const kw = new Set(a.keywords.flatMap(tokens))
     const summary = new Set(tokens(a.summary))

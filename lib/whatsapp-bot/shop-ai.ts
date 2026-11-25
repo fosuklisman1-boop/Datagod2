@@ -74,7 +74,11 @@ ORDERING: use get_shop_packages to see real prices/availability (data bundles by
 
 STYLE: short, warm, WhatsApp-appropriate replies. Currency is always GHS. One idea per line, *bold* sparingly for prices. Never mention tools or internal details. Don't ask for details the customer already gave.`
   // Shop-line customers are always the public audience, whoever they are.
-  const system = withSiteGuide(baseSystem, audiencesFor({ context: "whatsapp_shop" }))
+  // No get_knowledge_base tool here, so no article titles; and never the platform's own channels.
+  const system = withSiteGuide(baseSystem, audiencesFor({ context: "whatsapp_shop" }), undefined, undefined, {
+    shopSurface: true,
+    toolHint: false,
+  })
 
   let result: { text: string; toolsUsed: string[] }
   try {

@@ -428,7 +428,14 @@ export async function POST(req: NextRequest) {
     isShopOwner,
     signedIn: !!userId,
   })
-  const knowledge = buildKnowledgeSection(siteAudiences, await loadKnowledge(supabaseAdmin, knowledgeLabelFor(knowledgeContext)))
+  // The storefront chat is a shop's surface: it must not send the shop's customers to the platform's own channels.
+  const knowledge = buildKnowledgeSection(
+    siteAudiences,
+    await loadKnowledge(supabaseAdmin, knowledgeLabelFor(knowledgeContext)),
+    undefined,
+    undefined,
+    { shopSurface: context === "storefront" },
+  )
   let systemPrompt: ReturnType<typeof buildHomePrompt>
   switch (context) {
     case "home":
