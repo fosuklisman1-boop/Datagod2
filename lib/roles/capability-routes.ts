@@ -49,6 +49,13 @@ export const GATED_ROUTES: Readonly<Record<string, Capability>> = {
   "user/keys": "account.api",
   "user/v2-keys": "account.api",
   "user/v2-keys/[id]/spend-cap": "account.api",
+  // Release 3 developer dashboard (own usage, logs, orders, low-balance alert).
+  "user/v2-dashboard/usage": "account.api",
+  "user/v2-dashboard/logs": "account.api",
+  "user/v2-dashboard/orders": "account.api",
+  "user/v2-dashboard/orders/csv": "account.api",
+  "user/v2-dashboard/orders/[product]/[reference]": "account.api",
+  "user/v2-dashboard/balance-alert": "account.api",
   // Tenant SMS routes: gated once in lib/sms/tenant-auth.ts resolveAccount (shop.sms).
   "sms/business/documents": "shop.sms",
   "sms/business": "shop.sms",

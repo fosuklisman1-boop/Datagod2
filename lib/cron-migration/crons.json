@@ -194,6 +194,14 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/api-v2-balance-alerts",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/api-v2-log-retention",
+      "schedule": "40 2 * * *"
+    },
+    {
       "path": "/api/cron/delete-old-complaints",
       "schedule": "15 3 * * *"
     },

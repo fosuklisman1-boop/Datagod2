@@ -84,6 +84,11 @@ const STUBS_AFTER = `
     kind text NOT NULL, reference text NOT NULL, request_hash text NOT NULL DEFAULT repeat('a', 64), status text NOT NULL DEFAULT 'in_progress',
     order_ref text, response jsonb, created_at timestamptz NOT NULL DEFAULT now(), completed_at timestamptz, UNIQUE (user_id, kind, reference));
   CREATE TABLE public.wallets(user_id uuid PRIMARY KEY, balance numeric, updated_at timestamptz);
+  CREATE TABLE public.airtime_orders(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid, reference_code text UNIQUE, status text);
+  CREATE TABLE public.hubtel_bill_orders(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid, reference_code text UNIQUE, status text);
+  CREATE TABLE public.hubtel_data_orders(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid, reference_code text UNIQUE, status text);
+  CREATE TABLE public.results_checker_orders(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid, reference_code text UNIQUE, status text);
+  CREATE TABLE public.afa_orders(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid, order_code text, status varchar(30));
 `
 const opened: any[] = []
 afterEach(async () => {
@@ -138,10 +143,10 @@ async function mkOrder(db: any, o: { user: string; key: string | null; ref: stri
      VALUES ('${o.user}', ${lit(o.key)}, 'MTN', 1.5, ${o.price ?? 6.5}, '${o.phone ?? "0241234567"}', '${o.ref}', '${o.status ?? "completed"}', ${o.at ?? "now()"})`,
   )
 }
-async function mkClaim(db: any, o: { user: string; key: string; kind: string; ref: string; status?: string; response?: object | null; at?: string }) {
+async function mkClaim(db: any, o: { user: string; key: string; kind: string; ref: string; status?: string; response?: object | null; at?: string; orderRef?: string }) {
   await db.exec(
-    `INSERT INTO api_v2_idempotency(user_id, api_v2_key_id, kind, reference, status, response, created_at)
-     VALUES ('${o.user}', '${o.key}', '${o.kind}', '${o.ref}', '${o.status ?? "done"}', ${lit(o.response ?? null)}::jsonb, ${o.at ?? "now()"})`,
+    `INSERT INTO api_v2_idempotency(user_id, api_v2_key_id, kind, reference, status, order_ref, response, created_at)
+     VALUES ('${o.user}', '${o.key}', '${o.kind}', '${o.ref}', '${o.status ?? "done"}', ${lit(o.orderRef ?? null)}, ${lit(o.response ?? null)}::jsonb, ${o.at ?? "now()"})`,
   )
 }
 
@@ -284,6 +289,47 @@ describe.skipIf(!PGliteCtor)("0199 in PGlite", () => {
     const theirs = await call(db, "api_v2_dev_orders", other, {}, null, null, 50)
     expect(theirs.map((r: any) => r.reference)).toEqual(["d-now"])
     expect(await call(db, "api_v2_dev_orders", me, { to: "garbage" }, null, null, 50)).toEqual([])
+  }, 60_000)
+
+  it("a done commission order shows the LIVE product-row status (owner-scoped), else the stored one", async () => {
+    const db = await fresh99()
+    const me = await mkUser(db)
+    const other = await mkUser(db)
+    const ckey = await mkKey(db, me, { type: "commission" })
+    const tables: Record<string, [string, string]> = {
+      airtime: ["airtime_orders", "reference_code"],
+      bill: ["hubtel_bill_orders", "reference_code"],
+      bundle: ["hubtel_data_orders", "reference_code"],
+      results: ["results_checker_orders", "reference_code"],
+      afa: ["afa_orders", "order_code"],
+    }
+    for (const [kind, [table, col]] of Object.entries(tables)) {
+      await db.exec(`INSERT INTO ${table}(user_id, ${col}, status) VALUES ('${me}', 'C-${kind}', 'refunded')`)
+      await mkClaim(db, { user: me, key: ckey, kind, ref: `r-${kind}`, orderRef: `C-${kind}`, response: { status: "processing" } })
+    }
+    // someone else's live row with the code of my claim is never read
+    await db.exec(`INSERT INTO airtime_orders(user_id, reference_code, status) VALUES ('${other}', 'C-theirs', 'completed')`)
+    await mkClaim(db, { user: me, key: ckey, kind: "airtime", ref: "r-foreign", orderRef: "C-theirs", response: { status: "processing" } })
+    // no live row: the stored status stands
+    await mkClaim(db, { user: me, key: ckey, kind: "airtime", ref: "r-missing", orderRef: "C-none", response: { status: "failed" } })
+
+    const got = await call(db, "api_v2_dev_orders", me, {}, null, null, 50)
+    const st = (ref: string) => got.find((r: any) => r.reference === ref).status
+    for (const kind of Object.keys(tables)) expect(st(`r-${kind}`), kind).toBe("refunded")
+    expect(st("r-foreign")).toBe("processing")
+    expect(st("r-missing")).toBe("failed")
+    expect((await call(db, "api_v2_dev_orders", me, { status: "refunded" }, null, null, 50))).toHaveLength(5)
+  }, 60_000)
+
+  it("a half-given cursor returns nothing (logs and orders)", async () => {
+    const db = await fresh99()
+    const me = await mkUser(db)
+    const key = await mkKey(db, me)
+    await mkLog(db, { user: me, key })
+    await mkOrder(db, { user: me, key, ref: "d1" })
+    expect(await call(db, "api_v2_dev_logs", me, {}, new Date(Date.now() + 60000).toISOString(), null, 50)).toEqual([])
+    expect(await call(db, "api_v2_dev_orders", me, {}, new Date(Date.now() + 60000).toISOString(), null, 50)).toEqual([])
+    expect(await call(db, "api_v2_dev_orders", me, {}, null, "data:d1", 50)).toEqual([])
   }, 60_000)
 
   it("orders keyset paging walks equal timestamps across products without a gap or a repeat", async () => {

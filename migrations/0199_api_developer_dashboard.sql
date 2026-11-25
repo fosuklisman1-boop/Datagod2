@@ -17,7 +17,7 @@
 --   api_v2_set_balance_alert(user, threshold)          upsert (re-armed) or delete when threshold is null.
 --   api_v2_get_balance_alert(user)                     the setting and the wallet balance.
 --   api_v2_balance_alert_scan(now)                     re-arms recovered rows, disarms and returns rows to notify.
---   api_v2_logs_retention(now)                         deletes api_v2_logs rows older than 25 months, max 20000 per call.
+--   api_v2_logs_retention(now)                         deletes api_v2_logs rows older than 25 months, max 5000 per call.
 --
 -- LOCKS: only the new objects. lock_timeout 2s bounds only the wait; a lock timeout (SQLSTATE 55P03) is harmless and safe
 -- to retry. Any quiet window is fine.
@@ -33,6 +33,9 @@
 --      AND column_name IN ('user_id','kind','reference','status','response','created_at');                 -- 6 rows
 --   SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'wallets'
 --      AND column_name IN ('user_id','balance');                                                           -- 2 rows
+--   SELECT table_name, count(*) FROM information_schema.columns WHERE table_schema = 'public'
+--      AND table_name IN ('airtime_orders','hubtel_bill_orders','hubtel_data_orders','results_checker_orders','afa_orders')
+--      AND column_name IN ('user_id','status','reference_code','order_code') GROUP BY table_name;          -- 3 each (afa: order_code)
 --
 -- VERIFY after applying:
 --   SELECT has_table_privilege('anon','public.api_v2_balance_alerts','SELECT'),
@@ -134,7 +137,8 @@ BEGIN
       UNION ALL
       SELECT i.kind, count(*)
         FROM public.api_v2_idempotency i
-       WHERE i.user_id = p_user AND i.kind <> 'sms' AND i.created_at >= v_since AND coalesce(v_env, 'live') = 'live'
+       WHERE i.user_id = p_user AND i.kind = ANY ('{airtime,bill,bundle,results,afa}'::text[]) AND i.created_at >= v_since
+         AND coalesce(v_env, 'live') = 'live'
        GROUP BY i.kind
     ) s
    WHERE s.n > 0;
@@ -186,6 +190,9 @@ BEGIN
     RETURN '[]'::jsonb;
   END;
   v_from := greatest(coalesce(v_from, v_to - interval '31 days'), v_to - interval '31 days');
+  IF (p_before_at IS NULL) <> (p_before_id IS NULL) THEN
+    RETURN '[]'::jsonb;   -- a cursor is both parts or none
+  END IF;
 
   SELECT coalesce(array_agg(k.id), '{}') INTO v_keys
     FROM public.api_v2_keys k WHERE k.user_id = p_user AND (v_key IS NULL OR k.id = v_key);
@@ -206,7 +213,7 @@ BEGIN
               OR (v_status = 'ok' AND l.status_code < 400)
               OR (v_status = 'client' AND l.status_code >= 400 AND l.status_code < 500)
               OR (v_status = 'server' AND l.status_code >= 500))
-         AND (p_before_at IS NULL OR (l.created_at, l.id) < (p_before_at, coalesce(p_before_id, 'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid)))
+         AND (p_before_at IS NULL OR (l.created_at, l.id) < (p_before_at, p_before_id))
        ORDER BY l.created_at DESC, l.id DESC
        LIMIT v_limit
     ) s;
@@ -255,6 +262,9 @@ BEGIN
   ELSE
     v_from := greatest(coalesce(v_from, v_to - interval '31 days'), v_to - interval '31 days');
   END IF;
+  IF (p_before_at IS NULL) <> (p_before_key IS NULL) THEN
+    RETURN '[]'::jsonb;   -- a cursor is both parts or none
+  END IF;
 
   WITH u AS (
     SELECT 'data'::text AS product, o.api_reference AS reference, o.created_at,
@@ -285,12 +295,23 @@ BEGIN
            CASE i.status
              WHEN 'in_progress' THEN 'processing'
              WHEN 'unknown' THEN 'unknown'
-             ELSE CASE lower(trim(coalesce(i.response->>'status', '')))
+             -- done: the LIVE product row (owner-scoped, as the public GET endpoints read it), else the stored order.
+             ELSE CASE lower(trim(coalesce(
+                    CASE WHEN i.order_ref IS NOT NULL THEN
+                      CASE i.kind
+                        WHEN 'airtime' THEN (SELECT x.status::text FROM public.airtime_orders x WHERE x.user_id = p_user AND x.reference_code = i.order_ref LIMIT 1)
+                        WHEN 'bill' THEN (SELECT x.status::text FROM public.hubtel_bill_orders x WHERE x.user_id = p_user AND x.reference_code = i.order_ref LIMIT 1)
+                        WHEN 'bundle' THEN (SELECT x.status::text FROM public.hubtel_data_orders x WHERE x.user_id = p_user AND x.reference_code = i.order_ref LIMIT 1)
+                        WHEN 'results' THEN (SELECT x.status::text FROM public.results_checker_orders x WHERE x.user_id = p_user AND x.reference_code = i.order_ref LIMIT 1)
+                        WHEN 'afa' THEN (SELECT x.status::text FROM public.afa_orders x WHERE x.user_id = p_user AND x.order_code = i.order_ref LIMIT 1)
+                      END
+                    END,
+                    i.response->>'status', '')))
                     WHEN 'pending' THEN 'pending' WHEN 'pending_payment' THEN 'pending' WHEN 'processing' THEN 'processing'
                     WHEN 'completed' THEN 'completed' WHEN 'failed' THEN 'failed' WHEN 'refunded' THEN 'refunded'
                     ELSE 'processing' END END
       FROM public.api_v2_idempotency i
-     WHERE i.user_id = p_user AND i.kind <> 'sms'
+     WHERE i.user_id = p_user AND i.kind = ANY ('{airtime,bill,bundle,results,afa}'::text[])
        AND (v_product IS NULL OR v_product = i.kind)
        AND (v_ref IS NULL OR i.reference = v_ref)
        AND i.created_at >= v_from AND i.created_at <= v_to
@@ -303,7 +324,7 @@ BEGIN
       SELECT u.* FROM u
        WHERE (v_recipient IS NULL OR u.recipient = v_recipient)
          AND (v_status IS NULL OR u.status = v_status)
-         AND (p_before_at IS NULL OR (u.created_at, u.product || ':' || u.reference) < (p_before_at, coalesce(p_before_key, '')))
+         AND (p_before_at IS NULL OR (u.created_at, u.product || ':' || u.reference) < (p_before_at, p_before_key))
        ORDER BY u.created_at DESC, u.product || ':' || u.reference DESC
        LIMIT v_limit
     ) s;
@@ -380,6 +401,9 @@ DECLARE
   v_now timestamptz := coalesce(p_now, now());
   v_out jsonb;
 BEGIN
+  -- Lock the enabled rows in one fixed order first, so two overlapping runs queue instead of deadlocking.
+  PERFORM 1 FROM public.api_v2_balance_alerts a WHERE a.enabled ORDER BY a.user_id FOR UPDATE;
+
   UPDATE public.api_v2_balance_alerts a SET armed = true, updated_at = v_now
     FROM public.wallets w
    WHERE w.user_id = a.user_id AND a.enabled AND NOT a.armed AND w.balance >= a.threshold;
@@ -398,8 +422,9 @@ $fn$;
 REVOKE ALL ON FUNCTION public.api_v2_balance_alert_scan(timestamptz) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.api_v2_balance_alert_scan(timestamptz) TO service_role;
 
--- Request-log retention: rows older than 25 months (one month past the admin report's 24-month maximum range, so every
--- report range stays whole). At most 20000 rows per call; the created_at index finds them. Returns the count deleted.
+-- Request-log retention: rows older than 25 months. The admin report caps a range at 24 months, so a range ending within
+-- the last month stays whole; an older range undercounts request numbers only (orders and money come from order tables).
+-- At most 5000 rows per call (well inside the caller's ~8 s PostgREST timeout); the created_at index finds them.
 CREATE OR REPLACE FUNCTION public.api_v2_logs_retention(p_now timestamptz)
 RETURNS integer
 LANGUAGE plpgsql
@@ -412,7 +437,7 @@ DECLARE
   v_n int;
 BEGIN
   DELETE FROM public.api_v2_logs l
-   WHERE l.id IN (SELECT x.id FROM public.api_v2_logs x WHERE x.created_at < v_cut ORDER BY x.created_at LIMIT 20000);
+   WHERE l.id IN (SELECT x.id FROM public.api_v2_logs x WHERE x.created_at < v_cut ORDER BY x.created_at LIMIT 5000);
   GET DIAGNOSTICS v_n = ROW_COUNT;
   RETURN v_n;
 END;
