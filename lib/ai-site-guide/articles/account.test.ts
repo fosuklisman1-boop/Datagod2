@@ -23,6 +23,7 @@ const EXPECTED_IDS = [
   "account-security-tips",
   "account-sign-up",
   "ai-assistant-customer",
+  "developer-api-dashboard",
   "developer-api-docs",
   "developer-api-keys",
   "support-chat",

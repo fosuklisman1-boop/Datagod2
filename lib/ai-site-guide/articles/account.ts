@@ -239,7 +239,7 @@ If something goes wrong:
 
 Who can use it: signed-in accounts whose type includes the Developer API. If you don't see this option, it isn't available right now. Other accounts see API access needs admin approval and a Request API access button.
 
-Where: Developer / API (/dashboard/developer). It has two tabs, API Keys and Documentation.
+Where: Developer / API (/dashboard/developer). Keys are on the API Keys tab; the Documentation tab has the docs.
 
 How:
 1. Open Developer / API. If you see Request API access, tap it. You get a request code.
@@ -254,6 +254,32 @@ If something goes wrong:
 - A key leaked: tap Revoke key straight away. Apps using it stop at once. Make a new one after. Use Regenerate to replace a key you still trust.
 - Stuck on Waiting for approval: tap Message admin with your code.
 - Never share a key, and never send it in chat or to support.`,
+  },
+  {
+    id: "developer-api-dashboard",
+    title: "API usage, logs and orders",
+    audiences: ["customer"],
+    keywords: ["api usage", "api logs", "request logs", "failed requests", "api orders", "find order", "order finder", "csv", "download orders", "low balance", "balance alert", "why did my api request fail"],
+    summary: "Developer / API shows your API usage, request logs with failure reasons, an order finder with CSV download, and a low-balance alert.",
+    body: `What it is: tools on the Developer / API page that show what your API keys did.
+
+Who can use it: signed-in accounts that include the Developer API.
+
+Where: Developer / API (/dashboard/developer), tabs Overview, Usage, Logs and Orders.
+
+How:
+1. Overview shows your wallet balance, today's requests and failures, and the service status.
+2. Usage shows how many requests you made each day over the last week or month, the busiest endpoints and the most common reasons requests failed.
+3. Logs lists every request your keys made, newest first, with the result and the reason in plain words. Filter by key, live or test, result and dates (about a month at a time).
+4. Orders finds a live API order by your reference (any date) or the recipient's number. Tap Check now to read its status again. Download CSV saves the same list as a spreadsheet file.
+5. Low-balance alert: on Overview, enter an amount and tap Save. You get one notice in the app, by push and by email when your balance drops below it, and again only after it has gone back above it.
+
+What happens next: the alert is checked regularly in the background. Remove it any time on Overview.
+
+If something goes wrong:
+- A request failed: open Logs and read the reason, then look it up on API errors (/developers/errors).
+- An order is missing: test orders are not listed; only live orders are.
+- Need a key: see developer-api-keys.`,
   },
   {
     id: "developer-api-docs",

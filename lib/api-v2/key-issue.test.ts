@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { accessSummary, canIssue, isIssuableType, legacyDefaultOpen, offersSmsKey } from "./key-issue"
+import { accessSummary, canIssue, isIssuableType, offersSmsKey } from "./key-issue"
 
 const allowedRoles = ["dealer", "admin"]
 
@@ -156,23 +156,6 @@ describe("accessSummary with a grant or capability", () => {
   it("a grant never beats disabled or suspended", () => {
     expect(accessSummary({ ...base, hasGrant: true, enabled: false })).toEqual({ canGenerate: false, reason: "disabled" })
     expect(accessSummary({ ...base, hasGrant: true, suspended: true })).toEqual({ canGenerate: false, reason: "suspended" })
-  })
-})
-
-describe("legacyDefaultOpen", () => {
-  it("opens the legacy v1 section while v2 is not open yet", () => {
-    expect(legacyDefaultOpen("disabled")).toBe(true)
-  })
-
-  it("opens it while the access state is still loading or failed to load", () => {
-    expect(legacyDefaultOpen("loading")).toBe(true)
-    expect(legacyDefaultOpen("error")).toBe(true)
-  })
-
-  it("keeps it collapsed once v2 is open", () => {
-    expect(legacyDefaultOpen("ok")).toBe(false)
-    expect(legacyDefaultOpen("suspended")).toBe(false)
-    expect(legacyDefaultOpen("role_not_allowed")).toBe(false)
   })
 })
 

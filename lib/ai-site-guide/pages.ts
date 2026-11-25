@@ -57,7 +57,7 @@ export const SITE_PAGES: SitePage[] = [
   // Dashboard: account
   { path: "/dashboard/profile", title: "Profile", audiences: CUS, purpose: "Your details, phone verification, password and sessions.", tasks: ["Update details", "Verify phone", "Change password"] },
   { path: "/dashboard/complaints", title: "Support chat", audiences: CUS, purpose: "Chat with support and report a problem.", tasks: ["Start a new chat", "Reply or close a chat"] },
-  { path: "/dashboard/developer", title: "Developer / API", audiences: CUS, purpose: "Create API keys and read the API docs.", tasks: ["Generate a key", "Read documentation"] },
+  { path: "/dashboard/developer", title: "Developer / API", audiences: CUS, purpose: "API keys, usage, request logs, order finder, low-balance alert and the API docs.", tasks: ["Generate a key", "Read request logs", "Find an API order", "Set a low-balance alert"] },
   { path: "/dashboard/upgrade", title: "Upgrade to dealer", audiences: CUS, purpose: "Pay to become a dealer with cheaper prices.", tasks: ["Compare plans", "Verify phone and pay"] },
   { path: "/dashboard/top-performers", title: "Top performers", audiences: CUS, purpose: "Leaderboard and prizes for top buyers and shops.", tasks: ["See rankings", "Read the prize rules"] },
   // Dashboard: SMS
