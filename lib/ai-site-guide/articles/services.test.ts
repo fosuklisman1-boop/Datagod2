@@ -168,7 +168,9 @@ describe("services articles: content rules", () => {
       expect(check, label).toContain(label)
     }
     const ussd = byId("ussd-main-menu").body
-    for (const label of ["Browse Services", "AFA Registration", "Buy Airtime", "Results Checker", "Datagod Wallet", "MoMo prompt"]) {
+    // Generic on purpose: true for both USSD menus (no label that only one stack shows).
+    expect(ussd).not.toMatch(/Browse Services|Internet Bundles|AFA Registration|Datagod Wallet/)
+    for (const label of ["Mobile Money", "wallet if that option is offered", "SMS when it is done"]) {
       expect(ussd, label).toContain(label)
     }
     const sms = byId("sms-send-bulk").body
@@ -191,10 +193,13 @@ describe("services articles: content rules", () => {
     expect(byId("ussd-main-menu").body).toContain("ussd-buy-from-a-shop")
   })
 
-  it("says dark or switchable features may not be available yet", () => {
-    for (const id of ["pay-utility-bills", "ussd-main-menu", "whatsapp-main-bot", "check-results-service"]) {
-      expect(byId(id).body, id).toMatch(/may not be available/)
+  it("says switchable features are not available right now, without baking in today's state", () => {
+    for (const id of ["buy-airtime-dashboard", "pay-utility-bills", "ussd-main-menu", "whatsapp-main-bot", "check-results-service"]) {
+      expect(byId(id).body, id).toContain("If you don't see this option, it isn't available right now.")
+      expect(byId(id).body, id).not.toMatch(/may not be available/)
     }
+    expect(byId("results-checker-buy-vouchers").body).toContain("Buy as Guest")
+    expect(byId("sms-business-sender-id").body).toMatch(/one free sender ID/)
     expect(byId("sms-business-sender-id").body).toMatch(/may not be available/)
   })
 

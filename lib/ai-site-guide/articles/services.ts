@@ -21,7 +21,7 @@ export const SERVICES_ARTICLES: SiteArticle[] = [
     summary: "Top up MTN, Telecel or AT airtime for yourself or a friend from your wallet on the Buy airtime page. Fees, limits and any discount are shown on the page.",
     body: `What it is: airtime top-up for MTN, Telecel or AT, for your own number or someone else's. It is paid from your wallet.
 
-Who can use it: logged-in customers and dealers. A network can be switched off for a while, and then its button is greyed out.
+Who can use it: logged-in customers and dealers. If you don't see this option, it isn't available right now. A network that is off has its button greyed out.
 
 Where: Buy airtime (/dashboard/airtime). Shops sell airtime too, and you can also order by USSD or WhatsApp. See the other articles for those.
 
@@ -74,10 +74,10 @@ If something goes wrong:
     title: "Pay electricity, water and TV bills",
     audiences: ["customer"],
     keywords: ["bills", "utility", "electricity", "ecg", "prepaid meter", "postpaid", "water", "ghana water", "dstv", "gotv", "startimes", "tv subscription", "broadband", "telecel broadband", "saved meters", "pay bill", "light bill", "meter"],
-    summary: "Pay ECG, Ghana Water, DSTV, GOtv, StarTimes and Telecel broadband from your wallet. Bills may not be available on your account yet. Limits are shown in each form.",
+    summary: "Pay ECG, Ghana Water, DSTV, GOtv, StarTimes and Telecel broadband from your wallet. If you don't see this option, it isn't available right now. Limits are shown in each form.",
     body: `What it is: pay ECG electricity, Ghana Water and TV subscriptions (DSTV, GOtv, StarTimes TV) straight from your wallet. Telecel broadband has its own page.
 
-Who can use it: logged-in customers and dealers. Bills may not be available on your account yet. If the page says "Utility bills are not available yet", it is switched off and you can check again later. Billers can be switched on one by one, so you may see only some of them.
+Who can use it: logged-in customers and dealers. If you don't see this option, it isn't available right now. If the page says "Utility bills are not available yet", check again later. Billers can be switched on one by one, so you may see only some of them.
 
 Where: Utility bills (/dashboard/bills) and Telecel broadband (/dashboard/broadband).
 
@@ -104,7 +104,7 @@ If something goes wrong:
     summary: "Buy WASSCE, BECE or NOVDEC checker vouchers from your wallet and get the serial number and PIN on screen, with copy, receipt and resend buttons. Prices are shown on the page.",
     body: `What it is: a results checker voucher gives you a serial number and PIN to use on the official exam results website. You can buy WASSCE, BECE and NOVDEC vouchers.
 
-Who can use it: logged-in customers pay from the wallet. Visitors can read about vouchers on Results checker (/results-checker), and some shops sell vouchers on their own page under Results Checker with a Buy Vouchers tab.
+Who can use it: logged-in customers pay from the wallet. Visitors can read about vouchers on Results checker (/results-checker) and buy there with the Buy as Guest button when it is shown. Some shops sell vouchers on their own page under Results Checker with a Buy Vouchers tab.
 
 Where: log in, then open Results checker (/dashboard/results-checker). Public information is on Results checker (/results-checker).
 
@@ -158,7 +158,7 @@ Keep your PIN private. Anyone who has it can use the voucher.`,
     summary: "Pay Datagod to check WASSCE, BECE or NOVDEC results and send them to a WhatsApp number. Needs the index number, year and date of birth. May not be available on your account yet.",
     body: `What it is: a service where Datagod checks a candidate's results for you and sends them to a WhatsApp number. The results are not shown instantly.
 
-Who can use it: logged-in customers. The service may not be available on your account yet, and sometimes it is paused. Visitors can read about it on Results checker (/results-checker), then log in to use it.
+Who can use it: logged-in customers. If you don't see this option, it isn't available right now. Visitors can read about it on Results checker (/results-checker), then log in to use it.
 
 Where: Check results (/dashboard/results-check). You can also choose Check Results on the USSD and WhatsApp menus.
 
@@ -183,23 +183,22 @@ If something goes wrong:
     id: "ussd-main-menu",
     title: "Order by USSD on the main Datagod code",
     audiences: ["public"],
-    keywords: ["ussd", "dial", "dial code", "no internet", "browse services", "main menu", "buy by ussd", "buy data ussd", "airtime ussd", "afa ussd", "results checker ussd", "momo prompt", "datagod wallet", "feature phone", "short code"],
-    summary: "Dial the main Datagod USSD code from any phone, pick a service from the menu and pay from your wallet or with a MoMo prompt. The code is shown on the website.",
+    keywords: ["ussd", "dial", "dial code", "no internet", "browse services", "main menu", "buy by ussd", "buy data ussd", "airtime ussd", "afa ussd", "results checker ussd", "momo prompt", "wallet", "feature phone", "short code"],
+    summary: "Dial the main Datagod USSD code from any phone, pick a service from the menu and pay with Mobile Money, or your wallet if offered. The code is shown on the website.",
     body: `What it is: ordering from your phone's dialer with no internet. You dial the Datagod code and follow the menu.
 
-Who can use it: anyone with a phone and Mobile Money. No account is needed. The code is set by Datagod and can change, so it is shown on the Datagod website, on its USSD page, and is not quoted here. If you cannot find a code there, the main USSD code may not be available yet.
+Who can use it: anyone with a phone and Mobile Money. No account is needed. The code is set by Datagod and can change, so it is shown on the Datagod website and is not quoted here. If you don't see this option, it isn't available right now.
 
 Where: your phone's dialer. All services are listed on Services (/services). For a shop's own code, see ussd-buy-from-a-shop.
 
 How:
 1. Dial the Datagod code from the website.
-2. The menu shows Browse Services, AFA Registration, Buy Airtime and Results Checker. Pay Bills may also show when it is available. The menu can change, so a service can be missing for a while.
+2. Choose from the menu what you want, such as airtime, bills or a results checker. Only the services that are on at that time are shown, so the list can change.
 3. Type the number of the item you want and press send.
 4. Follow the screens: choose the network, enter the number that should get the order, and confirm. Prices are shown on the screens.
-5. Choose how to pay: Datagod Wallet, which shows your balance when your phone number has an account, or a MoMo prompt.
-6. If you chose MoMo, approve the prompt on your phone with your PIN.
+5. Pay with Mobile Money, or from your wallet if that option is offered. For Mobile Money, approve the prompt on your phone with your PIN.
 
-What happens next: the order is placed once payment is confirmed. Results Checker has Buy Vouchers, My Vouchers and Check Results. Voucher PINs are sent to you by SMS.
+What happens next: the order is placed once payment is confirmed, and you get an SMS when it is done. Results checker vouchers are sent to you by SMS.
 
 If something goes wrong:
 - The session ends or the screen stops: dial again and start over.
@@ -267,7 +266,7 @@ If something goes wrong:
     audiences: ["customer", "shop_owner"],
     keywords: ["sender id", "sender name", "business sms", "kyc", "verify business", "ghana card", "business name", "business verification", "approved", "rejected", "resubmit", "business mode", "platform mode", "own sender name", "register sender"],
     summary: "Verify your business to unlock Business mode, then request your own sender ID on the Business SMS page. It may not be available on your account yet.",
-    body: `What it is: a sender ID is the name your customers see when your SMS arrives. Everyone starts in Platform mode. Verifying your business gives Business mode, with more sender IDs and higher limits.
+    body: `What it is: a sender ID is the name your customers see when your SMS arrives. Everyone starts in Platform mode, which includes one free sender ID. Verifying your business is only needed for business sender IDs. It gives Business mode, with more sender IDs and higher limits.
 
 Who can use it: logged-in customers and shop owners whose account allows SMS. Business verification may not be available on your account yet.
 
@@ -298,7 +297,7 @@ If something goes wrong:
     summary: "Message the Datagod WhatsApp number to buy data, airtime, AFA registration and results checkers. The bot always asks for the Mobile Money number to pay from.",
     body: `What it is: ordering by chat. You message the Datagod number on WhatsApp and follow the menu. No app to install.
 
-Who can use it: anyone with WhatsApp and Mobile Money. The bot number is set by Datagod and shown on the website, so WhatsApp ordering may not be available yet. If the page says it is being set up, check back later.
+Who can use it: anyone with WhatsApp and Mobile Money. The bot number is set by Datagod and shown on the website. If you don't see this option, it isn't available right now. If the page says it is being set up, check back later.
 
 Where: WhatsApp ordering (/whatsapp). Tap Chat on WhatsApp to open the chat. Shops have their own bot, see whatsapp-shop-bot.
 
