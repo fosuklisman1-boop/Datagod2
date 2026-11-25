@@ -44,6 +44,8 @@ const CATALOGUED = [
   "GET /api/admin/api-v2/services",
   "PUT /api/admin/api-v2/services/:service",
   "GET /api/admin/api-v2/trend",
+  "GET /api/admin/api-v2/money-settings",
+  "GET /api/admin/api-v2/developers/:userId/spend-cap",
   "GET /api/admin/api-v1/retirement",
   "PUT /api/admin/api-v1/retirement",
   "GET /api/admin/api-keys",
@@ -83,7 +85,12 @@ const EXCLUDED_HERE = ["POST /api/admin/api-v1/retirement/notify"]
 describe("platform catalog coverage", () => {
   it("catalogues exactly the listed routes, registered in CATALOG, none pending or excluded", () => {
     expect(PLATFORM_ENTRIES.map((e) => key(e.method, e.path)).sort()).toEqual([...CATALOGUED].sort())
-    expect(CATALOGUED.length).toBe(56)
+    expect(CATALOGUED.length).toBe(58)
+    // Release 5: the AI may read money protection, never change it (fraud controls).
+    for (const k of ["PUT /api/admin/api-v2/money-settings", "PUT /api/admin/api-v2/developers/:userId/spend-cap"]) {
+      const row = EXCLUDED.find((x) => key(x.method, x.path) === k)
+      expect(row?.reason, k).toMatch(/fraud control/)
+    }
     for (const k of CATALOGUED) {
       expect(PENDING, k).not.toContain(k)
       expect(CATALOG.map((e) => key(e.method, e.path)), k).toContain(k)

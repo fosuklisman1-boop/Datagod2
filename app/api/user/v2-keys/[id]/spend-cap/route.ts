@@ -3,6 +3,13 @@ import { getAdminClient } from "@/lib/api-v2/store"
 import type { RpcClient } from "@/lib/api-v2/approvals"
 import { getKeySpend, setDeveloperCap } from "@/lib/api-v2/spend-caps"
 import { getMoneySettings } from "@/lib/api-v2/spend"
+import { requireCapability } from "@/lib/roles/require-capability"
+
+/** Custom roles: the same account.api capability as /api/user/v2-keys. Returns the refusal, or null to continue. */
+async function denied(userId: string): Promise<NextResponse | null> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return requireCapability(getAdminClient() as any, userId, "account.api")
+}
 
 // Dashboard session only. An API key is not a session (getUser rejects it), so a stolen key can never raise a limit.
 async function sessionUserId(request: NextRequest): Promise<string | null> {
@@ -23,6 +30,8 @@ const unauthorized = () => NextResponse.json({ error: "Sign in to manage your ke
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const userId = await sessionUserId(request)
   if (!userId) return unauthorized()
+  const refused = await denied(userId)
+  if (refused) return refused
   const { id } = await params
   let capsActive = false
   try {
@@ -38,6 +47,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const userId = await sessionUserId(request)
   if (!userId) return unauthorized()
+  const refused = await denied(userId)
+  if (refused) return refused
   const { id } = await params
   const body = (await request.json().catch(() => null)) as { cap?: unknown } | null
   if (!body || !("cap" in body)) return NextResponse.json({ error: "Send { cap }.", code: "bad_input" }, { status: 400 })

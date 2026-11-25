@@ -956,6 +956,18 @@ export const PLATFORM_ENTRIES: CatalogEntry[] = [
     kind: "change", risk: "danger", auth: "admin", card: retirementCard,
   }),
 
+  // ---- API v2 money protection (Release 5): read-only here; the limit and switch writes are excluded (fraud controls)
+  mk({
+    id: "api_v2.money.settings", page: API_KEYS, summary: "Show whether API daily spending limits and fraud warnings are switched on, the warning thresholds and today's alert count.",
+    method: "GET", path: "/api/admin/api-v2/money-settings", kind: "lookup", risk: "normal", auth: "admin",
+    resultKeep: ["capsEnabled", "alertsEnabled", "thresholds", "updatedAt", "alertsToday"],
+  }),
+  mk({
+    id: "api_v2.developers.spend", page: API_KEYS, summary: "Show one developer's API spend today against their Datagod limit and each live key's limit, limit refusals today and their last 10 fraud alerts.",
+    method: "GET", path: "/api/admin/api-v2/developers/:userId/spend-cap", params: { userId: "uuid" }, kind: "lookup", risk: "normal", auth: "admin",
+    resultKeep: ["today", "userCap", "keys[].keyId", "keys[].spent", "keys[].cap", "refusalsToday", "alerts[].signal", "alerts[].createdAt", "alerts[].details"],
+  }),
+
   // ---- API v1 keys, kill switch, logs
   mk({
     id: "api_keys.list", page: API_KEYS, summary: "List API v1 keys with owner, status, limit and dates (never the key itself); optionally for one user.",

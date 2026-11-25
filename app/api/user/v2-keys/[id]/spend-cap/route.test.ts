@@ -1,6 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
-const h = vi.hoisted(() => ({ user: null as { id: string } | null, rpc: vi.fn(), getUser: vi.fn() }))
+const h = vi.hoisted(() => ({ user: null as { id: string } | null, rpc: vi.fn(), getUser: vi.fn(), cap: "yes" as "yes" | "no", capCalls: [] as unknown[] }))
+vi.mock("@/lib/roles/require-capability", async () => {
+  const { NextResponse } = await import("next/server")
+  return {
+    requireCapability: async (_c: unknown, userId: string, cap: string) => {
+      h.capCalls.push([userId, cap])
+      return h.cap === "yes" ? null : NextResponse.json({ error: "Your role does not include API access." }, { status: 403 })
+    },
+  }
+})
 vi.mock("@/lib/api-v2/store", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api-v2/store")>("@/lib/api-v2/store")
   return {
@@ -28,6 +37,18 @@ const ctx = { params: Promise.resolve({ id: K }) } as never
 beforeEach(() => {
   h.user = { id: "u1" }
   h.rpc.mockReset()
+  h.cap = "yes"
+  h.capCalls = []
+})
+
+describe("custom roles (merged main): account.api capability", () => {
+  it("a role without account.api -> 403 on GET and PUT, no rpc; checked for the session user", async () => {
+    h.cap = "no"
+    expect((await route.PUT(req("session-token", { cap: 50 }), ctx)).status).toBe(403)
+    expect((await route.GET(req("session-token"), ctx)).status).toBe(403)
+    expect(h.rpc).not.toHaveBeenCalled()
+    expect(h.capCalls).toEqual([["u1", "account.api"], ["u1", "account.api"]])
+  })
 })
 
 describe("/api/user/v2-keys/[id]/spend-cap", () => {
