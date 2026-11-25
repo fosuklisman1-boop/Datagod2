@@ -20,6 +20,7 @@ import {
   purchaseResultsCheckerVouchers,
 } from "@/lib/results-checker-service"
 import { getAdminClient, type SupabaseLike } from "../store"
+import { defaultSpendHook } from "../spend"
 import {
   claimRequest,
   completeClaim,
@@ -190,5 +191,6 @@ export function realResultsDeps(): ResultsDeps {
       place: async (p) => (await import("@/lib/sandbox")).placeSandboxOrder(p),
     },
     now: () => Date.now(),
+    spend: defaultSpendHook(),
   }
 }

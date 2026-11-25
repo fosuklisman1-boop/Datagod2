@@ -13,6 +13,7 @@
  */
 import { purchaseAirtime } from "@/lib/airtime-service"
 import { getAdminClient, type SupabaseLike } from "../store"
+import { defaultSpendHook } from "../spend"
 import {
   claimRequest,
   completeClaim,
@@ -133,5 +134,6 @@ export function realAirtimeDeps(): AirtimeDeps {
       place: async (p) => (await import("@/lib/sandbox")).placeSandboxOrder(p),
     },
     now: () => Date.now(),
+    spend: defaultSpendHook(),
   }
 }

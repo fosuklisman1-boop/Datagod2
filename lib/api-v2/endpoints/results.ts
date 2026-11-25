@@ -34,6 +34,7 @@
 import type { V2Context, V2HandlerResult } from "../handler"
 import type { V2ErrorStatus } from "../envelope"
 import type { ClaimOutcome } from "../idempotency"
+import { guardSpend, settleOwned, type SpendHook } from "../spend"
 import { mapClaimState, mapCommissionStatus } from "../commission"
 import {
   classifyResultsError,
@@ -154,6 +155,8 @@ export interface ResultsDeps {
     place(p: ResultsSandboxPlaceParams): Promise<ResultsSandboxPlaceResult>
   }
   now(): number
+  /** Release 5 daily spending limit (absent in unit tests that do not exercise it). */
+  spend?: SpendHook
 }
 
 // ---------------------------------------------------------------- messages
@@ -383,10 +386,11 @@ async function livePurchase(deps: ResultsDeps, input: ResultsInput, ctx: V2Conte
 
   // 3b. The engine swallows settings read errors and would charge a price of 0: require a
   //     real, finite, positive price BEFORE the engine is reached (nothing is charged yet).
+  let total: number
   try {
     const p = await deps.price(input.board, input.quantity)
     const unit = Number(p?.unitPrice)
-    const total = Number(p?.totalPaid)
+    total = Number(p?.totalPaid)
     if (!Number.isFinite(unit) || !Number.isFinite(total) || unit <= 0 || total <= 0) throw new Error("bad price")
   } catch {
     return unavailable(MSG_RESULTS_PRICE_UNAVAILABLE)
@@ -395,12 +399,20 @@ async function livePurchase(deps: ResultsDeps, input: ResultsInput, ctx: V2Conte
   // 4. Account phone gate (fail closed).
   if (!(await gateOk(deps, ctx.userId))) return unavailable(MSG_PHONE_GATE, 403)
 
+  // 4b. Daily spending limit (live, caps on): the confirmed total is reserved; a refusal frees the reference.
+  const spend = await guardSpend(deps.spend, ctx, "results", input.reference, total)
+  if (!spend.proceed) {
+    await safeRelease(deps, claimId, ctx.userId)
+    return spend.result
+  }
+
   // 5. The engine. Only INSUFFICIENT_BALANCE frees the reference.
   let result: ResultsEngineResult
   try {
     result = await deps.engine({ userId: ctx.userId, examBoard: input.board, quantity: input.quantity })
   } catch (e) {
     if (classifyResultsError(engineCode(e)) === "no_charge") {
+      await settleOwned(deps.spend, spend.owned, ctx, "results", input.reference, "released")
       await safeRelease(deps, claimId, ctx.userId)
       return errorResult(e)
     }
@@ -417,6 +429,8 @@ async function livePurchase(deps: ResultsDeps, input: ResultsInput, ctx: V2Conte
     console.error(LOG_AMBIGUOUS)
     return fail(500, MSG_RESULTS_OUTCOME_UNKNOWN)
   }
+
+  await settleOwned(deps.spend, spend.owned, ctx, "results", input.reference, "spent")
 
   // 6. Success. The stored claim response holds the order only: NEVER a PIN.
   const order = mapResultsOrder(result.order, input.reference)

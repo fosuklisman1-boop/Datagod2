@@ -6,6 +6,8 @@ import {
   MSG_UNAVAILABLE,
   MSG_PAUSED,
   MSG_SERVICE_PAUSED_DEFAULT,
+  MSG_DAILY_LIMIT,
+  MSG_DAILY_LIMIT_ADMIN,
   msgWrongKeyType,
 } from "./access"
 import type { KeyType } from "./keys"
@@ -23,6 +25,9 @@ const ACCESS_REASONS: ReadonlyMap<string, string> = new Map([
   [MSG_ROLE_NOT_ALLOWED, "not_eligible"],
   [MSG_UNAVAILABLE, "unavailable"],
   [MSG_PAUSED, "developer_paused"],
+  // Release 5: one slug for both daily-limit messages; the risk scan counts it.
+  [MSG_DAILY_LIMIT, "daily_limit"],
+  [MSG_DAILY_LIMIT_ADMIN, "daily_limit"],
   [MSG_SERVICE_PAUSED_DEFAULT, "service_paused"],
 ])
 

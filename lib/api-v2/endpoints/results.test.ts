@@ -1025,3 +1025,29 @@ describe("sandbox (test key)", () => {
     liveDepsUntouched(deps)
   })
 })
+
+describe("POST /resultschecker/purchase (live): daily spending limit", () => {
+  const spendHook = (reserve: { kind: string; scope?: "key" | "user" }, caps = true) => ({
+    settings: vi.fn(async () => ({ capsEnabled: caps, alertsEnabled: false, at: 0 })),
+    reserve: vi.fn(async () => reserve as any),
+    settle: vi.fn(async () => {}),
+  })
+  it("reserves the confirmed total before the engine and settles spent; cap -> 402, released, no engine", async () => {
+    const { deps } = makeDeps()
+    const h = spendHook({ kind: "reserved" })
+    const r = await purchaseResultsHandler({ ...deps, spend: h })(body(), LIVE)
+    expect(r.status).toBe(201)
+    expect(h.reserve).toHaveBeenCalledWith({ userId: "user-1", keyId: "key-live-1", kind: "results", reference: "RC-001", amount: 40 })
+    expect(h.settle).toHaveBeenCalledWith({ keyId: "key-live-1", kind: "results", reference: "RC-001", state: "spent" })
+    const c = makeDeps().deps
+    const rc = await purchaseResultsHandler({ ...c, spend: spendHook({ kind: "cap", scope: "key" }) })(body(), LIVE)
+    expect(rc.status).toBe(402)
+    expect(c.release).toHaveBeenCalledTimes(1)
+    expect(c.engine).not.toHaveBeenCalled()
+  })
+  it("caps off -> no reserve", async () => {
+    const h = spendHook({ kind: "reserved" }, false)
+    await purchaseResultsHandler({ ...makeDeps().deps, spend: h })(body(), LIVE)
+    expect(h.reserve).not.toHaveBeenCalled()
+  })
+})

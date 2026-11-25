@@ -34,6 +34,7 @@ vi.mock("@/lib/api-v2/store", async () => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const chain: any = {
           select: () => chain, order: () => chain, limit: () => chain, eq: () => chain, gte: () => chain, lt: () => chain,
+          maybeSingle: async () => ({ data: (h.fromRows[table] ?? [])[0] ?? null, error: null }),
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           then: (a: any, b: any) => Promise.resolve({ data: h.fromRows[table] ?? [], error: null }).then(a, b),
         }
@@ -49,6 +50,8 @@ import { GET as servicesList } from "./services/route"
 import { GET as annList } from "./announcements/route"
 import { GET as trend } from "./trend/route"
 import { GET as report } from "./report/route"
+import { GET as devSpend } from "./developers/[userId]/spend-cap/route"
+import { GET as moneyGet } from "./money-settings/route"
 
 const req = (url = "http://x/") => ({ url, nextUrl: new URL(url), headers: new Headers() }) as never
 const ctx = (p: Record<string, string>): never => ({ params: Promise.resolve(p) }) as never
@@ -76,6 +79,8 @@ const all: [string, () => Promise<Response | null | undefined>][] = [
   ["announcements", () => annList(req())],
   ["trend", () => trend(req())],
   ["report", () => report(req())],
+  ["developer spend", () => devSpend(req(), ctx({ userId: UID }))],
+  ["money settings", () => moneyGet(req())],
 ]
 
 describe("console read routes", () => {

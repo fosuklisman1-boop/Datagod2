@@ -5,7 +5,19 @@
 import { v2DocsRegistry, type V2DocSection } from "./registry"
 import { errorAnchor, errorCode } from "./error-key"
 import { endpointHref } from "./pages"
-import { MSG_UNAUTHORIZED, MSG_UNAVAILABLE, MSG_SUSPENDED, MSG_PENDING, MSG_REVOKED, MSG_ROLE_NOT_ALLOWED, MSG_RATE_LIMITED, MSG_PAUSED, MSG_SERVICE_PAUSED_DEFAULT } from "../access"
+import { MSG_UNAUTHORIZED, MSG_UNAVAILABLE, MSG_SUSPENDED, MSG_PENDING, MSG_REVOKED, MSG_ROLE_NOT_ALLOWED, MSG_RATE_LIMITED, MSG_PAUSED, MSG_SERVICE_PAUSED_DEFAULT, MSG_DAILY_LIMIT } from "../access"
+import { SPEND_CAPS_PUBLISHED } from "./flags"
+
+/** Release 5: listed only once daily spending limits are switched on (docs flag). */
+const DAILY_LIMIT_ENTRY = {
+  status: 402,
+  message: MSG_DAILY_LIMIT,
+  group: "Money" as const,
+  meaning:
+    "This purchase would take today's spending over a daily limit: one you set on the key in your dashboard, or one Datagod set for your account. Nothing was charged.",
+  fix: "Retry after 00:00 GMT, when the daily total resets, or raise the limit on the key in your dashboard (API keys, Daily spending limits). If a Datagod limit applies, contact Datagod. Limits count the value bought.",
+  appliesTo: "Live purchase endpoints when a daily limit is set",
+}
 
 export type ErrorGroup =
   | "Access and keys"
@@ -414,7 +426,11 @@ function adviceFor(status: number, message: string): Advice {
   throw new Error(`No advice for ${status} ${message}`)
 }
 
-export function buildErrorGuide(registry: V2DocSection[] = v2DocsRegistry): GuideError[] {
+export function buildErrorGuide(
+  registry: V2DocSection[] = v2DocsRegistry,
+  opts: { spendCaps?: boolean } = {},
+): GuideError[] {
+  const apiWide = (opts.spendCaps ?? SPEND_CAPS_PUBLISHED) ? [...API_WIDE, DAILY_LIMIT_ENTRY] : API_WIDE
   const byAnchor = new Map<string, GuideError>()
   for (const section of registry) {
     for (const endpoint of section.endpoints) {
@@ -447,7 +463,7 @@ export function buildErrorGuide(registry: V2DocSection[] = v2DocsRegistry): Guid
       }
     }
   }
-  for (const w of API_WIDE) {
+  for (const w of apiWide) {
     const anchor = errorAnchor(w.status, w.message)
     const existing = byAnchor.get(anchor)
     if (existing) {

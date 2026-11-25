@@ -18,6 +18,7 @@ import { payBill, verifyBill, type BillOrderRow, type BillsDeps } from "@/lib/bi
 import type { CashbackConfig } from "@/lib/cashback/config"
 import { readApiSurface } from "@/lib/api-v1/surface"
 import { getAdminClient, type SupabaseLike } from "../store"
+import { defaultSpendHook } from "../spend"
 import {
   claimRequest,
   completeClaim,
@@ -119,5 +120,6 @@ export function realBillsDeps(): BillsV2Deps {
       place: async (p) => (await import("@/lib/sandbox")).placeSandboxOrder(p),
     },
     now: () => Date.now(),
+    spend: defaultSpendHook(),
   }
 }

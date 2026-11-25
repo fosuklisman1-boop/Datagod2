@@ -1099,3 +1099,105 @@ describe("in-progress / unknown messages never send the client to a new referenc
     expect(msg).not.toMatch(/resend with a new|use a new reference|try a new reference/i)
   })
 })
+
+// ---------------------------------------------------------------- Release 5: daily spending limit
+
+describe("POST /airtime/purchase (live): daily spending limit", () => {
+  const spendHook = (reserve: { kind: string; scope?: "key" | "user" }, caps = true) => ({
+    settings: vi.fn(async () => ({ capsEnabled: caps, alertsEnabled: false, at: 0 })),
+    reserve: vi.fn(async () => reserve as any),
+    settle: vi.fn(async () => {}),
+  })
+  it("caps off or test key -> reserve never called", async () => {
+    const { deps } = makeDeps()
+    const h = spendHook({ kind: "reserved" }, false)
+    const r = await purchaseAirtimeHandler({ ...deps, spend: h })(body(), LIVE)
+    expect(r.status).toBe(201)
+    expect(h.reserve).not.toHaveBeenCalled()
+    const h2 = spendHook({ kind: "reserved" })
+    await purchaseAirtimeHandler({ ...makeDeps().deps, spend: h2 })(body(), TEST)
+    expect(h2.reserve).not.toHaveBeenCalled()
+  })
+  it("live + caps on: reserves the face amount after the claim and before the engine; success settles spent", async () => {
+    const { deps } = makeDeps()
+    const order: string[] = []
+    const realClaim = deps.claim.getMockImplementation()!
+    deps.claim.mockImplementationOnce(async (p: any) => (order.push("claim"), realClaim(p)))
+    const h = spendHook({ kind: "reserved" })
+    h.reserve.mockImplementationOnce(async () => (order.push("reserve"), { kind: "reserved" }) as any)
+    deps.engine.mockImplementationOnce(async (p: AirtimeEngineParams) => (order.push("engine"), engineOk(p)))
+    const r = await purchaseAirtimeHandler({ ...deps, spend: h })(body({ amount: "12.50" }), LIVE)
+    expect(r.status).toBe(201)
+    expect(order).toEqual(["claim", "reserve", "engine"])
+    expect(h.reserve).toHaveBeenCalledWith({ userId: "user-1", keyId: "key-live-1", kind: "airtime", reference: "AIR-001", amount: 12.5 })
+    expect(h.settle).toHaveBeenCalledWith({ keyId: "key-live-1", kind: "airtime", reference: "AIR-001", state: "spent" })
+  })
+  it("cap (key) -> claim released, 402 with the limit message, engine never called", async () => {
+    const { deps } = makeDeps()
+    const h = spendHook({ kind: "cap", scope: "key" })
+    const r = await purchaseAirtimeHandler({ ...deps, spend: h })(body(), LIVE)
+    expect(r.status).toBe(402)
+    expect((r as any).error.message).toMatch(/^DAILY_LIMIT_REACHED: /)
+    expect(deps.release).toHaveBeenCalledTimes(1)
+    expect(deps.engine).not.toHaveBeenCalled()
+  })
+  it("cap (user) -> 402 says a Datagod limit applies and shows no amount", async () => {
+    const { deps } = makeDeps()
+    const r = await purchaseAirtimeHandler({ ...deps, spend: spendHook({ kind: "cap", scope: "user" }) })(body(), LIVE)
+    expect(r.status).toBe(402)
+    const msg = (r as any).error.message as string
+    expect(msg).toContain("A Datagod limit applies.")
+    expect(msg.replace("00:00", "")).not.toMatch(/\d/)
+  })
+  it("reserve error -> claim released, 503, engine never called", async () => {
+    const { deps } = makeDeps()
+    const r = await purchaseAirtimeHandler({ ...deps, spend: spendHook({ kind: "error" }) })(body(), LIVE)
+    expect(r.status).toBe(503)
+    expect(deps.release).toHaveBeenCalledTimes(1)
+    expect(deps.engine).not.toHaveBeenCalled()
+  })
+  it("no-charge engine error -> settle released; ambiguous throw -> no settle (stays counted)", async () => {
+    const a = makeDeps().deps
+    a.engine.mockRejectedValueOnce(engineError("INSUFFICIENT_BALANCE", { required: 12.5 }))
+    const ha = spendHook({ kind: "reserved" })
+    await purchaseAirtimeHandler({ ...a, spend: ha })(body(), LIVE)
+    expect(ha.settle).toHaveBeenCalledWith({ keyId: "key-live-1", kind: "airtime", reference: "AIR-001", state: "released" })
+    const b = makeDeps().deps
+    b.engine.mockRejectedValueOnce(new Error("socket hang up"))
+    const hb = spendHook({ kind: "reserved" })
+    quietErrors()
+    await purchaseAirtimeHandler({ ...b, spend: hb })(body(), LIVE)
+    expect(hb.settle).not.toHaveBeenCalled()
+  })
+  it("review I2: a no-charge outcome settles the reservation BEFORE freeing the claim (a retry then sees a clean slate)", async () => {
+    const { deps } = makeDeps()
+    const order: string[] = []
+    const realRelease = deps.release.getMockImplementation()!
+    deps.release.mockImplementation(async (...a: any[]) => (order.push("release"), (realRelease as any)(...a)))
+    const h = spendHook({ kind: "reserved" })
+    h.settle.mockImplementation(async () => {
+      order.push("settle")
+    })
+    deps.engine.mockRejectedValueOnce(engineError("INSUFFICIENT_BALANCE", { required: 12.5 }))
+    await purchaseAirtimeHandler({ ...deps, spend: h })(body(), LIVE)
+    expect(order).toEqual(["settle", "release"])
+  })
+  it("reserve 'existing' (owned by another request) -> engine runs but this request never settles", async () => {
+    const { deps } = makeDeps()
+    const h = spendHook({ kind: "existing" })
+    const r = await purchaseAirtimeHandler({ ...deps, spend: h })(body(), LIVE)
+    expect(r.status).toBe(201)
+    expect(h.settle).not.toHaveBeenCalled()
+  })
+  it("a replay of a completed reference never reserves or settles", async () => {
+    const { deps } = makeDeps()
+    const h = spendHook({ kind: "reserved" })
+    await purchaseAirtimeHandler({ ...deps, spend: h })(body(), LIVE)
+    h.reserve.mockClear()
+    h.settle.mockClear()
+    const r = await purchaseAirtimeHandler({ ...deps, spend: h })(body(), LIVE)
+    expect(r.status).toBe(200)
+    expect(h.reserve).not.toHaveBeenCalled()
+    expect(h.settle).not.toHaveBeenCalled()
+  })
+})

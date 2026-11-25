@@ -2,6 +2,7 @@
 // Item text restates only what the docs registry already says. Newest first.
 
 import { V2_BASE_URL } from "./registry"
+import { SPEND_CAPS_PUBLISHED, SPEND_CAPS_PUBLISHED_ON } from "./flags"
 
 export interface ChangelogEntry {
   date: string
@@ -18,8 +19,21 @@ const V1_RETIREMENT_AT = Date.UTC(2026, 10, 30)
  * The changelog as of `now`: the v1 retirement entry reads "scheduled" before 2026-11-30 00:00 GMT
  * and "released" from then on. The clock is injectable for tests.
  */
-export function changelogAt(now: Date = new Date()): ChangelogEntry[] {
-  return CHANGELOG.map((e) => {
+/** Release 5 entry: shown only once daily spending limits are switched on (docs flag). */
+const DAILY_LIMIT_ENTRY: ChangelogEntry = {
+  date: SPEND_CAPS_PUBLISHED_ON,
+  status: "released",
+  title: "Daily spending limits",
+  items: [
+    "Set a daily spending limit on each live key in your dashboard (API keys, Daily spending limits). It protects your wallet if a key leaks.",
+    "A purchase that would go over a limit is refused with HTTP 402 DAILY_LIMIT_REACHED and nothing is charged. Totals reset at 00:00 GMT.",
+  ],
+  source: "docs/superpowers/specs/2026-11-24-api-money-r5-design.md",
+}
+
+export function changelogAt(now: Date = new Date(), opts: { spendCaps?: boolean } = {}): ChangelogEntry[] {
+  const base = (opts.spendCaps ?? SPEND_CAPS_PUBLISHED) ? [...CHANGELOG, DAILY_LIMIT_ENTRY].sort((a, b) => b.date.localeCompare(a.date)) : [...CHANGELOG]
+  return base.map((e) => {
     if (e.date !== "2026-11-30" || now.getTime() < V1_RETIREMENT_AT) return e
     return {
       ...e,

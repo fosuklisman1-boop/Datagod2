@@ -48,6 +48,7 @@ export const GATED_ROUTES: Readonly<Record<string, Capability>> = {
   "wallet/momo-sessions": "account.wallet",
   "user/keys": "account.api",
   "user/v2-keys": "account.api",
+  "user/v2-keys/[id]/spend-cap": "account.api",
   // Tenant SMS routes: gated once in lib/sms/tenant-auth.ts resolveAccount (shop.sms).
   "sms/business/documents": "shop.sms",
   "sms/business": "shop.sms",

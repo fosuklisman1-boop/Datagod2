@@ -1186,3 +1186,45 @@ describe("bills: in-progress / unknown messages never send the client to a new r
     }
   })
 })
+
+describe("POST /utilities/pay (live): daily spending limit", () => {
+  const spendHook = (reserve: { kind: string; scope?: "key" | "user" }, caps = true) => ({
+    settings: vi.fn(async () => ({ capsEnabled: caps, alertsEnabled: false, at: 0 })),
+    reserve: vi.fn(async () => reserve as any),
+    settle: vi.fn(async () => {}),
+  })
+  it("caps off -> no reserve; live + caps on -> reserves the face amount before the engine and settles spent", async () => {
+    const off = spendHook({ kind: "reserved" }, false)
+    await billPayHandler({ ...makeDeps().deps, spend: off })(payBody(), LIVE)
+    expect(off.reserve).not.toHaveBeenCalled()
+    const { deps } = makeDeps()
+    const h = spendHook({ kind: "reserved" })
+    const r = await billPayHandler({ ...deps, spend: h })(payBody(), LIVE)
+    expect(r.status).toBe(201)
+    expect(h.reserve).toHaveBeenCalledWith({ userId: "user-1", keyId: "key-live-1", kind: "bill", reference: "BILL-0701", amount: 50 })
+    expect(h.settle).toHaveBeenCalledWith({ keyId: "key-live-1", kind: "bill", reference: "BILL-0701", state: "spent" })
+  })
+  it("cap -> claim released, 402, engine never called; reserve error -> 503", async () => {
+    const { deps } = makeDeps()
+    const r = await billPayHandler({ ...deps, spend: spendHook({ kind: "cap", scope: "key" }) })(payBody(), LIVE)
+    expect(r.status).toBe(402)
+    expect(deps.release).toHaveBeenCalledTimes(1)
+    expect(deps.pay).not.toHaveBeenCalled()
+    const e = makeDeps().deps
+    expect((await billPayHandler({ ...e, spend: spendHook({ kind: "error" }) })(payBody(), LIVE)).status).toBe(503)
+    expect(e.pay).not.toHaveBeenCalled()
+  })
+  it("a reused token (not fresh) -> released; a throw -> no settle", async () => {
+    const a = makeDeps().deps
+    a.pay.mockResolvedValueOnce({ result: { ok: true, order: engineRow() }, fresh: false })
+    const ha = spendHook({ kind: "reserved" })
+    quietErrors()
+    await billPayHandler({ ...a, spend: ha })(payBody(), LIVE)
+    expect(ha.settle).toHaveBeenCalledWith({ keyId: "key-live-1", kind: "bill", reference: "BILL-0701", state: "released" })
+    const b = makeDeps().deps
+    b.pay.mockRejectedValueOnce(new Error("socket"))
+    const hb = spendHook({ kind: "reserved" })
+    await billPayHandler({ ...b, spend: hb })(payBody(), LIVE)
+    expect(hb.settle).not.toHaveBeenCalled()
+  })
+})

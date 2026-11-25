@@ -24,6 +24,7 @@
 import type { V2Context, V2HandlerResult } from "../handler"
 import type { V2ErrorStatus } from "../envelope"
 import type { ClaimOutcome } from "../idempotency"
+import { guardSpend, settleOwned, type SpendHook } from "../spend"
 import { mapClaimState } from "../commission"
 import {
   afaErrorResponse,
@@ -123,6 +124,8 @@ export interface AfaDeps {
     place(p: AfaSandboxPlaceParams): Promise<AfaSandboxPlaceResult>
   }
   now(): number
+  /** Release 5 daily spending limit (absent in unit tests that do not exercise it). */
+  spend?: SpendHook
 }
 
 // ---------------------------------------------------------------- messages
@@ -331,12 +334,20 @@ async function liveRegister(deps: AfaDeps, input: AfaInput, ctx: V2Context): Pro
     return fail(409, MSG_AFA_DUPLICATE)
   }
 
+  // Daily spending limit (live, caps on): the AFA price is read only then; a refusal frees the reference.
+  const spend = await guardSpend(deps.spend, ctx, "afa", input.reference, async () => Number(await deps.afaPrice()))
+  if (!spend.proceed) {
+    await safeRelease(deps, claimId, ctx.userId)
+    return spend.result
+  }
+
   // Engine. Only classified no-charge codes free the reference.
   let result: AfaEngineResult
   try {
     result = await deps.engine(engineParams(ctx, input))
   } catch (e) {
     if (classifyAfaError(engineCode(e)) === "no_charge") {
+      await settleOwned(deps.spend, spend.owned, ctx, "afa", input.reference, "released")
       await safeRelease(deps, claimId, ctx.userId)
       return errorResult(e)
     }
@@ -351,6 +362,8 @@ async function liveRegister(deps: AfaDeps, input: AfaInput, ctx: V2Context): Pro
     console.error(LOG_AMBIGUOUS)
     return fail(500, MSG_AFA_OUTCOME_UNKNOWN)
   }
+
+  await settleOwned(deps.spend, spend.owned, ctx, "afa", input.reference, "spent")
 
   // Success. Complete the row with what the engine returned; read back only if it lacks fields.
   let row: Record<string, any> = result.order

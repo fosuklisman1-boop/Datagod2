@@ -8,6 +8,7 @@ import { adminFetch } from "./admin-fetch"
 import { OverviewTiles } from "./OverviewTiles"
 import { FeatureControls } from "./FeatureControls"
 import { StuckV2Panel } from "./StuckV2Panel"
+import { MoneyProtectionCard } from "./MoneyProtection"
 import { TrendBarsView, type TrendPoint } from "./TrendBars"
 
 export interface OverviewTabProps {
@@ -30,6 +31,7 @@ export function OverviewTabView(p: OverviewTabProps & { trend: { points: TrendPo
         <TrendBarsView points={p.trend.points} loading={p.trend.loading} error={p.trend.error} onRetry={p.onTrendRetry} />
         <StuckV2Panel />
       </div>
+      <MoneyProtectionCard />
       <FeatureControls config={p.config} roles={p.roles} error={p.errors.config} onSave={p.saveConfig} onRetry={p.onRetry} onGlobalKill={p.globalKill} />
     </div>
   )

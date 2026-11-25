@@ -10,6 +10,8 @@ export const EXCLUDED: ExcludedRoute[] = [
   { path: "/api/admin/afa-registrations", method: "GET", reason: "fans out one auth lookup per row (up to 10000); use the page" },
   { path: "/api/admin/ai-config", method: "GET", reason: "AI configuration endpoint, the assistant must not read or change its own settings" },
   { path: "/api/admin/airtime/download", method: "POST", reason: "file download (CSV/XLSX/binary) response, not JSON" },
+  { path: "/api/admin/api-v2/developers/:userId/spend-cap", method: "PUT", reason: "fraud control (a developer's Datagod daily spending limit): a prompt-injected chat must not be able to raise or remove it; change it on the page" },
+  { path: "/api/admin/api-v2/money-settings", method: "PUT", reason: "fraud controls (switches daily spending limits and fraud warnings on or off, and their thresholds): a prompt-injected chat must not be able to loosen them; change them on the page" },
   { path: "/api/admin/api-v1/retirement/notify", method: "POST", reason: "long-running (up to 300 s; sends an SMS and an email to every user with an active v1 key, up to 5000 people) and a mass send with no preview or queue; use the page" },
   { path: "/api/admin/backfill/airtime-payments", method: "GET", reason: "one-off data backfill script, bulk writes outside normal flows" },
   { path: "/api/admin/backfill/airtime-payments", method: "POST", reason: "one-off data backfill script, bulk writes outside normal flows" },
