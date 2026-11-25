@@ -196,7 +196,10 @@ describe("guardSpend / settleOwned (request-path helpers)", () => {
     expect(stale).toEqual({ proceed: true, owned: false })
     const fresh = await guardSpend(hook({ kind: "existing", state: "reserved", ageSeconds: 5 } as any), ctx("live"), "data", "R", 8, { refuseInFlight: true })
     expect(fresh).toMatchObject({ proceed: false, result: { status: 409 } })
-    expect(STALE_RESERVATION_SECONDS).toBe(120)
+    // security review: stale only once the owner is certainly dead (> the longest v2 route maxDuration, 300 s), so a
+    // takeover can never race a live owner's settle (data_bulk under-count)
+    expect(STALE_RESERVATION_SECONDS).toBeGreaterThan(300)
+    expect(STALE_RESERVATION_SECONDS).toBe(360)
   })
   it("final review I1: reserveSpend maps age_s to ageSeconds; a missing or bad age stays undefined (treated as in flight)", async () => {
     const p = { userId: "u1", keyId: "k1", kind: "data" as const, reference: "ref-1", amount: 12.5 }

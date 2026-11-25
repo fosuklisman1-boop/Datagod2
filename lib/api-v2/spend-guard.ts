@@ -36,8 +36,11 @@ export interface SpendHook {
 export type GuardResult = { proceed: true; owned: boolean } | { proceed: false; result: { status: 402 | 409 | 503; error: { status: 402 | 409 | 503; message: string } } }
 
 const SPEND_UNAVAILABLE = "UNAVAILABLE: the daily spending limit could not be checked; nothing was charged. Retry with the same reference"
-/** A reservation older than this (seconds) is stale: well past the reserve (5 s lock) and place timeouts. */
-export const STALE_RESERVATION_SECONDS = 120
+/**
+ * A reservation older than this (seconds) is stale. It must exceed the longest v2 route maxDuration (300 s): only then
+ * is the owning request certainly dead, so a later request proceeding past it can never race the owner's settle.
+ */
+export const STALE_RESERVATION_SECONDS = 360
 export const MSG_SPEND_IN_PROGRESS =
   "REQUEST_IN_PROGRESS: a request with this reference is still being processed; nothing was charged by this one. Retry the same reference shortly"
 
