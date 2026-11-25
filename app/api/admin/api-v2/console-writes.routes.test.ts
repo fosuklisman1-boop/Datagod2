@@ -29,7 +29,14 @@ vi.mock("@/lib/api-v2/controls", async () => {
   return { ...actual, getControls: () => ({ invalidate: h.invalidate }) }
 })
 
+vi.mock("@/lib/api-v2/spend", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api-v2/spend")>("@/lib/api-v2/spend")
+  return { ...actual, getMoneySettings: () => ({ invalidate: h.invalidate, read: async () => ({ capsEnabled: false, alertsEnabled: false, at: 0 }) }) }
+})
+
 import { POST as pauseRoute } from "./developers/[userId]/pause/route"
+import { PUT as adminCapRoute } from "./developers/[userId]/spend-cap/route"
+import { PUT as moneyPutRoute } from "./money-settings/route"
 import { PUT as serviceRoute } from "./services/[service]/route"
 import { POST as annCreateRoute } from "./announcements/route"
 import { PUT as annPutRoute, DELETE as annDeleteRoute } from "./announcements/[id]/route"
@@ -44,6 +51,8 @@ const calls: [string, () => Promise<Response | null | undefined>][] = [
   ["announce create", () => annCreateRoute(req(annBody))],
   ["announce put", () => annPutRoute(req(annBody), ctx({ id: UID }))],
   ["announce delete", () => annDeleteRoute(req(), ctx({ id: UID }))],
+  ["admin spend cap", () => adminCapRoute(req({ cap: 50 }), ctx({ userId: UID }))],
+  ["money settings", () => moneyPutRoute(req({ capsEnabled: true }))],
 ]
 
 beforeEach(() => {
@@ -124,6 +133,8 @@ describe("route files export only handlers", () => {
     ["services/[service]/route.ts", ["PUT"]],
     ["announcements/route.ts", ["GET", "POST"]],
     ["announcements/[id]/route.ts", ["PUT", "DELETE"]],
+    ["developers/[userId]/spend-cap/route.ts", ["GET", "PUT"]],
+    ["money-settings/route.ts", ["GET", "PUT"]],
   ]
   it.each(files)("%s", async (file, expected) => {
     const src = readFileSync(join(__dirname, file), "utf8")
@@ -156,3 +167,24 @@ describe("review fixes (routes)", () => {
     expect(h.rpc).not.toHaveBeenCalled()
   })
 });
+
+describe("money protection routes (Release 5)", () => {
+  const evil = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+  it("admin cap: user scope, the path user, the verified admin; body actor/scope ignored", async () => {
+    await adminCapRoute(req({ cap: "25.50", actorId: evil, p_actor: evil, scope: "key", userId: evil }), ctx({ userId: UID }))
+    expect(h.rpc).toHaveBeenCalledWith("api_v2_set_spend_cap", { p_scope: "user", p_scope_id: UID, p_cap: 25.5, p_actor: h.adminId })
+  })
+  it("admin cap: bad cap or bad id -> 400 before rpc", async () => {
+    expect((await adminCapRoute(req({ cap: -3 }), ctx({ userId: UID })))!.status).toBe(400)
+    expect((await adminCapRoute(req({ cap: 3 }), ctx({ userId: "x" })))!.status).toBe(400)
+    expect(h.rpc).not.toHaveBeenCalled()
+  })
+  it("money settings: bad thresholds -> 400 before rpc; a change invalidates the money settings snapshot", async () => {
+    expect((await moneyPutRoute(req({ thresholds: { failure_ratio: 2 } })))!.status).toBe(400)
+    expect(h.rpc).not.toHaveBeenCalled()
+    const r = (await moneyPutRoute(req({ capsEnabled: true, alertsEnabled: false, thresholds: { cap_hits: 4, evil: 1 }, p_actor: evil })))!
+    expect(r.status).toBe(200)
+    expect(h.rpc).toHaveBeenCalledWith("api_v2_set_money_settings", { p_caps: true, p_alerts: false, p_thresholds: { cap_hits: 4 }, p_actor: h.adminId })
+    expect(h.invalidate).toHaveBeenCalledTimes(1)
+  })
+})
