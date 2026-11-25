@@ -5,7 +5,7 @@ const U = "11111111-1111-4111-8111-111111111111"
 const A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 
 function client(o: { rpc?: Record<string, unknown>; rows?: Record<string, unknown>; error?: unknown } = {}) {
-  const rpc = vi.fn(async (fn: string) => ({ data: o.rpc?.[fn] ?? null, error: null }))
+  const rpc = vi.fn(async (fn: string, _args?: Record<string, unknown>) => ({ data: o.rpc?.[fn] ?? null, error: null }))
   const from = vi.fn((table: string) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const chain: any = {
