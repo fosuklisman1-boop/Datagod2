@@ -3,7 +3,8 @@ import { runAgenticLoop } from "@/lib/ai-agentic-loop"
 import { aiTools, type StorefrontServiceFlags } from "@/lib/ai-tools"
 import type { AIProvider, SystemPrompt } from "@/lib/ai-providers"
 import { buildAdminPrompt, buildDashboardPrompt, buildHomePrompt, buildStorefrontPrompt } from "@/lib/ai-prompts"
-import { renderKnowledge, type KnowledgeEntry } from "@/lib/ai-prompts/knowledge"
+import { buildKnowledgeSection, renderKnowledge, type KnowledgeEntry } from "@/lib/ai-prompts/knowledge"
+import { audiencesFor } from "@/lib/ai-site-guide"
 import { checkExpectation, type Expectation, type EvalResult } from "@/lib/ai-eval/assert"
 
 export interface Scenario {
@@ -19,6 +20,10 @@ export interface Scenario {
   storefrontServices?: ("data_bundles" | "airtime" | "results_checker")[]
   /** Fixed knowledge-base entries injected into the prompt. */
   knowledge?: KnowledgeEntry[]
+  /** Inject the real site guide for this scenario's audience (same rules as the chat route). */
+  siteGuide?: boolean
+  /** Dashboard only, with siteGuide: the user owns a shop (adds the shop_owner pages and articles). */
+  isShopOwner?: boolean
   /** Admin only: run with the admin catalog switch ON (catalog tools + prompt block, acting tools dropped). */
   adminCatalog?: boolean
   expect: Expectation[]
@@ -36,7 +41,12 @@ const NONCE = "EVALNONCE0001"
 
 /** Fixed fake user data: never real people, never from a database. */
 export function buildScenarioSystem(s: Scenario): SystemPrompt {
-  const knowledge = s.knowledge ? renderKnowledge(s.knowledge) : ""
+  const knowledge = s.siteGuide
+    ? buildKnowledgeSection(
+        audiencesFor({ context: s.context, role: s.role, isShopOwner: s.isShopOwner === true, signedIn: s.context === "dashboard" || s.context === "admin" }),
+        s.knowledge ?? [],
+      )
+    : s.knowledge ? renderKnowledge(s.knowledge) : ""
   const common = { ussdDialCode: "*000*1#", knowledge }
   if (s.context === "home") {
     return buildHomePrompt({ ...common, guestPurchaseUrl: "/buy", channelNote: "" })

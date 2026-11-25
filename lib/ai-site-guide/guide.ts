@@ -2,7 +2,7 @@ import { ARTICLES } from "./articles"
 import { SITE_PAGES } from "./pages"
 import type { Audience, SiteArticle, SitePage } from "./types"
 
-export const SITE_GUIDE_BUDGET_CHARS = 8000
+export const SITE_GUIDE_BUDGET_CHARS = 10000
 
 function visible(item: { audiences: Audience[] }, audiences: Audience[]): boolean {
   return item.audiences.some((a) => audiences.includes(a))

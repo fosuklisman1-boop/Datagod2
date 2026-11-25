@@ -64,9 +64,9 @@ describe("renderKnowledge", () => {
     expect(renderKnowledge(entries, full.length - 1)).toBe("") // never partial
   })
 
-  it("empty input renders nothing and the default budget is 16000", () => {
+  it("empty input renders nothing and the default budget is 18000", () => {
     expect(renderKnowledge([])).toBe("")
-    expect(KNOWLEDGE_BUDGET_CHARS).toBe(16000)
+    expect(KNOWLEDGE_BUDGET_CHARS).toBe(18000)
   })
 })
 

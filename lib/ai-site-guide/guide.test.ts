@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { audiencesFor } from "./audience"
-import { checkSiteGuideLimits, renderSiteGuide } from "./guide"
+import { checkSiteGuideLimits, renderSiteGuide, SITE_GUIDE_BUDGET_CHARS } from "./guide"
 import { ARTICLES } from "./articles"
 import { SITE_PAGES } from "./pages"
 import { searchSite } from "./search"
@@ -98,6 +98,9 @@ describe("checkSiteGuideLimits", () => {
       ...okArt, id: `a${i}`, title: "t".repeat(100),
     }))
     expect(checkSiteGuideLimits([], many).join("\n")).toContain("budget")
+  })
+  it("the guide budget is 10000 chars", () => {
+    expect(SITE_GUIDE_BUDGET_CHARS).toBe(10000)
   })
   it("real data is within limits", () => {
     expect(checkSiteGuideLimits(SITE_PAGES, ARTICLES)).toEqual([])

@@ -3,20 +3,21 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 const h = vi.hoisted(() => ({
   rows: [] as Array<{ category: string; question: string; answer: string }>,
   error: null as null | { message: string },
-  calls: [] as Array<{ table: string; contains: unknown[][]; or: string[]; eq: unknown[][]; limit: number[] }>,
+  calls: [] as Array<{ table: string; contains: unknown[][]; or: string[]; eq: unknown[][]; limit: number[]; steps: string[]; order: unknown[][] }>,
 }))
 
 vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
     from: (table: string) => {
-      const call = { table, contains: [] as unknown[][], or: [] as string[], eq: [] as unknown[][], limit: [] as number[] }
+      const call = { table, contains: [] as unknown[][], or: [] as string[], eq: [] as unknown[][], limit: [] as number[], steps: [] as string[], order: [] as unknown[][] }
       h.calls.push(call)
       const b: any = {
         select: () => b,
         eq: (...a: unknown[]) => { call.eq.push(a); return b },
         contains: (...a: unknown[]) => { call.contains.push(a); return b },
         or: (s: string) => { call.or.push(s); return b },
-        limit: (n: number) => { call.limit.push(n); return b },
+        order: (...a: unknown[]) => { call.order.push(a); call.steps.push("order"); return b },
+        limit: (n: number) => { call.limit.push(n); call.steps.push("limit"); return b },
         then: (res: any, rej: any) =>
           Promise.resolve({ data: h.error ? null : h.rows, error: h.error }).then(res, rej),
       }
@@ -122,6 +123,26 @@ describe("get_knowledge_base", () => {
     expect(withSite.entries[0].question).toBe("Wallet refunds")
     const none = await run("zzzzunmatched")
     expect(none.error).toBe("db down")
+  })
+
+  it("orders DB rows deterministically (category, then question) before the limit", async () => {
+    await run("refunds")
+    const c = dbCall()
+    expect(c.order).toEqual([["category", { ascending: true }], ["question", { ascending: true }]])
+    expect(c.steps).toEqual(["order", "order", "limit"])
+    expect(c.limit).toEqual([5])
+  })
+
+  it("ignores one-character tokens in the DB filter", async () => {
+    await run("x 7 refunds")
+    const or = dbCall().or[0]
+    expect(or).toContain("%refund%")
+    expect(or).not.toMatch(/%[a-z0-9]%/)
+  })
+
+  it("a query of only one-character tokens does not touch the table", async () => {
+    await run("x 7 q")
+    expect(h.calls.some((c) => c.table === "ai_knowledge")).toBe(false)
   })
 
   it("nothing found", async () => {

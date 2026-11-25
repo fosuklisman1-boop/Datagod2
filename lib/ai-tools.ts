@@ -3182,7 +3182,7 @@ export async function executeToolCall(
 
         // DB rows: the filter is built ONLY from [a-z0-9] tokens (max 6), each escaped for ILIKE; the raw query never
         // reaches the PostgREST .or() string. No tokens = no DB read (an empty filter would dump the table).
-        const dbTokens = queryTokens(rawQuery).map((t) => t.replace(/[%_\\]/g, "\\$&"))
+        const dbTokens = queryTokens(rawQuery).filter((t) => t.length >= 2).map((t) => t.replace(/[%_\\]/g, "\\$&"))
         let dbRows: Array<{ category: string; question: string; answer: string }> = []
         let dbError: string | null = null
         if (dbTokens.length > 0) {
@@ -3192,6 +3192,8 @@ export async function executeToolCall(
             .eq("is_active", true)
             .contains("contexts", [contextLabel])
             .or(dbTokens.flatMap((t) => [`question.ilike.%${t}%`, `answer.ilike.%${t}%`, `category.ilike.%${t}%`]).join(","))
+            .order("category", { ascending: true })
+            .order("question", { ascending: true })
             .limit(5)
           if (error) dbError = error.message
           else dbRows = data ?? []

@@ -77,7 +77,7 @@ describe("account articles: shape", () => {
 
   it("keeps the whole guide inside its budget for every audience set", () => {
     expect(checkSiteGuideLimits(SITE_PAGES, ARTICLES)).toEqual([])
-    for (const set of [GUEST, CUSTOMER, ADMIN]) expect(renderSiteGuide(set).length).toBeLessThanOrEqual(8000)
+    for (const set of [GUEST, CUSTOMER, ADMIN]) expect(renderSiteGuide(set).length).toBeLessThanOrEqual(10000)
   })
 })
 

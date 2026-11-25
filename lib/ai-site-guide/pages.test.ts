@@ -102,6 +102,6 @@ describe("customer page guide", () => {
 
   it("real data passes the guide limits for every audience set", () => {
     expect(checkSiteGuideLimits(SITE_PAGES, ARTICLES)).toEqual([])
-    expect(renderSiteGuide(["public", "customer", "dealer", "shop_owner", "admin"]).length).toBeLessThanOrEqual(8000)
+    expect(renderSiteGuide(["public", "customer", "dealer", "shop_owner", "admin"]).length).toBeLessThanOrEqual(10000)
   })
 })
