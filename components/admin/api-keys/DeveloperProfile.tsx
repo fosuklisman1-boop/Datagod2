@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils"
 import { adminFetch } from "./admin-fetch"
 import { Eyebrow, IconChip, InlineError, Panel } from "./ui"
 import { TrendBarsView } from "./TrendBars"
+import { DeveloperMoneyPanel } from "./MoneyProtection"
 
 const when = (iso: string | null) => {
   if (!iso) return "never"
@@ -302,5 +303,13 @@ export function DeveloperProfilePanel({ userId, onBack, onChanged }: { userId: s
     return true
   }
 
-  return <DeveloperProfileView profile={profile} loading={loading} error={error} notice={notice} busy={busy} onPause={onPause} onBack={onBack} onRetry={() => void load()} />
+  // Live keys only, labelled by type and prefix (never the hash).
+  const keyLabels: Record<string, string> = {}
+  for (const k of profile?.keys ?? []) if (k.environment === "live") keyLabels[k.id] = `${k.keyType ?? "key"} ${k.keyPrefix ?? ""}`.trim()
+  return (
+    <div className="space-y-5">
+      <DeveloperProfileView profile={profile} loading={loading} error={error} notice={notice} busy={busy} onPause={onPause} onBack={onBack} onRetry={() => void load()} />
+      {profile && <DeveloperMoneyPanel userId={userId} keyLabels={keyLabels} />}
+    </div>
+  )
 }
