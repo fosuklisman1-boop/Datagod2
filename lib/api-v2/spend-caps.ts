@@ -19,10 +19,28 @@ export function parseCapInput(v: unknown): { ok: true; cap: number | null } | { 
 const bad = (error: string): WriteResult => ({ status: 400, body: { error, code: "bad_input" } })
 const notFound: WriteResult = { status: 404, body: { error: "Key not found.", code: "not_found" } }
 
+/** The key must belong to the session user and be live (checked here AND in SQL: defence in depth). */
+async function ownedLiveKey(client: RpcClient, userId: string, keyId: string): Promise<WriteResult | null> {
+  type KeyRow = { user_id?: unknown; environment?: unknown }
+  const key: KeyRow | null = await (async () => {
+    try {
+      const r = (await client.from("api_v2_keys").select("user_id, environment").eq("id", keyId).maybeSingle()) as { data: KeyRow | null }
+      return r.data
+    } catch {
+      return null
+    }
+  })()
+  if (!key || key.user_id !== userId) return notFound
+  if (key.environment !== "live") return bad("Daily limits apply to live keys only.")
+  return null
+}
+
 export async function setDeveloperCap(client: RpcClient, p: { userId: string; keyId: string; cap: unknown }): Promise<WriteResult> {
   if (typeof p.keyId !== "string" || !UUID_RE.test(p.keyId)) return bad("Not a valid key id.")
   const parsed = parseCapInput(p.cap)
   if (!parsed.ok) return bad("The limit must be an amount in GHS greater than 0 and at most 1,000,000, or empty for no limit.")
+  const denied = await ownedLiveKey(client, p.userId, p.keyId)
+  if (denied) return denied
   let res: { data: unknown; error: unknown }
   try {
     res = await client.rpc("api_v2_set_spend_cap", { p_scope: "key", p_scope_id: p.keyId, p_cap: parsed.cap, p_actor: p.userId })
@@ -43,17 +61,8 @@ export async function setDeveloperCap(client: RpcClient, p: { userId: string; ke
 
 export async function getKeySpend(client: RpcClient, p: { userId: string; keyId: string; capsActive: boolean }): Promise<WriteResult> {
   if (typeof p.keyId !== "string" || !UUID_RE.test(p.keyId)) return bad("Not a valid key id.")
-  type KeyRow = { user_id?: unknown; environment?: unknown }
-  const key: KeyRow | null = await (async () => {
-    try {
-      const r = (await client.from("api_v2_keys").select("user_id, environment").eq("id", p.keyId).maybeSingle()) as { data: KeyRow | null }
-      return r.data
-    } catch {
-      return null
-    }
-  })()
-  if (!key || key.user_id !== p.userId) return notFound
-  if (key.environment !== "live") return bad("Daily limits apply to live keys only.")
+  const denied = await ownedLiveKey(client, p.userId, p.keyId)
+  if (denied) return denied
   let res: { data: unknown; error: unknown }
   try {
     res = await client.rpc("api_v2_spend_today", { p_user: p.userId })

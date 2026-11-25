@@ -34,6 +34,16 @@ describe("setDeveloperCap", () => {
     expect((await setDeveloperCap(c, { userId: U, keyId: K, cap: -1 })).status).toBe(400)
     expect(rpc).not.toHaveBeenCalled()
   })
+  it("defence in depth: someone else's key -> 404 and a test key -> 400 BEFORE any write rpc (SQL checks too)", async () => {
+    const theirs = client({ key: { user_id: "33333333-3333-4333-8333-333333333333", environment: "live" } })
+    expect((await setDeveloperCap(theirs.c, { userId: U, keyId: K, cap: 20 })).status).toBe(404)
+    expect(theirs.rpc).not.toHaveBeenCalled()
+    const missing = client({ key: null })
+    expect((await setDeveloperCap(missing.c, { userId: U, keyId: K, cap: 20 })).status).toBe(404)
+    const test = client({ key: { user_id: U, environment: "test" } })
+    expect((await setDeveloperCap(test.c, { userId: U, keyId: K, cap: 20 })).status).toBe(400)
+    expect(test.rpc).not.toHaveBeenCalled()
+  })
   it("calls the key-scope rpc with the session user as actor; maps not_found 404, not_live 400", async () => {
     const ok = client({ rpc: { api_v2_set_spend_cap: { ok: true, changed: true } } })
     const r = await setDeveloperCap(ok.c, { userId: U, keyId: K, cap: 20 })
