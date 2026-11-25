@@ -224,9 +224,10 @@ describe("services articles: content rules", () => {
     }
   })
 
-  it("does not use data or bundle wording in the USSD article", () => {
-    const a = byId("ussd-main-menu")
-    expect([a.title, a.summary, a.body].join("\n")).not.toMatch(/\bdata\b|bundle/i)
+  // Deliberately changed (ruling): the no data/bundle rule covers USSD screen text only, not chat answers.
+  it("mentions data in the USSD article and finds it for a data-on-USSD question", () => {
+    expect(byId("ussd-main-menu").body).toMatch(/data bundles/)
+    expect(searchSite("can i buy data on ussd", ["public"], 3).map((a) => a.id)).toContain("ussd-main-menu")
   })
 
   it("keeps the articles away from audiences that cannot use the pages", () => {

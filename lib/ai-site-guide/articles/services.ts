@@ -193,7 +193,7 @@ Where: your phone's dialer. All services are listed on Services (/services). For
 
 How:
 1. Dial the Datagod code from the website.
-2. Choose from the menu what you want, such as airtime, bills or a results checker. Only the services that are on at that time are shown, so the list can change.
+2. Choose from the menu what you want, such as data bundles, airtime, bills or a results checker. Only the services that are on at that time are shown, so the list can change.
 3. Type the number of the item you want and press send.
 4. Follow the screens: choose the network, enter the number that should get the order, and confirm. Prices are shown on the screens.
 5. Pay with Mobile Money, or from your wallet if that option is offered. For Mobile Money, approve the prompt on your phone with your PIN.
