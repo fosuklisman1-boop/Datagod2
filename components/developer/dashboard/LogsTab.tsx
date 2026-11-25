@@ -1,11 +1,11 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ScrollText } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Eyebrow, IconChip, InlineError, Panel, TONE_CHIP } from "@/components/admin/api-keys/ui"
-import { httpTone, reasonLabel, shortTime } from "@/lib/api-v2/dev-dashboard-view"
+import { httpTone, latestGate, reasonLabel, shortTime } from "@/lib/api-v2/dev-dashboard-view"
 import type { V2KeySummary } from "@/lib/api-v2/key-slots"
 import { cn } from "@/lib/utils"
 import { dashJson } from "./dash-fetch"
@@ -62,10 +62,13 @@ export function LogsTab() {
     [key, env, status, from, to],
   )
 
+  const gate = useRef(latestGate())
   const load = useCallback(
     async (before: string | null) => {
+      const ticket = gate.current.next()
       setLoading(true)
       const r = await dashJson<{ rows: LogRow[]; next: string | null }>(query(before))
+      if (!gate.current.isLatest(ticket)) return // a newer filter or page was asked for meanwhile
       setLoading(false)
       if (!r.ok) return setError(r.error)
       setError(null)

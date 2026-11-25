@@ -84,6 +84,20 @@ export const ghs = (n: number | string | null | undefined): string => {
   return Number.isFinite(v) ? `GHS ${v.toLocaleString("en-GH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "-"
 }
 
+/**
+ * Stale-response guard: each load takes a ticket; only the newest ticket may apply its answer, so a slow earlier
+ * response can never overwrite a newer filter's rows or append an old page (final review I1).
+ */
+export function latestGate(): { next(): number; isLatest(ticket: number): boolean } {
+  let n = 0
+  return { next: () => ++n, isLatest: (t) => t === n }
+}
+
+/** The list with one order's status replaced, matched by product and reference (never by its position). */
+export function withStatus<T extends { product: string; reference: string; status: string }>(rows: T[], product: string, reference: string, status: string): T[] {
+  return rows.map((r) => (r.product === product && r.reference === reference ? { ...r, status } : r))
+}
+
 /** "2026-11-25T10:00:00.123456+00:00" -> "25 Nov, 10:00" (GMT = Ghana time). */
 export function shortTime(iso: string): string {
   const d = new Date(iso)

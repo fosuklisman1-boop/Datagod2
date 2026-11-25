@@ -11,6 +11,8 @@ export async function GET(request: NextRequest) {
   if (!user) return unauthorized()
   const refused = await requireCapability(dashboardClient(), user.id, "account.api")
   if (refused) return refused
+  const limited = await readLimited(request, user.id, "v2_dashboard_read", 120, 60_000)
+  if (limited) return limited
   const out = await getBalanceAlert(dashboardClient(), user.id)
   return json(out.status, out.body)
 }

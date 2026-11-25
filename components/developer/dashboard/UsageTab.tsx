@@ -1,9 +1,9 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { BarChart3, ListChecks, TriangleAlert } from "lucide-react"
 import { Eyebrow, IconChip, InlineError, Panel, Segmented } from "@/components/admin/api-keys/ui"
-import { reasonLabel, usageTotals } from "@/lib/api-v2/dev-dashboard-view"
+import { latestGate, reasonLabel, usageTotals } from "@/lib/api-v2/dev-dashboard-view"
 import { PRODUCT_LABEL, type OrderProduct } from "@/lib/api-v2/dev-dashboard"
 import { DayBars } from "./DayBars"
 import { dashJson } from "./dash-fetch"
@@ -19,9 +19,12 @@ export function UsageTab() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
+  const gate = useRef(latestGate())
   const load = useCallback(async () => {
+    const ticket = gate.current.next()
     setLoading(true)
     const r = await dashJson<Usage>(`/api/user/v2-dashboard/usage?days=${days}${env === "all" ? "" : `&env=${env}`}`)
+    if (!gate.current.isLatest(ticket)) return // a newer period or key filter was asked for meanwhile
     setLoading(false)
     if (!r.ok) return setError(r.error)
     setError(null)

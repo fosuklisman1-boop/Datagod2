@@ -1,5 +1,20 @@
 import { describe, it, expect } from "vitest"
-import { parseTab, reasonLabel, usageTotals, orderTone, httpTone, ghs, shortTime, DASH_TABS } from "./dev-dashboard-view"
+import { parseTab, reasonLabel, usageTotals, orderTone, httpTone, ghs, shortTime, DASH_TABS, latestGate, withStatus } from "./dev-dashboard-view"
+
+describe("stale responses and row updates", () => {
+  it("latestGate: only the newest request may apply its answer", () => {
+    const gate = latestGate()
+    const first = gate.next()
+    const second = gate.next()
+    expect(gate.isLatest(first)).toBe(false)
+    expect(gate.isLatest(second)).toBe(true)
+  })
+  it("withStatus changes the matching order only, wherever it sits in the list", () => {
+    const rows = [{ product: "data", reference: "A", status: "processing" }, { product: "airtime", reference: "A", status: "processing" }]
+    expect(withStatus(rows, "airtime", "A", "completed")).toEqual([rows[0], { product: "airtime", reference: "A", status: "completed" }])
+    expect(withStatus(rows, "bill", "A", "failed")).toEqual(rows)
+  })
+})
 
 describe("dashboard view helpers", () => {
   it("tabs: six, unknown reads overview", () => {

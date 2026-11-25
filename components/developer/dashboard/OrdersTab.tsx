@@ -1,12 +1,12 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Download, PackageSearch, RefreshCw, Search } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Eyebrow, IconChip, InlineError, Panel, TONE_CHIP } from "@/components/admin/api-keys/ui"
-import { ghs, orderTone, shortTime } from "@/lib/api-v2/dev-dashboard-view"
+import { ghs, latestGate, orderTone, shortTime, withStatus } from "@/lib/api-v2/dev-dashboard-view"
 import { ORDER_PRODUCTS, ORDER_STATUSES, PRODUCT_LABEL, type OrderProduct, type OrderRow } from "@/lib/api-v2/dev-dashboard"
 import { cn } from "@/lib/utils"
 import { dashDownload, dashJson } from "./dash-fetch"
@@ -66,10 +66,13 @@ export function OrdersTab() {
   const [loading, setLoading] = useState(false)
   const [downloading, setDownloading] = useState(false)
 
+  const gate = useRef(latestGate())
   const load = useCallback(
     async (before: string | null) => {
+      const ticket = gate.current.next()
       setLoading(true)
       const r = await dashJson<{ rows: OrderRow[]; next: string | null }>(`/api/user/v2-dashboard/orders?${toParams(applied, before)}`)
+      if (!gate.current.isLatest(ticket)) return // a newer search or page was asked for meanwhile
       setLoading(false)
       if (!r.ok) return setError(r.error)
       setError(null)
@@ -80,7 +83,7 @@ export function OrdersTab() {
   )
   useEffect(() => void load(null), [load])
 
-  const setStatus = (i: number, s: string) => setRows((prev) => prev.map((r, j) => (j === i ? { ...r, status: s } : r)))
+  const setStatus = (row: OrderRow, s: string) => setRows((prev) => withStatus(prev, row.product, row.reference, s))
   const set = (k: keyof Filters) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setDraft((d) => ({ ...d, [k]: e.target.value }))
 
   const download = async () => {
@@ -148,7 +151,7 @@ export function OrdersTab() {
       {!loading && !error && rows.length === 0 && <p className="py-6 text-center text-sm text-muted-foreground">No orders match.</p>}
 
       <ul className="space-y-2 md:hidden">
-        {rows.map((r, i) => (
+        {rows.map((r) => (
           <li key={`${r.product}:${r.reference}`} className="rounded-xl border border-border p-3 text-sm">
             <div className="flex items-center justify-between gap-2">
               <span className="font-semibold">{PRODUCT_LABEL[r.product as OrderProduct] ?? r.product}</span>
@@ -158,7 +161,7 @@ export function OrdersTab() {
             <p className="mt-1 text-xs text-muted-foreground">{[r.item, r.recipient].filter(Boolean).join(" · ")}</p>
             <div className="mt-1 flex items-center justify-between text-xs">
               <span className="text-muted-foreground">{shortTime(r.created_at)} · {ghs(r.amount)}</span>
-              <CheckNow row={r} onStatus={(s) => setStatus(i, s)} />
+              <CheckNow row={r} onStatus={(s) => setStatus(r, s)} />
             </div>
           </li>
         ))}
@@ -178,7 +181,7 @@ export function OrdersTab() {
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {rows.map((r, i) => (
+            {rows.map((r) => (
               <tr key={`${r.product}:${r.reference}`}>
                 <td className="whitespace-nowrap py-2 pr-3 text-xs">{shortTime(r.created_at)}</td>
                 <td className="py-2 pr-3 text-xs">{PRODUCT_LABEL[r.product as OrderProduct] ?? r.product}</td>
@@ -187,7 +190,7 @@ export function OrdersTab() {
                 <td className="py-2 pr-3 text-xs">{r.item}</td>
                 <td className="py-2 pr-3 text-right text-xs tabular-nums">{ghs(r.amount)}</td>
                 <td className="py-2 pr-3"><StatusPill status={r.status} /></td>
-                <td className="py-2 text-right"><CheckNow row={r} onStatus={(s) => setStatus(i, s)} /></td>
+                <td className="py-2 text-right"><CheckNow row={r} onStatus={(s) => setStatus(r, s)} /></td>
               </tr>
             ))}
           </tbody>

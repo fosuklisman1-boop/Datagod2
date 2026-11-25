@@ -51,6 +51,12 @@ describe("parseLogsQuery", () => {
     expect(o.ok && o.value.beforeAt).toBe(at)
     expect(parseLogsQuery(q(`before=${encodeURIComponent("Tue Nov 20 2026")}|${KEY}`)).ok).toBe(false)
   })
+  it("a From date alone covers that day plus the next 30 (never silently the last 31 days)", () => {
+    const r = parseLogsQuery(q("from=2026-08-01"))
+    expect(r.ok && r.value.filters).toEqual({ from: "2026-08-01T00:00:00.000Z", to: "2026-08-31T23:59:59.999Z" })
+    const o = parseOrdersQuery(q("from=2026-08-01"))
+    expect(o.ok && o.value.filters).toEqual({ from: "2026-08-01T00:00:00.000Z", to: "2026-08-31T23:59:59.999Z" })
+  })
   it("drops unknown values instead of passing them on", () => {
     const r = parseLogsQuery(q("env=prod&status=weird&endpoint=/etc/passwd&limit=9999"))
     expect(r).toEqual({ ok: true, value: { filters: {}, beforeAt: null, beforeId: null, limit: 50 } })

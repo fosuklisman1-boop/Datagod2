@@ -47,6 +47,8 @@ function readRange(p: URLSearchParams): Parsed<{ from?: string; to?: string }> {
     if (!v) return { ok: false, error: "Dates must be real days written YYYY-MM-DD." }
     out.to = v
   }
+  // A From date alone means that day plus the next 30 (final review I2): never the silent "last 31 days" clamp.
+  if (out.from && !out.to) out.to = new Date(Date.parse(out.from) + MAX_RANGE_MS - 1).toISOString()
   if (out.from && out.to) {
     const span = Date.parse(out.to) - Date.parse(out.from)
     if (span < 0) return { ok: false, error: "The start date is after the end date." }
