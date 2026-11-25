@@ -2,7 +2,7 @@ import { ARTICLES } from "./articles"
 import { SITE_PAGES } from "./pages"
 import type { Audience, SiteArticle, SitePage } from "./types"
 
-export const SITE_GUIDE_BUDGET_CHARS = 7000
+export const SITE_GUIDE_BUDGET_CHARS = 8000
 
 function visible(item: { audiences: Audience[] }, audiences: Audience[]): boolean {
   return item.audiences.some((a) => audiences.includes(a))
@@ -60,8 +60,7 @@ export function renderSiteGuide(
     for (const p of ps) lines.push(`- ${p.title} (${p.path}): ${p.purpose}`)
   }
   if (as.length > 0) {
-    lines.push("", "Help articles:")
-    for (const a of as) lines.push(`- ${a.title}: ${a.summary}`)
+    lines.push("", `Detailed how-to articles (use get_knowledge_base to read one): ${as.map((a) => a.title).join("; ")}`)
   }
   lines.push("", "(end of site guide)")
   return lines.join("\n")

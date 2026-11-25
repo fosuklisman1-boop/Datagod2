@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { renderSiteGuide, type Audience, type SiteArticle, type SitePage } from "@/lib/ai-site-guide"
 
-export const KNOWLEDGE_BUDGET_CHARS = 12000
+export const KNOWLEDGE_BUDGET_CHARS = 16000
 export const KNOWLEDGE_CACHE_MS = 60_000
 
 /** Added to the stable prefix, right before the knowledge section, only when a section is injected. */

@@ -95,7 +95,7 @@ describe("checkSiteGuideLimits", () => {
   })
   it("reports an over-budget rendered guide", () => {
     const many: SiteArticle[] = Array.from({ length: 100 }, (_, i) => ({
-      ...okArt, id: `a${i}`, summary: "y".repeat(190),
+      ...okArt, id: `a${i}`, title: "t".repeat(100),
     }))
     expect(checkSiteGuideLimits([], many).join("\n")).toContain("budget")
   })

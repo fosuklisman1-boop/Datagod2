@@ -3,6 +3,7 @@ import type { Audience, SitePage } from "./types"
 const PUB: Audience[] = ["public"]
 const CUS: Audience[] = ["customer"]
 const SHOP: Audience[] = ["shop_owner"]
+const SMS: Audience[] = ["customer", "shop_owner"]
 
 /** Plain-English guide to the customer, dealer and shop pages. Admin pages live in the admin catalog. */
 export const SITE_PAGES: SitePage[] = [
@@ -20,7 +21,7 @@ export const SITE_PAGES: SitePage[] = [
   // Auth
   { path: "/auth/login", title: "Log in", audiences: PUB, purpose: "Sign in to your account.", tasks: ["Enter your login details", "Reset a forgotten password"] },
   { path: "/auth/signup", title: "Sign up", audiences: PUB, purpose: "Create an account with a verified phone number.", tasks: ["Fill the form", "Verify your phone with a code"] },
-  { path: "/auth/complete-profile", title: "Complete profile", audiences: PUB, purpose: "Finish sign-up after confirming your email.", tasks: ["Add and verify your phone number"] },
+  { path: "/auth/complete-profile", title: "Complete profile", audiences: CUS, purpose: "Finish sign-up after confirming your email.", tasks: ["Add and verify your phone number"] },
   { path: "/auth/forgot-password", title: "Forgot password", audiences: PUB, purpose: "Get a link to reset your password.", tasks: ["Enter your email", "Open the link we send"] },
   { path: "/auth/reset-password", title: "Reset password", audiences: PUB, purpose: "Choose a new password from the emailed link.", tasks: ["Type a new password"] },
   // Developer docs
@@ -49,9 +50,9 @@ export const SITE_PAGES: SitePage[] = [
   { path: "/dashboard/afa-orders", title: "AFA orders", audiences: CUS, purpose: "Register for AFA and see your registrations.", tasks: ["Submit a registration", "Track the status"] },
   // Dashboard: orders and money
   { path: "/dashboard/my-orders", title: "My orders", audiences: CUS, purpose: "All your orders and whether they were delivered.", tasks: ["Search or filter orders", "Check a status"] },
-  { path: "/dashboard/wallet", title: "Wallet", audiences: CUS, purpose: "Your balance; top up with MoMo or card.", tasks: ["Top up", "See recent wallet activity"] },
+  { path: "/dashboard/wallet", title: "Wallet", audiences: CUS, purpose: "Balance, top-up (may be off for some accounts), Send and Claim.", tasks: ["Top up when available", "Use the Send and Claim tab", "See recent wallet activity"] },
   { path: "/dashboard/transactions", title: "Transactions", audiences: CUS, purpose: "History of every payment and wallet movement.", tasks: ["Search your history", "See totals"] },
-  { path: "/dashboard/payment-reverify", title: "Payment re-check", audiences: SHOP, purpose: "Re-check a payment that went through but has no order.", tasks: ["Enter the payment details", "Re-check"] },
+  { path: "/dashboard/payment-reverify", title: "Payment re-check", audiences: SHOP, purpose: "Your shop's pending orders; re-check their payments.", tasks: ["Search pending orders by reference, phone or name", "Re-check payment"] },
   { path: "/dashboard/notifications", title: "Notifications", audiences: CUS, purpose: "Messages and alerts about your account.", tasks: ["Read alerts", "Mark as read"] },
   // Dashboard: account
   { path: "/dashboard/profile", title: "Profile", audiences: CUS, purpose: "Your details, phone verification, password and sessions.", tasks: ["Update details", "Verify phone", "Change password"] },
@@ -60,15 +61,15 @@ export const SITE_PAGES: SitePage[] = [
   { path: "/dashboard/upgrade", title: "Upgrade to dealer", audiences: CUS, purpose: "Pay to become a dealer with cheaper prices.", tasks: ["Compare plans", "Verify phone and pay"] },
   { path: "/dashboard/top-performers", title: "Top performers", audiences: CUS, purpose: "Leaderboard and prizes for top buyers and shops.", tasks: ["See rankings", "Read the prize rules"] },
   // Dashboard: SMS
-  { path: "/dashboard/sms", title: "SMS home", audiences: SHOP, purpose: "SMS credits and recent credit activity.", tasks: ["Check credits", "Go to compose"] },
-  { path: "/dashboard/sms/compose", title: "Send SMS", audiences: SHOP, purpose: "Write and send a bulk SMS.", tasks: ["Choose recipients", "Write and send"] },
-  { path: "/dashboard/sms/contacts", title: "SMS contacts", audiences: SHOP, purpose: "Manage contact groups for SMS.", tasks: ["Create a group", "Add or remove contacts"] },
-  { path: "/dashboard/sms/credits", title: "SMS credits", audiences: SHOP, purpose: "Buy SMS credit bundles and see history.", tasks: ["Buy a bundle", "View credit history"] },
-  { path: "/dashboard/sms/records", title: "SMS records", audiences: SHOP, purpose: "List of messages you sent.", tasks: ["Open a past send"] },
-  { path: "/dashboard/sms/records/:id", title: "SMS record", audiences: SHOP, purpose: "Delivery details of one SMS send.", tasks: ["See who received it"] },
-  { path: "/dashboard/sms/business", title: "Business SMS", audiences: SHOP, purpose: "Apply for a business sender name.", tasks: ["Submit business details", "Request a sender name"] },
+  { path: "/dashboard/sms", title: "SMS home", audiences: SMS, purpose: "SMS credits and recent credit activity.", tasks: ["Check credits", "Go to compose"] },
+  { path: "/dashboard/sms/compose", title: "Send SMS", audiences: SMS, purpose: "Write and send a bulk SMS.", tasks: ["Choose recipients", "Write and send"] },
+  { path: "/dashboard/sms/contacts", title: "SMS contacts", audiences: SMS, purpose: "Manage contact groups for SMS.", tasks: ["Create a group", "Add or remove contacts"] },
+  { path: "/dashboard/sms/credits", title: "SMS credits", audiences: SMS, purpose: "Buy SMS credit bundles and see history.", tasks: ["Buy a bundle", "View credit history"] },
+  { path: "/dashboard/sms/records", title: "SMS records", audiences: SMS, purpose: "List of messages you sent.", tasks: ["Open a past send"] },
+  { path: "/dashboard/sms/records/:id", title: "SMS record", audiences: SMS, purpose: "Delivery details of one SMS send.", tasks: ["See who received it"] },
+  { path: "/dashboard/sms/business", title: "Business SMS", audiences: SMS, purpose: "Apply for a business sender name.", tasks: ["Submit business details", "Request a sender name"] },
   // Dashboard: shop
-  { path: "/dashboard/my-shop", title: "My shop", audiences: ["dealer", "shop_owner"], purpose: "Create your shop and see its overview.", tasks: ["Create a shop", "Copy your shop link"] },
+  { path: "/dashboard/my-shop", title: "My shop", audiences: ["customer", "dealer", "shop_owner"], purpose: "Create your shop and see its overview.", tasks: ["Create a shop", "Copy your shop link"] },
   { path: "/dashboard/my-shop/settings", title: "Shop settings", audiences: SHOP, purpose: "Shop link and where it appears.", tasks: ["Change settings"] },
   { path: "/dashboard/shop-dashboard", title: "Shop dashboard", audiences: SHOP, purpose: "Profit, balance, orders and customers at a glance.", tasks: ["See profit", "Review recent orders"] },
   { path: "/dashboard/shop-orders", title: "Shop orders", audiences: SHOP, purpose: "Orders your customers placed.", tasks: ["Search orders", "Check status"] },

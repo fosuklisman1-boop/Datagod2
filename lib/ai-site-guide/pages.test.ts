@@ -73,6 +73,20 @@ describe("customer page guide", () => {
     }
   })
 
+  it("pages a plain signed-in user can use are tagged customer", () => {
+    const open = SITE_PAGES.filter((p) => p.path.startsWith("/dashboard/sms")).map((p) => p.path)
+    expect(open.length).toBe(7)
+    for (const p of [...open, "/dashboard/my-shop", "/auth/complete-profile"]) {
+      expect(SITE_PAGES.find((x) => x.path === p)?.audiences, p).toContain("customer")
+    }
+    expect(SITE_PAGES.find((x) => x.path === "/auth/complete-profile")?.audiences).not.toContain("public")
+  })
+
+  it("payment re-check describes the pending-orders list", () => {
+    const e = SITE_PAGES.find((x) => x.path === "/dashboard/payment-reverify")!
+    expect(`${e.purpose} ${e.tasks.join(" ")}`).toMatch(/pending/i)
+  })
+
   it("storefront and public pages are public", () => {
     for (const p of ["/", "/shop/:slug", "/shop/:slug/checkout", "/auth/login", "/developers"]) {
       expect(SITE_PAGES.find((x) => x.path === p)?.audiences, p).toContain("public")
@@ -88,6 +102,6 @@ describe("customer page guide", () => {
 
   it("real data passes the guide limits for every audience set", () => {
     expect(checkSiteGuideLimits(SITE_PAGES, ARTICLES)).toEqual([])
-    expect(renderSiteGuide(["public", "customer", "dealer", "shop_owner"]).length).toBeLessThanOrEqual(7000)
+    expect(renderSiteGuide(["public", "customer", "dealer", "shop_owner", "admin"]).length).toBeLessThanOrEqual(8000)
   })
 })

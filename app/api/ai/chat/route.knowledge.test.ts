@@ -151,6 +151,6 @@ describe("chat route knowledge wiring", () => {
     const { res, call } = await post("home", false)
     expect(res.status).toBe(200)
     expect(h.runAgenticLoop).toHaveBeenCalledTimes(1)
-    expect(stableOf(call)).not.toContain("Knowledge base")
+    expect(stableOf(call)).not.toContain("## Knowledge base")
   })
 })
