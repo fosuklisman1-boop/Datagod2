@@ -91,7 +91,7 @@ How:
 What happens next: the page says a reset link has been sent if an account matches. The link works for a short time only, so use it soon.
 
 If something goes wrong:
-- No email: check Spam, check you typed the same email you signed up with, then ask for a new link.
+- No link: it is sent by email, and also by SMS if there is a phone number on your account. Check Spam, check you typed the same email or phone you signed up with, then ask for a new link.
 - The link has stopped working: go back and send a new one. Use only the newest link.
 - Still stuck: use Talk to a person in the chat assistant. We will never ask you for your password.`,
   },
@@ -195,7 +195,7 @@ How:
 
 What to include: the order reference or phone number involved, what you expected, what happened, and when. Payment references and screenshots help us find it fast. Never write your PIN, password or any one-time code.
 
-What happens next: support replies inside the same chat. You can reply or close the chat when it is sorted. The page also shows if support is online, and a WhatsApp contact.
+What happens next: support replies inside the same chat. You can reply or close the chat when it is sorted. The page also has WhatsApp, Call and Email contact buttons.
 
 If something goes wrong:
 - Talk to a person does not open a chat: use the WhatsApp contact on the Support chat page.
@@ -371,17 +371,17 @@ Who can use it: admins only.
 Where:
 - Ordering for the whole site: App Settings (/admin/settings), card Global Ordering Status.
 - Payment provider and fees: Payment Gateway (/admin/gateway).
-- Auto-fulfilment for MTN and the other networks: MTN Fulfillment Settings (/admin/settings/mtn), card Auto-Fulfillment Mode.
+- MTN auto-fulfilment: MTN Fulfillment Settings (/admin/settings/mtn), card Auto-Fulfillment Mode.
 - MTN auto-fulfilment quick switch and sending selected orders to a supplier: Order Work Queue (/admin/order-payment-status).
 - AFA auto-fulfilment: AFA Management (/admin/afa-management).
 
 How:
 1. To pause ordering, open App Settings, find Global Ordering Status and switch it off. A message says Ordering Paused. Switch it on again to resume.
-2. To change how customers pay, open Payment Gateway and pick the provider for each area, then check it is ready.
-3. To change auto-fulfilment, open the page above for that network and use its switch.
+2. To change how customers pay, open Payment Gateway and pick the provider for each area.
+3. To change auto-fulfilment, open the page above for MTN or AFA and use its switch.
 4. Check what each page says it will do before you save.
 
-What happens next: ordering paused means customers cannot place orders until you resume. Gateway and auto-fulfilment changes apply to new orders only.
+What happens next: ordering paused means customers cannot place orders until you resume. After a gateway or auto-fulfilment change, check the page shows the new state.
 
 If something goes wrong:
 - A switch will not save: reload the page and try again, then check the new state.
