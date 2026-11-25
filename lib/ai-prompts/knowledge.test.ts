@@ -281,13 +281,13 @@ describe("buildKnowledgeSection", () => {
 })
 
 describe("shop surface and tool hint options", () => {
-  const platformPage: SitePage = { ...page("/join", "PlatformPage", ["public"]), platformOnly: true }
-  const platformArt: SiteArticle = { ...article("p1", "PlatformHelp", ["public"]), platformOnly: true }
+  const platformPage: SitePage = { ...page("/join", "PlatformPage", ["public"]), hiddenOn: ["storefront", "whatsapp_shop"] }
+  const platformArt: SiteArticle = { ...article("p1", "PlatformHelp", ["public"]), hiddenOn: ["storefront", "whatsapp_shop"] }
   const P = [...PAGES, platformPage]
   const A = [...ARTS, platformArt]
 
-  it("buildKnowledgeSection hides platformOnly items on a shop surface only", () => {
-    const shop = buildKnowledgeSection(["public"], [], P, A, { shopSurface: true })
+  it("buildKnowledgeSection hides items hidden on that shop surface only", () => {
+    const shop = buildKnowledgeSection(["public"], [], P, A, { surface: "storefront" })
     expect(shop).toContain("PublicPage")
     expect(shop).not.toContain("PlatformPage")
     expect(shop).not.toContain("PlatformHelp")
@@ -297,7 +297,7 @@ describe("shop surface and tool hint options", () => {
   })
 
   it("withSiteGuide passes the options through (shop bot: no tool hint, no platform items)", () => {
-    const out = withSiteGuide("SYSTEM", ["public"], P, A, { shopSurface: true, toolHint: false })
+    const out = withSiteGuide("SYSTEM", ["public"], P, A, { surface: "whatsapp_shop", toolHint: false })
     expect(out).toContain("PublicPage")
     expect(out).not.toContain("PlatformPage")
     expect(out).not.toContain("get_knowledge_base")

@@ -181,59 +181,88 @@ describe("searchSite", () => {
   })
 })
 
-describe("shop surfaces (platformOnly)", () => {
+describe("shop surfaces (hiddenOn)", () => {
   const sPages: SitePage[] = [
     { path: "/a", title: "Open Page", audiences: ["public"], purpose: "Fine.", tasks: ["x"] },
-    { path: "/join", title: "Platform Page", audiences: ["public"], purpose: "Platform.", tasks: ["x"], platformOnly: true },
+    { path: "/join", title: "Platform Page", audiences: ["public"], purpose: "Platform.", tasks: ["x"], hiddenOn: ["storefront", "whatsapp_shop"] },
+    { path: "/join/shop/:handle", title: "Bot Hidden Page", audiences: ["public"], purpose: "Web only.", tasks: ["x"], hiddenOn: ["whatsapp_shop"] },
   ]
   const sArts: SiteArticle[] = [
     { id: "o", title: "Open Article", audiences: ["public"], keywords: ["thing"], summary: "thing", body: "thing" },
-    { id: "p", title: "Platform Article", audiences: ["public"], keywords: ["thing"], summary: "thing", body: "thing", platformOnly: true },
+    { id: "p", title: "Platform Article", audiences: ["public"], keywords: ["thing"], summary: "thing", body: "thing", hiddenOn: ["storefront", "whatsapp_shop"] },
+    { id: "b", title: "Bot Hidden Article", audiences: ["public"], keywords: ["thing"], summary: "thing", body: "thing", hiddenOn: ["whatsapp_shop"] },
   ]
-  it("renderSiteGuide hides platformOnly items on a shop surface and keeps them otherwise", () => {
-    const shop = renderSiteGuide(["public"], sPages, sArts, { shopSurface: true })
-    expect(shop).toContain("Open Page")
-    expect(shop).toContain("Open Article")
-    expect(shop).not.toContain("Platform Page")
-    expect(shop).not.toContain("Platform Article")
+  it("renderSiteGuide hides items only on the surfaces they list", () => {
+    const store = renderSiteGuide(["public"], sPages, sArts, { surface: "storefront" })
+    expect(store).toContain("Open Page")
+    expect(store).toContain("Open Article")
+    expect(store).toContain("Bot Hidden Page")
+    expect(store).toContain("Bot Hidden Article")
+    expect(store).not.toContain("Platform Page")
+    expect(store).not.toContain("Platform Article")
+    const bot = renderSiteGuide(["public"], sPages, sArts, { surface: "whatsapp_shop" })
+    expect(bot).toContain("Open Page")
+    expect(bot).not.toContain("Platform Page")
+    expect(bot).not.toContain("Bot Hidden Page")
+    expect(bot).not.toContain("Bot Hidden Article")
     const home = renderSiteGuide(["public"], sPages, sArts)
-    expect(home).toContain("Platform Page")
-    expect(home).toContain("Platform Article")
+    for (const t of ["Platform Page", "Platform Article", "Bot Hidden Page", "Bot Hidden Article"]) expect(home).toContain(t)
   })
-  it("searchSite hides platformOnly articles on a shop surface", () => {
-    expect(searchSite("thing", ["public"], 5, sArts, { shopSurface: true }).map((a) => a.id)).toEqual(["o"])
-    expect(searchSite("thing", ["public"], 5, sArts).map((a) => a.id)).toEqual(["o", "p"])
+  it("searchSite hides articles only on the surfaces they list", () => {
+    expect(searchSite("thing", ["public"], 5, sArts, { surface: "storefront" }).map((a) => a.id)).toEqual(["b", "o"])
+    expect(searchSite("thing", ["public"], 5, sArts, { surface: "whatsapp_shop" }).map((a) => a.id)).toEqual(["o"])
+    expect(searchSite("thing", ["public"], 5, sArts).map((a) => a.id)).toEqual(["b", "o", "p"])
   })
-  it("the real storefront guide and search never contain a platformOnly item; home still does", () => {
-    const poPages = SITE_PAGES.filter((p) => p.platformOnly)
-    const poArts = ARTICLES.filter((a) => a.platformOnly)
-    expect(poPages.length).toBeGreaterThan(0)
-    expect(poArts.length).toBeGreaterThan(0)
-    const shop = renderSiteGuide(["public"], SITE_PAGES, ARTICLES, { shopSurface: true })
+  it("the real guides never contain an item hidden on that surface; home still does", () => {
     const home = renderSiteGuide(["public"], SITE_PAGES, ARTICLES)
-    for (const p of poPages) {
-      expect(shop).not.toContain(`(${p.path}):`)
-      expect(home).toContain(`(${p.path}):`)
-    }
-    for (const a of poArts) {
-      expect(shop).not.toContain(a.title)
-      expect(home).toContain(a.title)
-      const hits = searchSite(a.title, ["public"], 50, ARTICLES, { shopSurface: true })
-      expect(hits.map((h) => h.id)).not.toContain(a.id)
+    for (const surface of ["storefront", "whatsapp_shop"] as const) {
+      const shop = renderSiteGuide(["public"], SITE_PAGES, ARTICLES, { surface })
+      const hiddenPages = SITE_PAGES.filter((p) => p.hiddenOn?.includes(surface))
+      const hiddenArts = ARTICLES.filter((a) => a.hiddenOn?.includes(surface))
+      expect(hiddenPages.length).toBeGreaterThan(0)
+      expect(hiddenArts.length).toBeGreaterThan(0)
+      for (const p of hiddenPages) {
+        expect(shop).not.toContain(`(${p.path}):`)
+        expect(home).toContain(`(${p.path}):`)
+      }
+      for (const a of hiddenArts) {
+        expect(shop).not.toContain(a.title)
+        expect(home).toContain(a.title)
+        expect(searchSite(a.title, ["public"], 50, ARTICLES, { surface }).map((h) => h.id)).not.toContain(a.id)
+      }
     }
   })
   it("keeps shop-line text to buy visible on shop surfaces", () => {
-    const shop = renderSiteGuide(["public"], SITE_PAGES, ARTICLES, { shopSurface: true })
-    expect(shop).toContain("shop's own number")
-  })
-  it("main WhatsApp, main USSD, join and developer docs are platformOnly", () => {
-    const poPaths = SITE_PAGES.filter((p) => p.platformOnly).map((p) => p.path)
-    for (const path of ["/whatsapp", "/join", "/bulk-sms", "/developers", "/auth/signup", "/auth/login"]) {
-      expect(poPaths).toContain(path)
+    for (const surface of ["storefront", "whatsapp_shop"] as const) {
+      expect(renderSiteGuide(["public"], SITE_PAGES, ARTICLES, { surface })).toContain("shop's own number")
     }
-    const poIds = ARTICLES.filter((a) => a.platformOnly).map((a) => a.id)
+  })
+  it("main WhatsApp, main USSD, join and developer docs are hidden on both shop surfaces", () => {
+    const both = ["storefront", "whatsapp_shop"]
+    const hiddenPaths = SITE_PAGES.filter((p) => both.every((s) => p.hiddenOn?.includes(s as "storefront"))).map((p) => p.path)
+    for (const path of ["/whatsapp", "/join", "/bulk-sms", "/developers", "/auth/signup", "/auth/login"]) {
+      expect(hiddenPaths).toContain(path)
+    }
+    const hiddenIds = ARTICLES.filter((a) => both.every((s) => a.hiddenOn?.includes(s as "storefront"))).map((a) => a.id)
     for (const id of ["whatsapp-main-bot", "ussd-main-menu", "text-to-buy-customer", "become-a-dealer-or-agent", "developer-api-docs", "sms-send-bulk"]) {
-      expect(poIds).toContain(id)
+      expect(hiddenIds).toContain(id)
+    }
+  })
+  it("sub-agent join: explained on the storefront (it has a Join Now button) but not by the shop bot", () => {
+    const sub = ARTICLES.find((a) => a.id === "sub-agent-join-a-shop")!
+    expect(sub.hiddenOn).toEqual(["whatsapp_shop"])
+    expect(SITE_PAGES.find((p) => p.path === "/join/shop/:handle")!.hiddenOn).toEqual(["whatsapp_shop"])
+    expect(searchSite("join a shop as sub agent", ["public"], 5, ARTICLES, { surface: "storefront" }).map((a) => a.id)).toContain("sub-agent-join-a-shop")
+    expect(searchSite("join a shop as sub agent", ["public"], 50, ARTICLES, { surface: "whatsapp_shop" }).map((a) => a.id)).not.toContain("sub-agent-join-a-shop")
+    expect(renderSiteGuide(["public"], SITE_PAGES, ARTICLES, { surface: "storefront" })).toContain("(/join/shop/:handle):")
+  })
+  it("results-checker-buy-from-a-shop is visible on both shop surfaces and home", () => {
+    const a = ARTICLES.find((x) => x.id === "results-checker-buy-from-a-shop")!
+    expect(a.audiences).toEqual(["public"])
+    expect(a.hiddenOn).toBeUndefined()
+    for (const opts of [{ surface: "storefront" as const }, { surface: "whatsapp_shop" as const }, {}]) {
+      expect(searchSite("how do i buy waec checker from this shop", ["public"], 5, ARTICLES, opts).map((x) => x.id)).toContain(a.id)
+      expect(renderSiteGuide(["public"], SITE_PAGES, ARTICLES, { ...opts })).toContain(a.title)
     }
   })
 })

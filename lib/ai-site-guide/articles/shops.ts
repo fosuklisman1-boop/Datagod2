@@ -1,4 +1,4 @@
-import type { SiteArticle } from "../types"
+import { HIDDEN_ON_SHOPS, type SiteArticle } from "../types"
 
 /**
  * How-to articles for becoming an agent, running a shop, pricing and profit, sub-agents, the USSD / WhatsApp /
@@ -14,7 +14,7 @@ import type { SiteArticle } from "../types"
 export const SHOP_ARTICLES: SiteArticle[] = [
   {
     id: "become-a-dealer-or-agent",
-    platformOnly: true,
+    hiddenOn: HIDDEN_ON_SHOPS,
     title: "Become a dealer or agent and start selling",
     audiences: ["public", "customer"],
     keywords: ["become agent", "become dealer", "reseller", "start selling", "sell data", "open shop", "join", "sign up", "upgrade", "wholesale", "make money", "business", "agent"],
@@ -146,7 +146,7 @@ If something goes wrong:
   },
   {
     id: "sub-agent-join-a-shop",
-    platformOnly: true,
+    hiddenOn: ["whatsapp_shop"], // the storefront shows a Join Now button for it; the WhatsApp shop bot has no such flow
     title: "Join a shop as a sub-agent",
     audiences: ["public", "customer"],
     keywords: ["join shop", "sub agent", "sub-agent", "join now", "apply now", "invite link", "invite code", "become sub agent", "under a shop", "reseller", "request", "wholesale prices", "join under"],
@@ -299,7 +299,7 @@ If something goes wrong:
   },
   {
     id: "text-to-buy-customer",
-    platformOnly: true,
+    hiddenOn: HIDDEN_ON_SHOPS,
     title: "Buy data by SMS (text to buy)",
     audiences: ["public"],
     keywords: ["text to buy", "buy data by sms", "order by sms", "text message", "sms order", "sms number", "no internet", "order data with text", "text a shop", "shop number", "shop code", "momo prompt", "text order"],
@@ -346,6 +346,37 @@ What happens next: after payment is confirmed the data is delivered and you get 
 If something goes wrong:
 - No reply or no prompt: check the number you texted and your Mobile Money number, then try again.
 - Paid but no data: use the shop's contact details.`,
+  },
+  {
+    id: "results-checker-buy-from-a-shop",
+    title: "Buy results checker vouchers or check results from a shop",
+    audiences: ["public"],
+    keywords: ["results checker", "checker voucher", "buy waec checker", "waec", "wassce", "bece", "novdec", "voucher", "check my results", "check results", "buy voucher from shop", "shop results checker", "exam results", "pin by sms"],
+    summary: "On a shop's online page or its WhatsApp line, pick the exam, then buy checker vouchers (PIN sent by SMS) or use Check My Results. If you don't see this option, it isn't available right now.",
+    body: `What it is: buying exam results checker vouchers (WASSCE, BECE or NOVDEC), or having your results checked for you, from a shop. Prices are shown before you pay.
+
+Who can use it: anyone with a Mobile Money wallet, no account needed. If you don't see this option, it isn't available right now. A shop may not offer it, and an exam board can be switched off or out of stock.
+
+Where: the shop's online page (/shop/:slug), in its Results Checker area, or the shop's own WhatsApp line.
+
+How:
+On the shop's online page:
+1. Open the shop and choose Results Checker.
+2. Use the Buy Vouchers tab to pick the exam and how many vouchers you want, enter the phone number for the PIN and pay with Mobile Money.
+3. Use the Retrieve Vouchers tab to look up a PIN you already bought and resend it by SMS.
+4. Use the Check My Results tab if you want the shop to check your results for you. Choose the exam, enter your details and pay the fee shown.
+
+On the shop's WhatsApp line:
+1. Send a message and choose Results Checker to buy vouchers: pick the exam, say how many, confirm your Mobile Money number and tap Pay now. The PIN comes by SMS.
+2. Choose Check My Results to have your results checked: pick the exam, say if you are a school or private candidate, then choose to buy a voucher and check together, or to use a voucher you already have.
+3. Enter your index number, exam year and date of birth, and for your own voucher the PIN and serial number. Check the summary, then tap Pay now.
+
+What happens next: after payment is confirmed the PIN is sent by SMS, or your results are checked and sent to you. You can also look the order up on Shop order status (/shop/:slug/order-status).
+
+If something goes wrong:
+- The exam is not listed: that board is not available right now. Try later or another exam.
+- No MoMo prompt: check your Mobile Money number and try again.
+- Paid but no PIN or result: use the shop's contact details.`,
   },
   {
     id: "shop-sms-customers",

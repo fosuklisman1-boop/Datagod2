@@ -76,7 +76,7 @@ STYLE: short, warm, WhatsApp-appropriate replies. Currency is always GHS. One id
   // Shop-line customers are always the public audience, whoever they are.
   // No get_knowledge_base tool here, so no article titles; and never the platform's own channels.
   const system = withSiteGuide(baseSystem, audiencesFor({ context: "whatsapp_shop" }), undefined, undefined, {
-    shopSurface: true,
+    surface: "whatsapp_shop",
     toolHint: false,
   })
 

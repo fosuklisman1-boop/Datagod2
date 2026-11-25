@@ -160,6 +160,7 @@ describe("chat route knowledge wiring", () => {
     expect(shop).not.toContain("(/whatsapp):")
     expect(shop).not.toContain("(/join):")
     expect(shop).not.toContain("(/developers):")
+    expect(shop).toContain("(/join/shop/:handle):") // the storefront has a Join Now button to it
     const home = stableOf((await post("home", false)).call)
     expect(home).toContain("(/whatsapp):")
     expect(home).toContain("(/join):")

@@ -15,6 +15,7 @@ const GUEST: Audience[] = ["public"]
 const EXPECTED_IDS = [
   "become-a-dealer-or-agent",
   "create-your-shop",
+  "results-checker-buy-from-a-shop",
   "share-your-shop-link",
   "shop-blocked-numbers",
   "shop-customers-list",
@@ -252,6 +253,7 @@ describe("shops articles: people find them with real questions", () => {
     { q: "i am a sub agent how do I buy data from my parent shop", aud: SHOP, id: "sub-agent-buy-stock" },
     { q: "how do customers buy from my shop on ussd", aud: SHOP, id: "ussd-shop-setup" },
     { q: "activate my ussd shop code", aud: SHOP, id: "ussd-shop-setup" },
+    { q: "how do i buy waec checker from this shop", aud: GUEST, id: "results-checker-buy-from-a-shop" },
     { q: "can i buy data by sms", aud: GUEST, id: "text-to-buy-customer" },
     { q: "how to order data with text message", aud: CUSTOMER, id: "text-to-buy-customer" },
     { q: "how do I buy data from a shop with ussd shop code", aud: GUEST, id: "ussd-buy-from-a-shop" },

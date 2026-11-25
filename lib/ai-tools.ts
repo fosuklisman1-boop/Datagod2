@@ -3181,7 +3181,7 @@ export async function executeToolCall(
           audiencesFor({ context: ctx.context, role: ctx.userRole, isShopOwner: ctx.isShopOwner, signedIn: !!ctx.userId }),
           5,
           undefined,
-          { shopSurface: ctx.context === "storefront" || ctx.context === "whatsapp_shop" },
+          { surface: ctx.context === "storefront" || ctx.context === "whatsapp_shop" ? ctx.context : undefined },
         ).map((a) => ({ category: "site", question: a.title, answer: a.body }))
 
         // DB rows: the filter is built ONLY from [a-z0-9] tokens (max 6), each escaped for ILIKE; the raw query never

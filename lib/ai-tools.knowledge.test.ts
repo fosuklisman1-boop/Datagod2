@@ -33,7 +33,8 @@ vi.mock("@/lib/ai-site-guide/articles", () => ({
     { id: "d1", title: "Dealer pricing", audiences: ["dealer"], keywords: ["pricing"], summary: "Dealer price tiers", body: "DEALER-ONLY-BODY" },
     { id: "a1", title: "Admin refund queue", audiences: ["admin"], keywords: ["refund"], summary: "Admin refunds", body: "ADMIN-ONLY-BODY" },
     ...[1, 2, 3, 4, 5, 6].map((n) => ({ id: `s${n}`, title: `Guide ${n}`, audiences: ["public"], keywords: ["refund"], summary: "x", body: `SITE-S${n}` })),
-    { id: "p1", title: "Reseller signup", audiences: ["public"], keywords: ["reseller"], summary: "Become a reseller", body: "PLATFORM-ONLY-BODY", platformOnly: true },
+    { id: "p1", title: "Reseller signup", audiences: ["public"], keywords: ["reseller"], summary: "Become a reseller", body: "PLATFORM-ONLY-BODY", hiddenOn: ["storefront", "whatsapp_shop"] },
+    { id: "p2", title: "Join a shop team", audiences: ["public"], keywords: ["teammate"], summary: "Join as teammate", body: "BOT-HIDDEN-BODY", hiddenOn: ["whatsapp_shop"] },
   ],
 }))
 
@@ -83,7 +84,14 @@ describe("get_knowledge_base", () => {
     expect(r.entries.every((e: any) => e.category === "site")).toBe(true)
   })
 
-  it("never returns platformOnly articles on shop surfaces, but does on the home chat", async () => {
+  it("hides an article only on the surfaces it lists", async () => {
+    const store = JSON.stringify(await run("teammate", { context: "storefront", userId: undefined, userRole: "guest" }))
+    expect(store).toContain("BOT-HIDDEN-BODY")
+    const bot = JSON.stringify(await run("teammate", { context: "whatsapp_shop", userId: undefined, userRole: "guest" }))
+    expect(bot).not.toContain("BOT-HIDDEN-BODY")
+  })
+
+  it("never returns platform-hidden articles on shop surfaces, but does on the home chat", async () => {
     for (const context of ["storefront", "whatsapp_shop"] as const) {
       const shop = JSON.stringify(await run("reseller", { context, userId: undefined, userRole: "guest" }))
       expect(shop).not.toContain("PLATFORM-ONLY-BODY")

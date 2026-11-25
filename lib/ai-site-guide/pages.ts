@@ -1,4 +1,4 @@
-import type { Audience, SitePage } from "./types"
+import { HIDDEN_ON_SHOPS, type Audience, type SitePage } from "./types"
 
 const PUB: Audience[] = ["public"]
 const CUS: Audience[] = ["customer"]
@@ -8,30 +8,30 @@ const SMS: Audience[] = ["customer", "shop_owner"]
 /** Plain-English guide to the customer, dealer and shop pages. Admin pages live in the admin catalog. */
 export const SITE_PAGES: SitePage[] = [
   // Public site
-  { platformOnly: true, path: "/", title: "Home", audiences: PUB, purpose: "Landing page with sign-up, log-in and the services.", tasks: ["Sign up or log in", "Browse what is offered"] },
-  { platformOnly: true, path: "/services", title: "Services", audiences: PUB, purpose: "Everything on offer: data, airtime, bills, results checkers.", tasks: ["See all services", "Start from a service"] },
-  { platformOnly: true, path: "/ai", title: "AI assistant", audiences: PUB, purpose: "About the chat assistant that helps with plans and orders.", tasks: ["Learn what the assistant can do"] },
-  { platformOnly: true, path: "/bulk-sms", title: "Bulk SMS", audiences: PUB, purpose: "Send SMS campaigns with your own sender name.", tasks: ["Read about bulk SMS", "Sign up to use it"] },
-  { platformOnly: true, path: "/results-checker", title: "Results checker", audiences: PUB, purpose: "Buy WASSCE, BECE or NOVDEC result checker vouchers.", tasks: ["Choose a voucher", "Pay and receive the PIN"] },
-  { platformOnly: true, path: "/whatsapp", title: "WhatsApp ordering", audiences: PUB, purpose: "How to order data and airtime by WhatsApp chat.", tasks: ["Message the bot", "Approve the payment prompt"] },
+  { hiddenOn: HIDDEN_ON_SHOPS, path: "/", title: "Home", audiences: PUB, purpose: "Landing page with sign-up, log-in and the services.", tasks: ["Sign up or log in", "Browse what is offered"] },
+  { hiddenOn: HIDDEN_ON_SHOPS, path: "/services", title: "Services", audiences: PUB, purpose: "Everything on offer: data, airtime, bills, results checkers.", tasks: ["See all services", "Start from a service"] },
+  { hiddenOn: HIDDEN_ON_SHOPS, path: "/ai", title: "AI assistant", audiences: PUB, purpose: "About the chat assistant that helps with plans and orders.", tasks: ["Learn what the assistant can do"] },
+  { hiddenOn: HIDDEN_ON_SHOPS, path: "/bulk-sms", title: "Bulk SMS", audiences: PUB, purpose: "Send SMS campaigns with your own sender name.", tasks: ["Read about bulk SMS", "Sign up to use it"] },
+  { hiddenOn: HIDDEN_ON_SHOPS, path: "/results-checker", title: "Results checker", audiences: PUB, purpose: "Buy WASSCE, BECE or NOVDEC result checker vouchers.", tasks: ["Choose a voucher", "Pay and receive the PIN"] },
+  { hiddenOn: HIDDEN_ON_SHOPS, path: "/whatsapp", title: "WhatsApp ordering", audiences: PUB, purpose: "How to order data and airtime by WhatsApp chat.", tasks: ["Message the bot", "Approve the payment prompt"] },
   { path: "/vouchers", title: "Retrieve vouchers", audiences: PUB, purpose: "Look up results checker PINs and resend them by SMS.", tasks: ["Enter your order details", "Resend the PIN by SMS"] },
-  { platformOnly: true, path: "/join", title: "Become a reseller", audiences: PUB, purpose: "Start your own shop with wholesale prices.", tasks: ["Read the benefits", "Sign up as a reseller"] },
-  { platformOnly: true, path: "/join/:code", title: "Join with invite", audiences: PUB, purpose: "Create an account from a shop owner's invite code.", tasks: ["Open the invite link", "Create your account"] },
-  { platformOnly: true, path: "/join/shop/:handle", title: "Join a shop", audiences: PUB, purpose: "Sign up as a sub-agent of a particular shop.", tasks: ["See your wholesale prices", "Verify phone and sign up"] },
+  { hiddenOn: HIDDEN_ON_SHOPS, path: "/join", title: "Become a reseller", audiences: PUB, purpose: "Start your own shop with wholesale prices.", tasks: ["Read the benefits", "Sign up as a reseller"] },
+  { hiddenOn: HIDDEN_ON_SHOPS, path: "/join/:code", title: "Join with invite", audiences: PUB, purpose: "Create an account from a shop owner's invite code.", tasks: ["Open the invite link", "Create your account"] },
+  { hiddenOn: ["whatsapp_shop"], path: "/join/shop/:handle", title: "Join a shop", audiences: PUB, purpose: "Sign up as a sub-agent of a particular shop.", tasks: ["See your wholesale prices", "Verify phone and sign up"] },
   // Auth
-  { platformOnly: true, path: "/auth/login", title: "Log in", audiences: PUB, purpose: "Sign in to your account.", tasks: ["Enter your login details", "Reset a forgotten password"] },
-  { platformOnly: true, path: "/auth/signup", title: "Sign up", audiences: PUB, purpose: "Create an account with a verified phone number.", tasks: ["Fill the form", "Verify your phone with a code"] },
+  { hiddenOn: HIDDEN_ON_SHOPS, path: "/auth/login", title: "Log in", audiences: PUB, purpose: "Sign in to your account.", tasks: ["Enter your login details", "Reset a forgotten password"] },
+  { hiddenOn: HIDDEN_ON_SHOPS, path: "/auth/signup", title: "Sign up", audiences: PUB, purpose: "Create an account with a verified phone number.", tasks: ["Fill the form", "Verify your phone with a code"] },
   { path: "/auth/complete-profile", title: "Complete profile", audiences: CUS, purpose: "Finish sign-up after confirming your email.", tasks: ["Add and verify your phone number"] },
-  { platformOnly: true, path: "/auth/forgot-password", title: "Forgot password", audiences: PUB, purpose: "Get a link to reset your password.", tasks: ["Enter your email", "Open the link we send"] },
-  { platformOnly: true, path: "/auth/reset-password", title: "Reset password", audiences: PUB, purpose: "Choose a new password from the emailed link.", tasks: ["Type a new password"] },
+  { hiddenOn: HIDDEN_ON_SHOPS, path: "/auth/forgot-password", title: "Forgot password", audiences: PUB, purpose: "Get a link to reset your password.", tasks: ["Enter your email", "Open the link we send"] },
+  { hiddenOn: HIDDEN_ON_SHOPS, path: "/auth/reset-password", title: "Reset password", audiences: PUB, purpose: "Choose a new password from the emailed link.", tasks: ["Type a new password"] },
   // Developer docs
-  { platformOnly: true, path: "/developers", title: "Developer docs", audiences: PUB, purpose: "API documentation home.", tasks: ["Read the guides", "Get an API key from the dashboard"] },
-  { platformOnly: true, path: "/developers/:group", title: "API reference", audiences: PUB, purpose: "Docs for one group of API endpoints.", tasks: ["Read endpoints and examples"] },
-  { platformOnly: true, path: "/developers/changelog", title: "API changelog", audiences: PUB, purpose: "What changed in the API and when.", tasks: ["Check recent API changes"] },
-  { platformOnly: true, path: "/developers/errors", title: "API errors", audiences: PUB, purpose: "What each API error means.", tasks: ["Look up an error code"] },
-  { platformOnly: true, path: "/developers/go-live", title: "API go-live", audiences: PUB, purpose: "Checklist before using the API with real customers.", tasks: ["Work through the checklist"] },
-  { platformOnly: true, path: "/developers/starter-kits", title: "Starter kits", audiences: PUB, purpose: "Sample code to start using the API.", tasks: ["Copy a starter kit"] },
-  { platformOnly: true, path: "/developers/status", title: "API status", audiences: PUB, purpose: "Whether the API is working right now.", tasks: ["Check API health"] },
+  { hiddenOn: HIDDEN_ON_SHOPS, path: "/developers", title: "Developer docs", audiences: PUB, purpose: "API documentation home.", tasks: ["Read the guides", "Get an API key from the dashboard"] },
+  { hiddenOn: HIDDEN_ON_SHOPS, path: "/developers/:group", title: "API reference", audiences: PUB, purpose: "Docs for one group of API endpoints.", tasks: ["Read endpoints and examples"] },
+  { hiddenOn: HIDDEN_ON_SHOPS, path: "/developers/changelog", title: "API changelog", audiences: PUB, purpose: "What changed in the API and when.", tasks: ["Check recent API changes"] },
+  { hiddenOn: HIDDEN_ON_SHOPS, path: "/developers/errors", title: "API errors", audiences: PUB, purpose: "What each API error means.", tasks: ["Look up an error code"] },
+  { hiddenOn: HIDDEN_ON_SHOPS, path: "/developers/go-live", title: "API go-live", audiences: PUB, purpose: "Checklist before using the API with real customers.", tasks: ["Work through the checklist"] },
+  { hiddenOn: HIDDEN_ON_SHOPS, path: "/developers/starter-kits", title: "Starter kits", audiences: PUB, purpose: "Sample code to start using the API.", tasks: ["Copy a starter kit"] },
+  { hiddenOn: HIDDEN_ON_SHOPS, path: "/developers/status", title: "API status", audiences: PUB, purpose: "Whether the API is working right now.", tasks: ["Check API health"] },
   // Storefront
   { path: "/shop/:slug", title: "Shop storefront", audiences: PUB, purpose: "A shop's page to buy data, airtime and more.", tasks: ["Pick a package", "Enter the phone number", "Pay with MoMo or card"] },
   { path: "/shop/:slug/checkout", title: "Shop checkout", audiences: PUB, purpose: "Confirm and pay for the package you picked.", tasks: ["Check the order", "Pay"] },

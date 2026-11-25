@@ -13,7 +13,8 @@ vi.mock("@/lib/whatsapp-bot/log-message", () => ({ logMessage: vi.fn() }))
 vi.mock("@/lib/ai-site-guide/pages", () => ({
   SITE_PAGES: [
     { path: "/pub", title: "PubPageTitle", audiences: ["public"], purpose: "p", tasks: ["t"] },
-    { path: "/plat", title: "PlatformPageTitle", audiences: ["public"], purpose: "p", tasks: ["t"], platformOnly: true },
+    { path: "/plat", title: "PlatformPageTitle", audiences: ["public"], purpose: "p", tasks: ["t"], hiddenOn: ["storefront", "whatsapp_shop"] },
+    { path: "/webonly", title: "WebOnlyTitle", audiences: ["public"], purpose: "p", tasks: ["t"], hiddenOn: ["whatsapp_shop"] },
     { path: "/cust", title: "CustPageTitle", audiences: ["customer"], purpose: "p", tasks: ["t"] },
     { path: "/adm", title: "AdminPageTitle", audiences: ["admin"], purpose: "p", tasks: ["t"] },
   ],
@@ -94,6 +95,7 @@ describe("handleShopWithAI", () => {
     await handleShopWithAI("233559919037", "hi", "wamid.h")
     const system = vi.mocked(runAgenticLoop).mock.calls[0][0].system as string
     expect(system).not.toContain("PlatformPageTitle")
+    expect(system).not.toContain("WebOnlyTitle")
     expect(system).not.toContain("get_knowledge_base")
   })
 

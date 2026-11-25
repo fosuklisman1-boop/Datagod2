@@ -7,8 +7,8 @@ export interface SiteArticle {
   keywords: string[]
   summary: string
   body: string
-  /** About Datagod's own channels or platform-level services; hidden on shop surfaces (storefront, shop bot). */
-  platformOnly?: true
+  /** Shop surfaces this article must not appear on (it is about the platform's own channels, or a web-only flow). */
+  hiddenOn?: ShopSurface[]
 }
 
 export interface SitePage {
@@ -17,14 +17,20 @@ export interface SitePage {
   audiences: Audience[]
   purpose: string
   tasks: string[]
-  /** About Datagod's own channels or platform-level services; hidden on shop surfaces (storefront, shop bot). */
-  platformOnly?: true
+  /** Shop surfaces this page must not appear on (it is about the platform's own channels, or a web-only flow). */
+  hiddenOn?: ShopSurface[]
 }
+
+/** The shop-owned chat surfaces: the web storefront chat and the WhatsApp shop bot. */
+export type ShopSurface = "storefront" | "whatsapp_shop"
+
+/** Hidden on both shop surfaces: about Datagod's own channels or platform-level services. */
+export const HIDDEN_ON_SHOPS: ShopSurface[] = ["storefront", "whatsapp_shop"]
 
 /** Options shared by the guide renderer and the article search. */
 export interface SiteViewOptions {
-  /** Shop-owned surface (web storefront chat, WhatsApp shop bot): hide platformOnly items. */
-  shopSurface?: boolean
+  /** Set on a shop-owned surface: items whose hiddenOn lists it are left out. Unset (home, dashboard, admin): nothing is hidden. */
+  surface?: ShopSurface
 }
 
 export interface RenderOptions extends SiteViewOptions {

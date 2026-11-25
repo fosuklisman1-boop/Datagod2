@@ -47,7 +47,7 @@ export function searchSite(
   const scored: { a: SiteArticle; score: number }[] = []
   for (const a of articles) {
     if (!a.audiences.some((x) => audiences.includes(x))) continue
-    if (options.shopSurface && a.platformOnly) continue
+    if (options.surface && a.hiddenOn?.includes(options.surface)) continue
     const title = new Set(tokens(a.title))
     const kw = new Set(a.keywords.flatMap(tokens))
     const summary = new Set(tokens(a.summary))

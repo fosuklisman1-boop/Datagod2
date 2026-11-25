@@ -1,6 +1,6 @@
 import { ARTICLES } from "./articles"
 import { SITE_PAGES } from "./pages"
-import type { Audience, RenderOptions, SiteArticle, SitePage } from "./types"
+import type { Audience, RenderOptions, ShopSurface, SiteArticle, SitePage } from "./types"
 
 export const SITE_GUIDE_BUDGET_CHARS = 10000
 
@@ -52,7 +52,7 @@ export function renderSiteGuide(
   articles: SiteArticle[] = ARTICLES,
   options: RenderOptions = {},
 ): string {
-  const hide = (x: { platformOnly?: true }) => !!options.shopSurface && !!x.platformOnly
+  const hide = (x: { hiddenOn?: ShopSurface[] }) => !!options.surface && !!x.hiddenOn?.includes(options.surface)
   const ps = pages.filter((p) => visible(p, audiences) && !hide(p)).sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
   const as = articles.filter((a) => visible(a, audiences) && !hide(a)).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   const showArticles = as.length > 0 && options.toolHint !== false

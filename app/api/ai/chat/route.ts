@@ -434,7 +434,7 @@ export async function POST(req: NextRequest) {
     await loadKnowledge(supabaseAdmin, knowledgeLabelFor(knowledgeContext)),
     undefined,
     undefined,
-    { shopSurface: context === "storefront" },
+    { surface: context === "storefront" ? "storefront" : undefined },
   )
   let systemPrompt: ReturnType<typeof buildHomePrompt>
   switch (context) {
