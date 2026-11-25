@@ -93,11 +93,14 @@ export async function reserveSpend(
       console.error("[api-v2 spend] api_v2_spend_reserve", (res.error as { code?: string }).code ?? "unknown")
       return { kind: "error" }
     }
-    const d = (res.data ?? {}) as { ok?: unknown; skipped?: unknown; existing?: unknown; state?: unknown; code?: unknown; scope?: unknown }
+    const d = (res.data ?? {}) as { ok?: unknown; skipped?: unknown; existing?: unknown; state?: unknown; age_s?: unknown; code?: unknown; scope?: unknown }
     if (d.ok === true) {
       if (d.skipped === true) return { kind: "skipped" }
-      // an unknown state is treated as still reserved (the cautious reading)
-      if (d.existing === true) return { kind: "existing", state: d.state === "spent" ? "spent" : "reserved" }
+      // an unknown state is treated as still reserved (the cautious reading); a missing age reads as in flight
+      if (d.existing === true) {
+        const state = d.state === "spent" ? "spent" : "reserved"
+        return typeof d.age_s === "number" && Number.isFinite(d.age_s) && d.age_s >= 0 ? { kind: "existing", state, ageSeconds: d.age_s } : { kind: "existing", state }
+      }
       return { kind: "reserved" }
     }
     if (d.code === "cap_reached" && (d.scope === "key" || d.scope === "user")) return { kind: "cap", scope: d.scope }

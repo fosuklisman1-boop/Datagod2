@@ -69,6 +69,7 @@ DECLARE
   v_amt numeric := round(p_amount, 2);
   v_existing uuid;
   v_state text;
+  v_age numeric;
   v_key_cap numeric;
   v_user_cap numeric;
   v_key_sum numeric;
@@ -94,10 +95,12 @@ BEGIN
 
   -- A reserved or spent row for this reference is handed back as `existing` (another request owns it: the caller must
   -- never settle it). A RELEASED row is not a free pass: it is re-checked against the caps below and revived.
-  SELECT l.id, l.state INTO v_existing, v_state FROM public.api_v2_spend_ledger l
+  -- age_s (seconds since the row last changed) lets the caller tell a request still in flight from a stale reservation.
+  SELECT l.id, l.state, round(extract(epoch FROM (now() - l.updated_at))::numeric, 1) INTO v_existing, v_state, v_age
+    FROM public.api_v2_spend_ledger l
    WHERE l.key_id = p_key AND l.kind = p_kind AND l.reference = p_reference;
   IF v_existing IS NOT NULL AND v_state IN ('reserved', 'spent') THEN
-    RETURN jsonb_build_object('ok', true, 'ledger_id', v_existing, 'existing', true, 'state', v_state);
+    RETURN jsonb_build_object('ok', true, 'ledger_id', v_existing, 'existing', true, 'state', v_state, 'age_s', v_age);
   END IF;
 
   SELECT c.daily_cap INTO v_key_cap FROM public.api_v2_spend_caps c WHERE c.scope = 'key' AND c.scope_id = p_key;
@@ -378,9 +381,10 @@ BEGIN
      WHERE z.n > (t->>'fanout_recipients')::int
   ), '[]'::jsonb);
 
-  -- cap_hits: at least cap_hits daily-limit refusals within cap_hits_minutes.
+  -- cap_hits: at least cap_hits daily-limit refusals within cap_hits_minutes. Bucketed per person per DAY: a developer's
+  -- own low limit (or a retry loop) cannot page admins every hour.
   v_out := v_out || coalesce((
-    SELECT jsonb_agg(jsonb_build_object('user_id', h.user_id, 'signal', 'cap_hits', 'bucket', v_hour,
+    SELECT jsonb_agg(jsonb_build_object('user_id', h.user_id, 'signal', 'cap_hits', 'bucket', v_day_start,
              'details', jsonb_build_object('refusals', h.n, 'minutes', (t->>'cap_hits_minutes')::int)))
       FROM (
         SELECT g.user_id, count(*) AS n

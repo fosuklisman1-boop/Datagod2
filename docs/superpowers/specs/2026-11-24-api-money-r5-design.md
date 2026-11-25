@@ -137,7 +137,7 @@ on the Overview card; they are not prices):
 | `spend_spike` | today's spend > 3x the trailing 7-day daily average and > GHS 200 | 1 per person per day |
 | `new_key_big_spend` | a key under 24 h old has spent > GHS 100 | 1 per key per day |
 | `recipient_fanout` | > 30 distinct recipients in 10 min (data + airtime) | 1 per person per hour |
-| `cap_hits` | >= 3 `daily_limit` refusals in 1 h | 1 per person per hour |
+| `cap_hits` | >= 3 `daily_limit` refusals in 1 h | 1 per person per day (final review: an own low limit must not page admins hourly) |
 | `failure_burst` | >= 20 purchases in 15 min with > 50% failed | 1 per person per hour |
 
 Each alert: insert into `api_v2_risk_alerts` (UNIQUE dedup), then notify admins through `lib/admin-actions` (WhatsApp

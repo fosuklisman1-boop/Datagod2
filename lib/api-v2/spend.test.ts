@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest"
-import { createMoneySettings, reserveSpend, settleSpend, capMessage, spendGuard, guardSpend, settleOwned, MONEY_SETTINGS_TTL_MS } from "./spend"
+import { createMoneySettings, reserveSpend, settleSpend, capMessage, spendGuard, guardSpend, settleOwned, MONEY_SETTINGS_TTL_MS, STALE_RESERVATION_SECONDS } from "./spend"
 import type { V2Context } from "./handler"
 
 type Res = { data: unknown; error: unknown }
@@ -190,6 +190,18 @@ describe("guardSpend / settleOwned (request-path helpers)", () => {
     expect(await guardSpend(hook({ kind: "existing", state: "spent" } as any), ctx("live"), "data", "R", 8, { refuseInFlight: true })).toEqual({ proceed: true, owned: false })
     // commission keeps proceeding (its claim already serialises the reference)
     expect(await guardSpend(hook({ kind: "existing", state: "reserved" } as any), ctx("live"), "airtime", "R", 8)).toEqual({ proceed: true, owned: false })
+  })
+  it("final review I1: a STALE reserved row (older than the in-flight window) no longer blocks the reference forever: proceed, not owned", async () => {
+    const stale = await guardSpend(hook({ kind: "existing", state: "reserved", ageSeconds: STALE_RESERVATION_SECONDS + 1 } as any), ctx("live"), "data", "R", 8, { refuseInFlight: true })
+    expect(stale).toEqual({ proceed: true, owned: false })
+    const fresh = await guardSpend(hook({ kind: "existing", state: "reserved", ageSeconds: 5 } as any), ctx("live"), "data", "R", 8, { refuseInFlight: true })
+    expect(fresh).toMatchObject({ proceed: false, result: { status: 409 } })
+    expect(STALE_RESERVATION_SECONDS).toBe(120)
+  })
+  it("final review I1: reserveSpend maps age_s to ageSeconds; a missing or bad age stays undefined (treated as in flight)", async () => {
+    const p = { userId: "u1", keyId: "k1", kind: "data" as const, reference: "ref-1", amount: 12.5 }
+    expect(await reserveSpend(rpcClient({ data: { ok: true, ledger_id: "L", existing: true, state: "reserved", age_s: 300.5 }, error: null }).client, p)).toEqual({ kind: "existing", state: "reserved", ageSeconds: 300.5 })
+    expect(await reserveSpend(rpcClient({ data: { ok: true, ledger_id: "L", existing: true, state: "reserved", age_s: "x" }, error: null }).client, p)).toEqual({ kind: "existing", state: "reserved" })
   })
   it("review M1: a reserve that throws -> 503, never an unhandled error", async () => {
     const h = hook({ kind: "reserved" })

@@ -219,6 +219,12 @@ describe.skipIf(!PGliteCtor)("0198 in PGlite", () => {
     const b = await reserve(db, u, k, "r1", 5)
     expect(b).toMatchObject({ ok: true, ledger_id: a.ledger_id, existing: true })
     expect(await ledgerCount(db)).toBe(1)
+    // final review I1: the existing row's age (seconds since its last change) comes back, so a stale one can be told apart
+    expect(typeof b.age_s).toBe("number")
+    expect(b.age_s).toBeGreaterThanOrEqual(0)
+    await db.exec(`UPDATE api_v2_spend_ledger SET updated_at = now() - interval '10 minutes' WHERE id = '${a.ledger_id}'`)
+    const c = await reserve(db, u, k, "r1", 5)
+    expect(c.age_s).toBeGreaterThanOrEqual(590)
     expect((await one(db, "SELECT state FROM api_v2_spend_ledger")).state).toBe("reserved")
   }, 60_000)
 
@@ -416,6 +422,10 @@ describe.skipIf(!PGliteCtor)("0198 in PGlite", () => {
     expect(await signalsFor(ch)).not.toContain("cap_hits")
     await refuse()
     expect(await signalsFor(ch)).toContain("cap_hits")
+    // final review M3 (re-graded): cap_hits dedups per person per DAY (a developer's own low limit cannot page admins hourly)
+    const chAlert = ((await call(db, "api_v2_risk_scan", null)) as any[]).find((a) => a.user_id === ch && a.signal === "cap_hits")
+    const dayStart = (await one(db, "SELECT (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') AS d")).d
+    expect(new Date(chAlert.bucket).getTime()).toBe(new Date(dayStart).getTime())
 
     const fb = await mkUser(db)
     const fbKey = await mkKey(db, fb, { at: "now() - interval '30 days'" })

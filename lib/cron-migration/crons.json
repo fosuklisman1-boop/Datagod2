@@ -190,6 +190,10 @@
       "schedule": "*/10 * * * *"
     },
     {
+      "path": "/api/cron/api-v2-risk",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/delete-old-complaints",
       "schedule": "15 3 * * *"
     },

@@ -22,7 +22,7 @@ export interface MoneySettings {
 export type ReserveResult =
   | { kind: "skipped" }
   | { kind: "reserved" }
-  | { kind: "existing"; state: "reserved" | "spent" }
+  | { kind: "existing"; state: "reserved" | "spent"; ageSeconds?: number }
   | { kind: "cap"; scope: "key" | "user" }
   | { kind: "error" }
 
@@ -36,6 +36,8 @@ export interface SpendHook {
 export type GuardResult = { proceed: true; owned: boolean } | { proceed: false; result: { status: 402 | 409 | 503; error: { status: 402 | 409 | 503; message: string } } }
 
 const SPEND_UNAVAILABLE = "UNAVAILABLE: the daily spending limit could not be checked; nothing was charged. Retry with the same reference"
+/** A reservation older than this (seconds) is stale: well past the reserve (5 s lock) and place timeouts. */
+export const STALE_RESERVATION_SECONDS = 120
 export const MSG_SPEND_IN_PROGRESS =
   "REQUEST_IN_PROGRESS: a request with this reference is still being processed; nothing was charged by this one. Retry the same reference shortly"
 
@@ -94,7 +96,10 @@ export async function guardSpend(
     case "reserved":
       return { proceed: true, owned: true }
     case "existing":
-      if (opts.refuseInFlight && r.state === "reserved") {
+      // Only a reservation still inside the in-flight window is refused. An older one is stale (lost response, unknown
+      // outcome): proceed without owning it, so the reference is never blocked for good. The stale row already counts
+      // the amount, and the order engine allows one order per person and reference.
+      if (opts.refuseInFlight && r.state === "reserved" && !(typeof r.ageSeconds === "number" && r.ageSeconds > STALE_RESERVATION_SECONDS)) {
         return { proceed: false, result: { status: 409, error: { status: 409, message: MSG_SPEND_IN_PROGRESS } } }
       }
       return { proceed: true, owned: false }
