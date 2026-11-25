@@ -31,6 +31,21 @@ describe("BANNED_FOR_NON_ADMIN", () => {
   })
 })
 
+describe("internal vendors", () => {
+  it("bans SMS/email, AI and infrastructure vendor names", () => {
+    for (const name of ["mnotify", "brevo", "anthropic", "openai", "gemini", "deepseek", "groq", "claude", "supabase", "vercel", "upstash"]) {
+      expect(BANNED_FOR_NON_ADMIN, name).toContain(name)
+      expect(bannedHits(`sent by ${name.toUpperCase()}.`), name).toEqual([name])
+    }
+  })
+
+  it("leaves customer-visible names and words alone", () => {
+    for (const ok of ["Paystack", "Hubtel", "Moolre", "Resend code", "Tap Resend"]) {
+      expect(bannedHits(ok), ok).toEqual([])
+    }
+  })
+})
+
 describe("bannedHits", () => {
   it("matches case-insensitively and returns lowercase terms", () => {
     expect(bannedHits("We use SYKES for this")).toEqual(["sykes"])

@@ -9,7 +9,8 @@
  * - lib/sykes-afa-provider.ts (AFA supplier): sykes
  * Spaced spellings (data kazina, apex prime, ...) are listed too so prose cannot slip past.
  *
- * Payment gateways customers DO see at checkout (Paystack reference, Hubtel fee note) are deliberately not listed.
+ * Payment gateways and providers customers DO see are deliberately not listed: Paystack (reference, "Secured by"),
+ * Hubtel (fee note), Moolre (shown to shop owners on the withdraw page and in the SMS provider picker).
  * The risk words come from the article brief: fraud, threshold, blacklist, velocity, risk score.
  */
 export const BANNED_FOR_NON_ADMIN: string[] = [
@@ -46,6 +47,21 @@ export const BANNED_FOR_NON_ADMIN: string[] = [
   "kuntanii",
   "hubnet",
   "digiwapy",
+  // SMS / email vendors (lib/mnotify-sender-id.ts, lib/sms-service.ts, lib/email-service.ts); customers never see them.
+  // "resend" is NOT listed: it is an everyday button word on checkout and sign-up pages.
+  "mnotify",
+  "brevo",
+  // AI vendors and models (lib/ai-provider-config.ts ProviderName)
+  "anthropic",
+  "openai",
+  "gemini",
+  "deepseek",
+  "groq",
+  "claude",
+  // Infrastructure vendors
+  "supabase",
+  "vercel",
+  "upstash",
 ]
 
 function escapeRegex(s: string): string {

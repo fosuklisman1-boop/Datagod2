@@ -125,9 +125,9 @@ If something goes wrong:
     id: "standard-bundles",
     title: "Standard bundles",
     audiences: ["customer"],
-    keywords: ["standard bundles", "standard bundle", "airteltigo", "telecel broadband", "mtn", "wallet", "bundles", "cashback", "catalog", "sheet", "category"],
+    keywords: ["standard bundles", "standard bundle", "airteltigo", "mtn", "wallet", "bundles", "cashback", "catalog", "sheet", "category"],
     summary: "Standard bundles are another set of internet bundles paid from your wallet. They may not be available on your account yet. Pick a network and category, then buy.",
-    body: `What it is: a second catalogue of internet bundles for MTN, Telecel, AirtelTigo and Telecel Broadband, paid straight from your wallet. It may not be available on your account yet; if so the page says "not available yet".
+    body: `What it is: a second catalogue of internet bundles for MTN, Telecel and AirtelTigo (a Telecel Broadband tile shows "Coming soon" and cannot be used yet), paid straight from your wallet. It may not be available on your account yet; if so the page says "not available yet".
 
 Who can use it: logged-in customers and dealers, when the feature is switched on.
 
@@ -199,7 +199,7 @@ What happens next: the status changes by itself. The statuses mean:
 - Reversed: it first looked completed but was later found not delivered. The team looks at these, so report it.
 - Activating number: the MTN number is not yet active for data. The order is held and is delivered by itself once the number is active.
 
-If something goes wrong: a Complain button appears on an order card when it has been completed for ${COMPLETED_MINUTES} minutes or processing for ${PROCESSING_HOURS} hours. It opens a Support chat (/dashboard/complaints) linked to that order. See the articles on slow orders and failed orders.`,
+If something goes wrong: for a Failed or Reversed order open Support chat (/dashboard/complaints) yourself and give the order details, because there is no Complain button on those. For other orders a Complain button appears on the card when it has been completed for ${COMPLETED_MINUTES} minutes or processing for ${PROCESSING_HOURS} hours. It opens a Support chat (/dashboard/complaints) linked to that order. See the articles on slow orders and failed orders.`,
   },
   {
     id: "check-shop-order-status",
@@ -223,7 +223,7 @@ What happens next: the status updates as the order moves. Order status is one of
 If something goes wrong:
 - Payment shows pending but you already paid: type the payment reference from your payment email into the box under the order and tap Verify Payment. If it is confirmed the order moves on to processing.
 - Payment failed or abandoned: pay again from the shop page.
-- No orders found: try the phone number you ordered for, or the one you paid with.
+- No orders found: try the number you entered when buying, or the number that receives the data.
 - Order stuck or failed: contact the shop using the details under About Shop & Terms.`,
   },
   {
@@ -264,7 +264,7 @@ Where: My orders (/dashboard/my-orders), Transactions (/dashboard/transactions),
 How:
 1. Open My orders and find the order. Note the status: Failed or Reversed.
 2. Open Transactions and look at the entries around the same time. A refund shows as its own entry.
-3. If the money is not back, tap Complain on the order when it is available, or open Support chat and give the order details.
+3. If the money is not back, open Support chat (/dashboard/complaints) yourself and give the order details. The Complain button is not offered on Failed or Reversed orders.
 4. Say which order, which number, and the time you bought.
 
 What happens next:
