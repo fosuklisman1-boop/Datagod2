@@ -23,6 +23,7 @@ const EXPECTED_IDS = [
   "sub-agent-buy-stock",
   "sub-agent-join-a-shop",
   "sub-agents-manage",
+  "text-to-buy-customer",
   "text-to-buy-shop",
   "ussd-buy-from-a-shop",
   "ussd-shop-setup",
@@ -196,7 +197,7 @@ describe("shops articles: content rules", () => {
   it("never reveals rule shapes or internal workings", () => {
     for (const a of ARTICLES.filter((x) => !x.audiences.includes("admin"))) {
       expect([a.title, a.summary, a.body, ...a.keywords].join("\n"), a.id).not.toMatch(
-        /first withdrawal|between withdrawals|cooling|waiting period|held for review|sent by hand|admins? reserve|reject them later|clawback|cap of|at most|at least \w+ (?:orders|days|hours)/i,
+        /first withdrawal|between withdrawals|cooling|waiting period|held for review|sent by hand|admins? reserve|reject them later|clawback|cap of|price is too low|wrong tries|few tries|at most|at least \w+ (?:orders|days|hours)/i,
       )
     }
   })
@@ -209,6 +210,22 @@ describe("shops articles: content rules", () => {
     expect(byId("become-a-dealer-or-agent").audiences).toEqual(["public", "customer"])
     expect(byId("sub-agent-join-a-shop").audiences).toEqual(["public", "customer"])
     expect(byId("ussd-buy-from-a-shop").audiences).toEqual(["public"])
+  })
+
+  it("explains the customer text-to-buy flow without quoting a number and says it may be unavailable", () => {
+    const a = byId("text-to-buy-customer")
+    expect(a.audiences).toEqual(["public"])
+    expect(a.body).toMatch(/may not be available/)
+    expect(a.body).toMatch(/never from a wallet/)
+    expect(a.body).toMatch(/shop's own number/)
+    expect(a.body).toMatch(/remembered/)
+  })
+
+  it("credits sub-agent shares at payment, and uses one buy-stock title", () => {
+    expect(byId("sub-agents-manage").body).toMatch(/customer payment goes through/)
+    expect(byId("sub-agents-manage").body).not.toMatch(/order completes/)
+    expect(byId("sub-agent-join-a-shop").body).toContain("Buy data (sub-agent)")
+    expect(byId("sub-agent-join-a-shop").body).not.toContain("Buy Data page")
   })
 
   it("is honest that text orders and activation depend on the account", () => {
@@ -234,6 +251,8 @@ describe("shops articles: people find them with real questions", () => {
     { q: "i am a sub agent how do I buy data from my parent shop", aud: SHOP, id: "sub-agent-buy-stock" },
     { q: "how do customers buy from my shop on ussd", aud: SHOP, id: "ussd-shop-setup" },
     { q: "activate my ussd shop code", aud: SHOP, id: "ussd-shop-setup" },
+    { q: "can i buy data by sms", aud: GUEST, id: "text-to-buy-customer" },
+    { q: "how to order data with text message", aud: CUSTOMER, id: "text-to-buy-customer" },
     { q: "how do I buy data from a shop with ussd shop code", aud: GUEST, id: "ussd-buy-from-a-shop" },
     { q: "ussd press 1 last shop helpline", aud: GUEST, id: "ussd-buy-from-a-shop" },
     { q: "activate whatsapp shop bot for my customers", aud: SHOP, id: "whatsapp-shop-bot" },

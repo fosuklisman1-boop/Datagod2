@@ -86,7 +86,7 @@ How:
 What happens next: new prices show on your storefront. When a customer's payment goes through, your profit for that sale is added to your balance and appears on Profit logs. Your balance is on My shop (/dashboard/my-shop). To take profit out, see the article withdraw-shop-profit.
 
 If something goes wrong:
-- A price will not save: the page tells you when a price is too low. Raise it and save again.
+- A price will not save: you cannot sell below your cost, which the page shows next to each product. Raise the price and save again.
 - Cost prices did not load: tap the retry button on the page.
 - A profit entry looks missing: check Shop orders (/dashboard/shop-orders), then open Support chat (/dashboard/complaints).`,
   },
@@ -135,7 +135,7 @@ How:
 4. Open Sub-agent catalog and set the wholesale price your sub-agents pay for each package. The page shows your margin. Use Bulk Pricing to change many at once.
 5. On Sub-agents, the Sub-Agents tab lists your agents with their orders, sales and your earnings. Profit History lists each order that earned you a share.
 
-What happens next: sub-agents see only the packages you priced. Their purchases come out of their wallet. When a sub-agent's order completes, your share is added to your profit. You can remove a sub-agent from the list at any time.
+What happens next: sub-agents see only the packages you priced. Their purchases come out of their wallet. When a sub-agent's customer payment goes through, your share is added to your profit. You can remove a sub-agent from the list at any time.
 
 If something goes wrong:
 - A sub-agent sees no packages: set prices for them on Sub-agent catalog first.
@@ -161,7 +161,7 @@ How:
 3. Fill in your name, email, a password and your phone number. Tap to send the code and type the code from the SMS to verify the number.
 4. Type Your Shop Name and submit. If asked, confirm your email.
 
-What happens next: your own shop is created under theirs and you land on the page to set your prices. Once your prices are saved your shop opens. You can then buy stock from your parent shop's wholesale prices from the Buy Data page in your menu.
+What happens next: your own shop is created under theirs and you land on the page to set your prices. Once your prices are saved your shop opens. You can then buy stock at your parent shop's wholesale prices from the Buy data (sub-agent) page in your menu.
 
 If something goes wrong:
 - "This shop isn't taking sub-agents": joining may not be open for that shop. Ask the owner.
@@ -240,7 +240,7 @@ How:
 What happens next: the order is placed after payment is confirmed and the data is delivered to the number you chose. You can check it on the shop's Shop order status (/shop/:slug/order-status) page.
 
 If something goes wrong:
-- "Invalid code. Try again.": check the shop code with the seller. After a few wrong tries you are asked to try again later.
+- "Invalid code. Try again.": the code was not accepted, so check it with the seller.
 - No prompt on your phone: check your Mobile Money number and try again.
 - A problem with an order: call the helpline shown on the shop menu, or use the shop's contact details.`,
   },
@@ -294,6 +294,31 @@ If something goes wrong:
 - A banner on the page tells you if your SMS credits or sender name need attention.
 - No orders: share your shop number and code again.
 - Other problems: open Support chat (/dashboard/complaints).`,
+  },
+  {
+    id: "text-to-buy-customer",
+    title: "Buy data by SMS (text to buy)",
+    audiences: ["public"],
+    keywords: ["text to buy", "buy data by sms", "order by sms", "text message", "sms order", "sms number", "no internet", "order data with text", "text a shop", "shop number", "shop code", "momo prompt", "text order"],
+    summary: "Text what you want, such as a data size, to the SMS number and approve a Mobile Money prompt. Shops have their own number. May not be available yet.",
+    body: `What it is: ordering data by sending a normal text message. You do not need internet, an app or an account.
+
+Who can use it: anyone with a phone and a Mobile Money wallet. Text to buy may not be available on your line yet.
+
+Where: your phone's messages. The SMS number is set by the platform and shown on the site. A shop's own text number and shop code are shared by the shop owner. The online shop is the Shop storefront (/shop/:slug).
+
+How:
+1. Text what you want to the SMS number, in plain words. For example a data size, and if you like the network or the number to receive it. For a shop, text the size and the shop's code to that shop's own number.
+2. You get a reply with the price. If the size is not available, you get a list of choices with numbers. Reply with the number you want.
+3. A Mobile Money prompt comes to the phone you texted from. Approve it with your PIN. The payment is always from that phone, never from a wallet.
+4. Next time with a shop you only text the size, because the shop is remembered.
+
+What happens next: after payment is confirmed the data is delivered and you get SMS replies about it. You can also check the order on Shop order status (/shop/:slug/order-status). Buying airtime or results checkers by text may not be available yet.
+
+If something goes wrong:
+- If you text a shop code to the main number, the reply tells you to use the shop's own number.
+- No reply or no prompt: check the number you texted and your Mobile Money number, then try again.
+- Paid but no data: use the shop's contact details, or Support chat if you have an account.`,
   },
   {
     id: "shop-sms-customers",
