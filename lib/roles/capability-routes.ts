@@ -56,6 +56,11 @@ export const GATED_ROUTES: Readonly<Record<string, Capability>> = {
   "user/v2-dashboard/orders/csv": "account.api",
   "user/v2-dashboard/orders/[product]/[reference]": "account.api",
   "user/v2-dashboard/balance-alert": "account.api",
+  "user/v2-dashboard/webhook": "account.api",
+  "user/v2-dashboard/webhook/secret": "account.api",
+  "user/v2-dashboard/webhook/test": "account.api",
+  "user/v2-dashboard/webhook/deliveries": "account.api",
+  "user/v2-dashboard/webhook/deliveries/[id]/resend": "account.api",
   // Tenant SMS routes: gated once in lib/sms/tenant-auth.ts resolveAccount (shop.sms).
   "sms/business/documents": "shop.sms",
   "sms/business": "shop.sms",
