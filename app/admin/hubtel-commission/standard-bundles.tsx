@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { toast } from "sonner"
 import { RefreshCw, Search } from "lucide-react"
 import { BUNDLE_NETWORKS, type BundleNetwork } from "@/lib/standard-bundles/categories"
+import { groupAdminRows, specialGroupSummary } from "@/lib/standard-bundles/admin-group"
 import { isValidReferenceNumber, validateBundlesPatch, type BundlesConfig } from "@/lib/standard-bundles/config"
 
 export type Authed = (path: string, init?: RequestInit) => Promise<any>
@@ -212,6 +213,8 @@ type OrderRow = {
   purchaser: string; stuck_claim: boolean; has_ledger: boolean | null; refund: RefundInfo; can_retry?: boolean; can_dispatch?: boolean
   /** Special Bundles child: group id + "Special i/N" (null for normal orders / before migration 0141). */
   special_group_id?: string | null; special_label?: string | null
+  /** Unit number inside the group, and the group's unit count (null when unknown). */
+  special_index?: number | null; special_size?: number | null
   /** Completed Special unit with no replacement yet; resent_ref = its replacement when one exists. */
   can_resend?: boolean; resent_ref?: string | null
 }
@@ -399,90 +402,7 @@ export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; on
       </div>
       {rows.length === 0 && !loading && <div className="rounded-xl border p-8 text-center text-muted-foreground">No Standard Bundle orders found.</div>}
       <div className="space-y-3">
-        {rows.map(r => {
-          // Storefront buyers have no wallet: their refunds go through /admin/refunds (the server refuses a wallet refund).
-          const storefront = r.channel === "storefront" || r.channel === "bots"
-          const canRefund = !storefront && r.refund?.action === "direct"
-          const toReview = !storefront && r.refund?.action === "blocked" && r.refund.reviewQueue
-          const storefrontRefund = storefront && r.status !== "refunded" && (r.refund?.action === "direct" || (r.refund?.action === "blocked" && r.refund.reviewQueue))
-          return (
-            <div key={r.id} className="flex flex-col gap-3 rounded-xl border bg-card p-4 lg:flex-row lg:items-center lg:gap-6">
-              <div className="lg:w-56">
-                <div className="font-medium">{NETWORK_LABEL[r.network]} {r.bundle_display}</div>
-                {r.special_label && r.special_group_id && (
-                  <button type="button" title="Show every unit of this Special purchase"
-                    aria-label={`${r.special_label}: show the whole Special group`}
-                    className="mt-1 inline-flex rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary hover:bg-primary/20 disabled:opacity-60"
-                    disabled={group?.id === r.special_group_id}
-                    onClick={() => {
-                      const id = r.special_group_id
-                      if (!id) return
-                      // Clear the other filters so every unit of the group shows.
-                      setQ(""); setQInput(""); setStatus("all"); setNetwork("all"); setChannel("all"); setFrom(""); setTo("")
-                      setGroup({ id, ref: r.reference_code })
-                    }}>
-                    {r.special_label}
-                  </button>
-                )}
-                {r.special_label && !r.special_group_id && (
-                  <span className="mt-1 inline-flex rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-400"
-                    title="Admin replacement for a Special unit: not charged, not refundable">
-                    {r.special_label}
-                  </span>
-                )}
-                <div className="text-xs text-muted-foreground">{r.bundle_category} · {r.purchaser}</div>
-                <div className="text-xs text-muted-foreground">
-                  {r.channel === "storefront" ? `Storefront · ${r.shop_name ?? "Unknown shop"}${r.buyer_phone ? ` · ${r.buyer_phone}` : ""}` : r.channel === "bots" ? (r.channel_label ?? "Bot") : r.channel === "api" ? "API" : "Dashboard"}
-                </div>
-                <div className="font-mono text-xs text-muted-foreground">{r.reference_code}</div>
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-xs uppercase tracking-wide text-muted-foreground">Beneficiary</div>
-                <div className="font-mono text-sm">{r.beneficiary_phone}</div>
-                {r.hubtel_client_reference && <div className="break-all font-mono text-xs text-muted-foreground">{r.hubtel_client_reference}</div>}
-              </div>
-              <div className="lg:w-56">
-                <div className="flex flex-wrap gap-1"><Pill value={r.status} /><Pill value={r.payment_status} prefix="pay: " /></div>
-                {(r.failure_reason || r.notes) && <div className="mt-1 text-xs text-muted-foreground">{r.failure_reason ?? r.notes}</div>}
-                {r.stuck_claim && <div className="mt-1 text-xs font-medium text-amber-700">Stuck dispatch claim (never reached Hubtel)</div>}
-              </div>
-              <div className="lg:w-36">
-                <div className="text-xs uppercase tracking-wide text-muted-foreground">{when(r.created_at)}</div>
-                <div className="font-semibold">{money(r.amount)}</div>
-                {r.paid_amount != null && <div className="text-xs text-muted-foreground">Paid {money(r.paid_amount)}</div>}
-                {r.commission !== null && <div className="text-xs text-emerald-600">+{money(r.commission, 4)} comm.</div>}
-              </div>
-              <div className="flex flex-wrap gap-2 lg:w-56 lg:justify-end">
-                {r.status === "processing" && r.hubtel_client_reference && (
-                  <Button size="sm" variant="outline" disabled={anyBusy} onClick={() => sync(r)}>{busy === `sync-${r.id}` ? "Syncing..." : "Sync"}</Button>
-                )}
-                {r.can_dispatch && (
-                  <Button size="sm" variant="outline" disabled={anyBusy} onClick={() => dispatch(r)}>
-                    <RefreshCw className="mr-1.5 h-3.5 w-3.5" />{busy === `dispatch-${r.id}` ? "Sending..." : "Send to Hubtel"}
-                  </Button>
-                )}
-                {r.can_retry && (
-                  <Button size="sm" variant="outline" disabled={anyBusy} onClick={() => retry(r)}>
-                    <RefreshCw className="mr-1.5 h-3.5 w-3.5" />{busy === `retry-${r.id}` ? "Retrying..." : "Retry"}
-                  </Button>
-                )}
-                {r.can_resend && (
-                  <Button size="sm" variant="outline" disabled={anyBusy} onClick={() => resend(r)}
-                    title="Hubtel reported it delivered; resend once if the customer did not receive it">
-                    <RefreshCw className="mr-1.5 h-3.5 w-3.5" />{busy === `resend-${r.id}` ? "Resending..." : "Resend unit"}
-                  </Button>
-                )}
-                {r.resent_ref && <div className="text-xs text-muted-foreground">Resent once as {r.resent_ref}</div>}
-                {canRefund && <Button size="sm" disabled={anyBusy} onClick={() => { setNote(""); setRefunding(r) }}>Refund (never sent)</Button>}
-                {toReview && <Button size="sm" variant="outline" onClick={onReviewQueue}>Open Hubtel review queue</Button>}
-                {storefrontRefund && (
-                  <Link href="/admin/refunds" className="text-xs font-medium text-primary underline-offset-2 hover:underline">Storefront / bot order — refund from Refunds</Link>
-                )}
-                {r.refund?.action === "blocked" && !r.refund.reviewQueue && r.status !== "refunded" && <div className="text-xs text-muted-foreground">{r.refund.reason}</div>}
-              </div>
-            </div>
-          )
-        })}
+        {groupAdminRows(rows).map(line => line.kind === "special" ? renderGroup(line.groupId, line.units) : renderRow(line.row))}
       </div>
 
       <Dialog open={!!refunding} onOpenChange={o => { if (!o && busy !== "refund") setRefunding(null) }}>
@@ -506,4 +426,153 @@ export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; on
       </Dialog>
     </div>
   )
+
+  /** Clear the other filters and show every unit of one Special purchase. */
+  function showGroup(id: string, ref: string) {
+    setQ(""); setQInput(""); setStatus("all"); setNetwork("all"); setChannel("all"); setFrom(""); setTo("")
+    setGroup({ id, ref })
+  }
+
+  function channelText(r: OrderRow) {
+    return r.channel === "storefront" ? `Storefront · ${r.shop_name ?? "Unknown shop"}${r.buyer_phone ? ` · ${r.buyer_phone}` : ""}` : r.channel === "bots" ? (r.channel_label ?? "Bot") : r.channel === "api" ? "API" : "Dashboard"
+  }
+
+  /** Per-order buttons; the same on a normal card and on a unit line inside a Special card. */
+  function renderActions(r: OrderRow) {
+    // Storefront buyers have no wallet: their refunds go through /admin/refunds (the server refuses a wallet refund).
+    const storefront = r.channel === "storefront" || r.channel === "bots"
+    const canRefund = !storefront && r.refund?.action === "direct"
+    const toReview = !storefront && r.refund?.action === "blocked" && r.refund.reviewQueue
+    const storefrontRefund = storefront && r.status !== "refunded" && (r.refund?.action === "direct" || (r.refund?.action === "blocked" && r.refund.reviewQueue))
+    return (
+      <>
+        {r.status === "processing" && r.hubtel_client_reference && (
+          <Button size="sm" variant="outline" disabled={anyBusy} onClick={() => sync(r)}>{busy === `sync-${r.id}` ? "Syncing..." : "Sync"}</Button>
+        )}
+        {r.can_dispatch && (
+          <Button size="sm" variant="outline" disabled={anyBusy} onClick={() => dispatch(r)}>
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />{busy === `dispatch-${r.id}` ? "Sending..." : "Send to Hubtel"}
+          </Button>
+        )}
+        {r.can_retry && (
+          <Button size="sm" variant="outline" disabled={anyBusy} onClick={() => retry(r)}>
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />{busy === `retry-${r.id}` ? "Retrying..." : "Retry"}
+          </Button>
+        )}
+        {r.can_resend && (
+          <Button size="sm" variant="outline" disabled={anyBusy} onClick={() => resend(r)}
+            title="Hubtel reported it delivered; resend once if the customer did not receive it">
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />{busy === `resend-${r.id}` ? "Resending..." : "Resend unit"}
+          </Button>
+        )}
+        {r.resent_ref && <div className="text-xs text-muted-foreground">Resent once as {r.resent_ref}</div>}
+        {canRefund && <Button size="sm" disabled={anyBusy} onClick={() => { setNote(""); setRefunding(r) }}>Refund (never sent)</Button>}
+        {toReview && <Button size="sm" variant="outline" onClick={onReviewQueue}>Open Hubtel review queue</Button>}
+        {storefrontRefund && (
+          <Link href="/admin/refunds" className="text-xs font-medium text-primary underline-offset-2 hover:underline">Storefront / bot order — refund from Refunds</Link>
+        )}
+        {r.refund?.action === "blocked" && !r.refund.reviewQueue && r.status !== "refunded" && <div className="text-xs text-muted-foreground">{r.refund.reason}</div>}
+      </>
+    )
+  }
+
+  /** One Special purchase: a summary header, then one line per unit with its own buttons. */
+  function renderGroup(groupId: string, units: OrderRow[]) {
+    const first = units[0]
+    const s = specialGroupSummary(units)
+    return (
+      <div key={`group:${groupId}`} className="rounded-xl border-2 border-primary/30 bg-card p-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:gap-6">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">Special</span>
+              <span className="font-medium">{NETWORK_LABEL[first.network]} {s.title}</span>
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">{first.purchaser} · {channelText(first)}</div>
+          </div>
+          <div className="lg:w-56">
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">Beneficiary</div>
+            <div className="font-mono text-sm">{first.beneficiary_phone}</div>
+          </div>
+          <div className="lg:w-56">
+            <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${STATUS_STYLE[s.tone] ?? "bg-slate-100 text-slate-700"}`}>{s.label}</span>
+          </div>
+          <div className="lg:w-36">
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">{when(first.created_at)}</div>
+            <div className="font-semibold">{money(s.total)}</div>
+            <div className="text-xs text-muted-foreground">{s.size} × {money(first.amount)}</div>
+          </div>
+        </div>
+        {s.missingFromPage > 0 && group?.id !== groupId && (
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span>{s.missingFromPage} more unit{s.missingFromPage === 1 ? "" : "s"} of this purchase not shown here.</span>
+            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => showGroup(groupId, first.reference_code)}>Show all units</Button>
+          </div>
+        )}
+        <div className="mt-3 divide-y rounded-lg border bg-muted/30">
+          {units.map(u => (
+            <div key={u.id} className="flex flex-col gap-2 p-3 lg:flex-row lg:items-center lg:gap-4">
+              <div className="w-16 shrink-0 text-xs font-semibold text-muted-foreground">Unit {u.special_index ?? "?"}</div>
+              <div className="min-w-0 flex-1">
+                <div className="font-mono text-xs">{u.reference_code}</div>
+                {u.hubtel_client_reference && <div className="break-all font-mono text-xs text-muted-foreground">{u.hubtel_client_reference}</div>}
+              </div>
+              <div className="lg:w-64">
+                <div className="flex flex-wrap gap-1"><Pill value={u.status} /><Pill value={u.payment_status} prefix="pay: " /></div>
+                {(u.failure_reason || u.notes) && <div className="mt-1 text-xs text-muted-foreground">{u.failure_reason ?? u.notes}</div>}
+                {u.stuck_claim && <div className="mt-1 text-xs font-medium text-amber-700">Stuck dispatch claim (never reached Hubtel)</div>}
+                {u.commission !== null && <div className="text-xs text-emerald-600">+{money(u.commission, 4)} comm.</div>}
+              </div>
+              <div className="flex flex-wrap gap-2 lg:w-56 lg:justify-end">{renderActions(u)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  function renderRow(r: OrderRow) {
+          return (
+            <div key={r.id} className="flex flex-col gap-3 rounded-xl border bg-card p-4 lg:flex-row lg:items-center lg:gap-6">
+              <div className="lg:w-56">
+                <div className="font-medium">{NETWORK_LABEL[r.network]} {r.bundle_display}</div>
+                {r.special_label && r.special_group_id && (
+                  <button type="button" title="Show every unit of this Special purchase"
+                    aria-label={`${r.special_label}: show the whole Special group`}
+                    className="mt-1 inline-flex rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary hover:bg-primary/20 disabled:opacity-60"
+                    disabled={group?.id === r.special_group_id}
+                    onClick={() => { if (r.special_group_id) showGroup(r.special_group_id, r.reference_code) }}>
+                    {r.special_label}
+                  </button>
+                )}
+                {r.special_label && !r.special_group_id && (
+                  <span className="mt-1 inline-flex rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-400"
+                    title="Admin replacement for a Special unit: not charged, not refundable">
+                    {r.special_label}
+                  </span>
+                )}
+                <div className="text-xs text-muted-foreground">{r.bundle_category} · {r.purchaser}</div>
+                <div className="text-xs text-muted-foreground">{channelText(r)}</div>
+                <div className="font-mono text-xs text-muted-foreground">{r.reference_code}</div>
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-xs uppercase tracking-wide text-muted-foreground">Beneficiary</div>
+                <div className="font-mono text-sm">{r.beneficiary_phone}</div>
+                {r.hubtel_client_reference && <div className="break-all font-mono text-xs text-muted-foreground">{r.hubtel_client_reference}</div>}
+              </div>
+              <div className="lg:w-56">
+                <div className="flex flex-wrap gap-1"><Pill value={r.status} /><Pill value={r.payment_status} prefix="pay: " /></div>
+                {(r.failure_reason || r.notes) && <div className="mt-1 text-xs text-muted-foreground">{r.failure_reason ?? r.notes}</div>}
+                {r.stuck_claim && <div className="mt-1 text-xs font-medium text-amber-700">Stuck dispatch claim (never reached Hubtel)</div>}
+              </div>
+              <div className="lg:w-36">
+                <div className="text-xs uppercase tracking-wide text-muted-foreground">{when(r.created_at)}</div>
+                <div className="font-semibold">{money(r.amount)}</div>
+                {r.paid_amount != null && <div className="text-xs text-muted-foreground">Paid {money(r.paid_amount)}</div>}
+                {r.commission !== null && <div className="text-xs text-emerald-600">+{money(r.commission, 4)} comm.</div>}
+              </div>
+              <div className="flex flex-wrap gap-2 lg:w-56 lg:justify-end">{renderActions(r)}</div>
+            </div>
+          )
+  }
 }

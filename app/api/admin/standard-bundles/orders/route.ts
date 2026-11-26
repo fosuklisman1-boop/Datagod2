@@ -105,6 +105,8 @@ export async function GET(request: NextRequest) {
         special_label: isSpecialReplacement(o.reference_code)
           ? "Special resend"
           : specialBadgeLabel(o, o.special_group_id ? groupSizes.get(o.special_group_id) : undefined),
+        // Whole-group unit count for the admin card ("5/5 delivered"); null when unknown or not Special.
+        special_size: o.special_group_id ? (groupSizes.get(o.special_group_id) ?? null) : null,
         can_resend: resendOk && resendCandidates.includes(o) && !resent.has(replacementRef(o.id)),
         resent_ref: resendCandidates.includes(o) && resent.has(replacementRef(o.id)) ? replacementRef(o.id) : null,
         stuck_claim: ledgerOk && isCandidate && !ledger.has(o.id) && isStuckClaim(o, now),
