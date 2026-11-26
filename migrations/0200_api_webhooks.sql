@@ -127,6 +127,7 @@ REVOKE ALL ON TABLE public.api_v2_webhook_settings, public.api_v2_webhook_endpoi
   public.api_v2_webhook_events, public.api_v2_webhook_attempts FROM PUBLIC, anon, authenticated;
 GRANT ALL ON TABLE public.api_v2_webhook_settings, public.api_v2_webhook_endpoints, public.api_v2_webhook_state,
   public.api_v2_webhook_events, public.api_v2_webhook_attempts TO service_role;
+REVOKE ALL ON SEQUENCE public.api_v2_webhook_attempts_id_seq FROM PUBLIC, anon, authenticated;
 
 -- ============ 2. the person's live v2 orders (same mapping as api_v2_dev_orders in 0199) ============
 
@@ -295,6 +296,7 @@ RETURNS integer
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
+SET statement_timeout = '10s'
 AS $fn$
 DECLARE
   v_now timestamptz := coalesce(p_now, now());
@@ -311,6 +313,7 @@ BEGIN
     RETURN 0;   -- another scan is running; the next minute picks up anything left
   END IF;
   FOR e IN SELECT w.user_id, w.created_at FROM public.api_v2_webhook_endpoints w WHERE w.enabled ORDER BY w.user_id LOOP
+   BEGIN   -- one person's bad row must not stop everyone else's events (this person's part rolls back, retried next minute)
     FOR o IN
       SELECT x.product, x.reference, x.created_at, x.recipient, x.amount, x.item, x.status, st.last_status AS prev
         FROM public.api_v2_webhook_orders(e.user_id, greatest(e.created_at, v_now - interval '7 days')) x
@@ -333,6 +336,9 @@ BEGIN
       ON CONFLICT (user_id, product, reference) DO UPDATE SET last_status = EXCLUDED.last_status, updated_at = EXCLUDED.updated_at;
       v_n := v_n + 1;
     END LOOP;
+   EXCEPTION WHEN others THEN
+    RAISE WARNING 'api_v2_webhook_scan skipped one endpoint: %', SQLSTATE;
+   END;
     EXIT WHEN v_n >= v_limit;
   END LOOP;
   RETURN v_n;
@@ -385,7 +391,7 @@ $fn$;
 REVOKE ALL ON FUNCTION public.api_v2_webhook_claim(timestamptz, integer) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.api_v2_webhook_claim(timestamptz, integer) TO service_role;
 
--- Leases one pending event of the caller's (the Send-test button), whatever its next_attempt_at.
+-- Leases one pending TEST event of the caller's (the Send-test button). Order events only ever go through claim (lease).
 CREATE OR REPLACE FUNCTION public.api_v2_webhook_claim_one(p_user uuid, p_event text, p_now timestamptz)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -406,7 +412,7 @@ BEGIN
   END IF;
   UPDATE public.api_v2_webhook_events ev
      SET attempts = ev.attempts + 1, next_attempt_at = v_now + interval '3 minutes'
-   WHERE ev.id = p_event AND ev.user_id = p_user AND ev.state = 'pending'
+   WHERE ev.id = p_event AND ev.user_id = p_user AND ev.state = 'pending' AND ev.type = 'webhook.test'
   RETURNING ev.id, ev.user_id, ev.type, ev.payload, ev.attempts INTO u;
   IF u.id IS NULL THEN
     RETURN NULL;

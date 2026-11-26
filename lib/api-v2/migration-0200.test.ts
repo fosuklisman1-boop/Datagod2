@@ -60,7 +60,7 @@ describe("0200 migration text", () => {
     const c = code(migration())
     expect((c.match(/SECURITY DEFINER/g) ?? []).length).toBe(FUNCTIONS.length)
     expect((c.match(/SET search_path = public, pg_temp/g) ?? []).length).toBe(FUNCTIONS.length)
-    expect((c.match(/FROM PUBLIC, anon, authenticated/g) ?? []).length).toBe(FUNCTIONS.length + 1)
+    expect((c.match(/FROM PUBLIC, anon, authenticated/g) ?? []).length).toBe(FUNCTIONS.length + 2) // + tables, + sequence
   })
 })
 
@@ -309,6 +309,23 @@ describe.skipIf(!PGliteCtor)("0200 in PGlite", () => {
     expect(job.payload).toMatchObject({ type: "webhook.test", test: true })
     expect(await call(db, "api_v2_webhook_record", id, 1, false, 404, 3, "HTTP 404", null, null)).toMatchObject({ state: "failed" })
   }, 60_000)
+
+  it("claim_one leases test events only: an order event (maybe leased by the cron) is never claimed by id", async () => {
+    const db = await fresh()
+    const { user, key } = await setup(db)
+    await mkOrder(db, { user, key, ref: "R-ONE" })
+    await scan(db)
+    const [ev] = await events(db, user)
+    expect(await call(db, "api_v2_webhook_claim_one", user, ev.id, null)).toBeNull()
+  }, 60_000)
+
+  it("scan and its helper carry their own statement_timeout; the scan isolates each person; the sequence is revoked", () => {
+    const c = code(migration())
+    const scanFn = c.slice(c.indexOf("FUNCTION public.api_v2_webhook_scan"), c.indexOf("REVOKE ALL ON FUNCTION public.api_v2_webhook_scan"))
+    expect(scanFn).toMatch(/SET statement_timeout = '10s'/)
+    expect(scanFn).toMatch(/EXCEPTION WHEN others/)
+    expect(c).toMatch(/REVOKE ALL ON SEQUENCE public\.api_v2_webhook_attempts_id_seq FROM PUBLIC, anon, authenticated/)
+  })
 
   it("resend re-queues own delivered/failed events only; delete endpoint fails pending events and clears state", async () => {
     const db = await fresh()
