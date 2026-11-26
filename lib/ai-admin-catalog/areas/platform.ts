@@ -963,6 +963,11 @@ export const PLATFORM_ENTRIES: CatalogEntry[] = [
     resultKeep: ["capsEnabled", "alertsEnabled", "thresholds", "updatedAt", "alertsToday"],
   }),
   mk({
+    id: "api_v2.webhooks.settings", page: API_KEYS, summary: "Show whether API webhooks are switched on, how many developers have a webhook URL, and today's deliveries by state (pending, delivered, failed).",
+    method: "GET", path: "/api/admin/api-v2/webhook-settings", kind: "lookup", risk: "normal", auth: "admin",
+    resultKeep: ["enabled", "updatedAt", "endpoints", "today.pending", "today.delivered", "today.failed"],
+  }),
+  mk({
     id: "api_v2.developers.spend", page: API_KEYS, summary: "Show one developer's API spend today against their Datagod limit and each live key's limit, limit refusals today and their last 10 fraud alerts.",
     method: "GET", path: "/api/admin/api-v2/developers/:userId/spend-cap", params: { userId: "uuid" }, kind: "lookup", risk: "normal", auth: "admin",
     resultKeep: ["today", "userCap", "keys[].keyId", "keys[].spent", "keys[].cap", "refusalsToday", "alerts[].signal", "alerts[].createdAt", "alerts[].details"],

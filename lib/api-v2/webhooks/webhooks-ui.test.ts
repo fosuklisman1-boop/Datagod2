@@ -6,6 +6,26 @@ import { renderToStaticMarkup } from "react-dom/server"
 vi.mock("@/lib/supabase", () => ({ supabase: { auth: { getSession: async () => ({ data: { session: null } }) } } }))
 
 import { WebhooksTab, WebhooksView, type WebhooksViewProps } from "@/components/developer/dashboard/WebhooksTab"
+import { WebhooksCardView } from "@/components/admin/api-keys/WebhooksCard"
+
+describe("admin Webhooks card", () => {
+  it("off: says Off and offers Switch on", () => {
+    const html = renderToStaticMarkup(
+      createElement(WebhooksCardView, { settings: { enabled: false, updatedAt: null, endpoints: 0, today: { pending: 0, delivered: 0, failed: 0 } }, loading: false, error: null, notice: null, busy: false, onToggle: async () => true, onRetry: () => undefined }),
+    )
+    expect(html).toContain("Webhooks")
+    expect(html).toContain("Off")
+    expect(html).toContain("Switch on")
+  })
+  it("on: shows endpoints and today's counts", () => {
+    const html = renderToStaticMarkup(
+      createElement(WebhooksCardView, { settings: { enabled: true, updatedAt: null, endpoints: 4, today: { pending: 2, delivered: 17, failed: 1 } }, loading: false, error: null, notice: null, busy: false, onToggle: async () => true, onRetry: () => undefined }),
+    )
+    expect(html).toContain("Switch off")
+    expect(html).toContain("17 delivered")
+    expect(html).toContain("4 developers")
+  })
+})
 
 const noop = () => undefined
 const base: WebhooksViewProps = {

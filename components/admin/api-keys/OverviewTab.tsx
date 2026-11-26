@@ -9,6 +9,7 @@ import { OverviewTiles } from "./OverviewTiles"
 import { FeatureControls } from "./FeatureControls"
 import { StuckV2Panel } from "./StuckV2Panel"
 import { MoneyProtectionCard } from "./MoneyProtection"
+import { WebhooksCard } from "./WebhooksCard"
 import { TrendBarsView, type TrendPoint } from "./TrendBars"
 
 export interface OverviewTabProps {
@@ -32,6 +33,7 @@ export function OverviewTabView(p: OverviewTabProps & { trend: { points: TrendPo
         <StuckV2Panel />
       </div>
       <MoneyProtectionCard />
+      <WebhooksCard />
       <FeatureControls config={p.config} roles={p.roles} error={p.errors.config} onSave={p.saveConfig} onRetry={p.onRetry} onGlobalKill={p.globalKill} />
     </div>
   )
