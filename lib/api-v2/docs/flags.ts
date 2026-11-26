@@ -6,3 +6,10 @@
  */
 export const SPEND_CAPS_PUBLISHED = false
 export const SPEND_CAPS_PUBLISHED_ON = "2026-11-25"
+
+/**
+ * Webhooks (Release 6) appear in the docs (Webhooks section, polling notes, changelog) only once the owner switches
+ * them on after the live check. Flip to true (and set WEBHOOKS_PUBLISHED_ON to that day) in the change that announces them.
+ */
+export const WEBHOOKS_PUBLISHED = false
+export const WEBHOOKS_PUBLISHED_ON = "2026-11-26"

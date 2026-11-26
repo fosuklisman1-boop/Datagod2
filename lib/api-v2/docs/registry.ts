@@ -10,6 +10,8 @@ import {
   msgWrongKeyType,
 } from "../access"
 import { DEFAULT_LIMITS } from "../limits"
+import { WEBHOOKS_PUBLISHED } from "./flags"
+import { pollingNote, WEBHOOKS_SECTION } from "./webhooks-docs"
 import {
   MSG_PACKAGE_NOT_FOUND,
   MSG_NETWORK_MISMATCH,
@@ -140,7 +142,7 @@ const START_SECTIONS: V2DocSection[] = [
     label: "Idempotency",
     group: "start",
     intro:
-      "Every purchase endpoint takes a reference that you choose and that must be unique to the order on your side. Sending the same reference with the same request returns the existing order and charges nothing a second time, so it is always safe to retry after a timeout. Reusing a reference for a different order returns 409. Airtime and utility bill payments follow the stricter claim rules in Idempotency and references (airtime and bills), and Standard Bundle purchases follow the same rules (see Standard Bundles): a reference is required and a request that is still unconfirmed is never run a second time. Results checker purchases and AFA registrations follow the same claim rules (see Idempotency and references (results checker and AFA)): a replay returns the existing order, and for the results checker the same PINs, with no second charge; their references are unique within your account. Live data order references share one namespace with orders placed through version 1 of the API: sending a v1 order's reference with the same network, size and recipient returns that order as a replay, and different content returns 409. SMS sends follow the same claim rules (see Idempotency and references (SMS)): a replay returns the stored send summary with nothing sent again, and SMS references are their own namespace. To check on an order, poll its order endpoint; Datagod does not send webhooks.",
+      "Every purchase endpoint takes a reference that you choose and that must be unique to the order on your side. Sending the same reference with the same request returns the existing order and charges nothing a second time, so it is always safe to retry after a timeout. Reusing a reference for a different order returns 409. Airtime and utility bill payments follow the stricter claim rules in Idempotency and references (airtime and bills), and Standard Bundle purchases follow the same rules (see Standard Bundles): a reference is required and a request that is still unconfirmed is never run a second time. Results checker purchases and AFA registrations follow the same claim rules (see Idempotency and references (results checker and AFA)): a replay returns the existing order, and for the results checker the same PINs, with no second charge; their references are unique within your account. Live data order references share one namespace with orders placed through version 1 of the API: sending a v1 order's reference with the same network, size and recipient returns that order as a replay, and different content returns 409. SMS sends follow the same claim rules (see Idempotency and references (SMS)): a replay returns the stored send summary with nothing sent again, and SMS references are their own namespace. " + pollingNote(WEBHOOKS_PUBLISHED),
     endpoints: [],
   },
   {
@@ -427,7 +429,7 @@ const ORDER_ENDPOINT: V2Endpoint = {
   successExample: { success: true, data: { order: ORDER_EXAMPLE }, meta: { timestamp: TS, version: "2" } },
   errors: [{ status: 404, message: MSG_ORDER_NOT_FOUND }, ...standardAccessErrors()],
   notes: [
-    "Poll this endpoint to follow an order; Datagod does not send webhooks. See Order statuses for what each status means.",
+    `${pollingNote(WEBHOOKS_PUBLISHED, "Poll this endpoint to follow an order")} See Order statuses for what each status means.`,
     "A reference that does not exist, is malformed, or belongs to another account all return the same 404, so references cannot be probed.",
     "With a test key this reads your sandbox orders and the response carries sandbox: true.",
   ],
@@ -1954,6 +1956,7 @@ const SMS_SECTIONS: V2DocSection[] = [
 
 export const v2DocsRegistry: V2DocSection[] = [
   ...START_SECTIONS,
+  ...(WEBHOOKS_PUBLISHED ? [WEBHOOKS_SECTION] : []),
   {
     id: "account",
     label: "Account",

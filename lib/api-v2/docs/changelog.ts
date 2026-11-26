@@ -2,7 +2,7 @@
 // Item text restates only what the docs registry already says. Newest first.
 
 import { V2_BASE_URL } from "./registry"
-import { SPEND_CAPS_PUBLISHED, SPEND_CAPS_PUBLISHED_ON } from "./flags"
+import { SPEND_CAPS_PUBLISHED, SPEND_CAPS_PUBLISHED_ON, WEBHOOKS_PUBLISHED, WEBHOOKS_PUBLISHED_ON } from "./flags"
 
 export interface ChangelogEntry {
   date: string
@@ -31,8 +31,21 @@ const DAILY_LIMIT_ENTRY: ChangelogEntry = {
   source: "docs/superpowers/specs/2026-11-24-api-money-r5-design.md",
 }
 
-export function changelogAt(now: Date = new Date(), opts: { spendCaps?: boolean } = {}): ChangelogEntry[] {
-  const base = (opts.spendCaps ?? SPEND_CAPS_PUBLISHED) ? [...CHANGELOG, DAILY_LIMIT_ENTRY].sort((a, b) => b.date.localeCompare(a.date)) : [...CHANGELOG]
+/** Release 6 entry: shown only once webhooks are switched on (docs flag). */
+const WEBHOOKS_ENTRY: ChangelogEntry = {
+  date: WEBHOOKS_PUBLISHED_ON,
+  status: "released",
+  title: "Webhooks",
+  items: [
+    "Save an HTTPS URL in your dashboard and get a signed order.updated event when a live order completes, fails or is refunded.",
+    "Events are signed with HMAC-SHA256 (Datagod-Signature header), retried for about a day, and listed with every attempt in your dashboard. See Webhooks.",
+  ],
+  source: "docs/superpowers/specs/2026-11-26-api-webhooks-r6-design.md",
+}
+
+export function changelogAt(now: Date = new Date(), opts: { spendCaps?: boolean; webhooks?: boolean } = {}): ChangelogEntry[] {
+  const extra = [...((opts.spendCaps ?? SPEND_CAPS_PUBLISHED) ? [DAILY_LIMIT_ENTRY] : []), ...((opts.webhooks ?? WEBHOOKS_PUBLISHED) ? [WEBHOOKS_ENTRY] : [])]
+  const base = extra.length ? [...CHANGELOG, ...extra].sort((a, b) => b.date.localeCompare(a.date)) : [...CHANGELOG]
   return base.map((e) => {
     if (e.date !== "2026-11-30" || now.getTime() < V1_RETIREMENT_AT) return e
     return {
