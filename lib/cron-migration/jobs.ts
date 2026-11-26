@@ -56,6 +56,7 @@ const BATCH_B = new Set(
     "phone-verify",
     "api-v2-stuck", // report-only: alerts admins, never changes rows
     "text-to-buy-notify", // overlap-safe: every notice is recorded with a guarded update before it is sent
+    "api-v2-webhooks", // every minute; overlap-safe: scan under an advisory lock, claims leased with SKIP LOCKED; no-op while the switch is off
   ].map((n) => P + n),
 )
 

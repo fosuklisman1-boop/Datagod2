@@ -202,6 +202,10 @@
       "schedule": "40 2 * * *"
     },
     {
+      "path": "/api/cron/api-v2-webhooks",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/delete-old-complaints",
       "schedule": "15 3 * * *"
     },
