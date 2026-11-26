@@ -296,7 +296,6 @@ RETURNS integer
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
-SET statement_timeout = '10s'
 AS $fn$
 DECLARE
   v_now timestamptz := coalesce(p_now, now());
@@ -413,6 +412,7 @@ BEGIN
   UPDATE public.api_v2_webhook_events ev
      SET attempts = ev.attempts + 1, next_attempt_at = v_now + interval '3 minutes'
    WHERE ev.id = p_event AND ev.user_id = p_user AND ev.state = 'pending' AND ev.type = 'webhook.test'
+     AND ev.attempts = 0   -- the cron may have claimed it in between: then it sends it, not us
   RETURNING ev.id, ev.user_id, ev.type, ev.payload, ev.attempts INTO u;
   IF u.id IS NULL THEN
     RETURN NULL;
@@ -514,6 +514,9 @@ BEGIN
   END IF;
   IF v_state = 'pending' THEN
     RETURN jsonb_build_object('error', 'pending');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.api_v2_webhook_endpoints e WHERE e.user_id = p_user AND e.enabled) THEN
+    RETURN jsonb_build_object('error', 'no_endpoint');   -- claim needs an enabled endpoint; queuing would send nothing
   END IF;
   UPDATE public.api_v2_webhook_events ev
      SET state = 'pending', attempts = 0, next_attempt_at = coalesce(p_now, now()),

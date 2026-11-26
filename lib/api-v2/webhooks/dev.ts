@@ -38,8 +38,14 @@ export async function saveWebhook(client: RpcClientLike, userId: string, raw: un
   if (b.enabled !== undefined && typeof b.enabled !== "boolean") return bad("enabled must be true or false.")
   const syntax = checkUrlSyntax(b.url)
   if (!syntax.ok) return bad(syntax.error)
-  const addr = await resolveSafe(syntax.host, deps.resolve)
-  if (!addr.ok) return bad(addr.error)
+  // Only re-check DNS for a new or changed URL: switching the stored URL on or off must work even if its host has since
+  // stopped resolving (every send still re-checks DNS, so nothing reaches a private address either way).
+  const current = typeof b.enabled === "boolean" ? await rpc(client, "api_v2_webhook_get", { p_user: userId }) : null
+  const stored = current?.ok ? obj(obj(current.data)?.endpoint) : null
+  if (stored?.url !== syntax.url) {
+    const addr = await resolveSafe(syntax.host, deps.resolve)
+    if (!addr.ok) return bad(addr.error)
+  }
   const secret = deps.newSecret()
   const r = await rpc(client, "api_v2_webhook_set_endpoint", {
     p_user: userId,
@@ -112,5 +118,6 @@ export async function resendDelivery(client: RpcClientLike, userId: string, even
   if (!d) return UNAVAILABLE
   if (d.error === "not_found") return { status: 404, body: { error: "No such delivery.", code: "not_found" } }
   if (d.error === "pending") return { status: 409, body: { error: "That event is already queued.", code: "pending" } }
+  if (d.error === "no_endpoint") return { status: 409, body: { error: "Save a webhook URL and turn it on first, then resend.", code: "no_endpoint" } }
   return { status: 200, body: { ok: true } }
 }

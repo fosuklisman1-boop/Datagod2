@@ -89,7 +89,7 @@ export function WebhooksView(p: WebhooksViewProps) {
           <div className="min-w-0">
             <Eyebrow>Webhooks</Eyebrow>
             <p className="text-sm text-muted-foreground">
-              Datagod POSTs a signed event to your URL when a live order completes, fails or is refunded. Failed deliveries are retried for about a day.
+              Datagod POSTs a signed event to your URL when a live order completes, fails or is refunded. Failed deliveries are retried 6 times over about a day and a half.
             </p>
           </div>
         </div>

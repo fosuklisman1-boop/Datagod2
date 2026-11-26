@@ -47,6 +47,12 @@ describe("saveWebhook", () => {
     expect(JSON.stringify(r2.body)).toMatch(/private/i)
     expect(c.calls).toHaveLength(0)
   })
+  it("switching an unchanged URL on or off skips the DNS check (a host that stopped resolving can still be switched off)", async () => {
+    const c = client({ api_v2_webhook_get: endpoint, api_v2_webhook_set_endpoint: { ...endpoint, created: false } })
+    const r = await saveWebhook(c, USER, { url: "https://h.example.com/x", enabled: false }, deps({ resolve: async () => { throw new Error("ENOTFOUND") } }))
+    expect(r.status).toBe(200)
+    expect(c.calls.find((x) => x.fn === "api_v2_webhook_set_endpoint")?.args.p_enabled).toBe(false)
+  })
   it("refuses a non-boolean enabled", async () => {
     expect((await saveWebhook(client({}), USER, { url: "https://h.example.com/x", enabled: "yes" }, deps())).status).toBe(400)
   })
@@ -58,7 +64,7 @@ describe("saveWebhook", () => {
     expect(c.calls[0].args).toEqual({ p_user: USER, p_url: "https://h.example.com/x", p_enabled: null, p_new_secret: SECRET })
     const edited = await saveWebhook(c, USER, { url: "https://h.example.com/y", enabled: false }, deps())
     expect(edited.body).not.toHaveProperty("secret")
-    expect(c.calls[1].args.p_enabled).toBe(false)
+    expect(c.calls.filter((x) => x.fn === "api_v2_webhook_set_endpoint")[1].args.p_enabled).toBe(false)
   })
 })
 
@@ -127,5 +133,8 @@ describe("resendDelivery", () => {
     expect((await resendDelivery(client({ api_v2_webhook_resend: { ok: true } }), USER, id)).status).toBe(200)
     expect((await resendDelivery(client({ api_v2_webhook_resend: { error: "not_found" } }), USER, id)).status).toBe(404)
     expect((await resendDelivery(client({ api_v2_webhook_resend: { error: "pending" } }), USER, id)).status).toBe(409)
+    const off = await resendDelivery(client({ api_v2_webhook_resend: { error: "no_endpoint" } }), USER, id)
+    expect(off.status).toBe(409)
+    expect(JSON.stringify(off.body)).toMatch(/turn on|save/i)
   })
 })

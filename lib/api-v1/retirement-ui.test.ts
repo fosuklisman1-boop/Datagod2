@@ -44,7 +44,8 @@ describe("banner", () => {
     expect(bannerKind({ sunsetAt: "2026-11-26T00:00:00.000Z", exempt: true, hasActiveKey: true })).toBe("exempt")
   })
   it("uses the exact texts", () => {
-    expect(bannerText("notice", "2026-11-26T00:00:00.000Z")).toBe(
+    // Pinned clock: before the sunset the notice reads "will be retired" (it read the real clock and broke on 2026-11-26).
+    expect(bannerText("notice", "2026-11-26T00:00:00.000Z", { now: new Date("2026-11-20T00:00:00.000Z") })).toBe(
       "API v1 will be retired on 26 Nov 2026, 00:00 GMT. After that your v1 requests will be refused. Create a v2 key below and follow the v2 docs."
     )
     expect(bannerText("exempt", "2026-11-26T00:00:00.000Z")).toBe(

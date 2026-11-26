@@ -310,6 +310,28 @@ describe.skipIf(!PGliteCtor)("0200 in PGlite", () => {
     expect(await call(db, "api_v2_webhook_record", id, 1, false, 404, 3, "HTTP 404", null, null)).toMatchObject({ state: "failed" })
   }, 60_000)
 
+  it("claim_one never takes a test event the cron already claimed (no double send)", async () => {
+    const db = await fresh()
+    const { user } = await setup(db)
+    const { id } = await call(db, "api_v2_webhook_enqueue_test", user, null)
+    const [cronJob] = await call(db, "api_v2_webhook_claim", null, 50)
+    expect(cronJob.id).toBe(id)
+    expect(await call(db, "api_v2_webhook_claim_one", user, id, null)).toBeNull()
+  }, 60_000)
+
+  it("resend refuses while there is no enabled endpoint (nothing would be sent)", async () => {
+    const db = await fresh()
+    const { user, key } = await setup(db)
+    await mkOrder(db, { user, key, ref: "R-RS" })
+    await scan(db)
+    const [job] = await call(db, "api_v2_webhook_claim", null, 1)
+    await call(db, "api_v2_webhook_record", job.id, 1, true, 200, 5, null, null, null)
+    await call(db, "api_v2_webhook_set_endpoint", user, "https://hooks.example.com/dg", false, null)
+    expect((await call(db, "api_v2_webhook_resend", user, job.id, null)).error).toBe("no_endpoint")
+    await call(db, "api_v2_webhook_delete_endpoint", user)
+    expect((await call(db, "api_v2_webhook_resend", user, job.id, null)).error).toBe("no_endpoint")
+  }, 60_000)
+
   it("claim_one leases test events only: an order event (maybe leased by the cron) is never claimed by id", async () => {
     const db = await fresh()
     const { user, key } = await setup(db)
@@ -319,10 +341,10 @@ describe.skipIf(!PGliteCtor)("0200 in PGlite", () => {
     expect(await call(db, "api_v2_webhook_claim_one", user, ev.id, null)).toBeNull()
   }, 60_000)
 
-  it("scan and its helper carry their own statement_timeout; the scan isolates each person; the sequence is revoked", () => {
+  it("the scan isolates each person (no function-level statement_timeout: it would not bound the call); the sequence is revoked", () => {
     const c = code(migration())
     const scanFn = c.slice(c.indexOf("FUNCTION public.api_v2_webhook_scan"), c.indexOf("REVOKE ALL ON FUNCTION public.api_v2_webhook_scan"))
-    expect(scanFn).toMatch(/SET statement_timeout = '10s'/)
+    expect(scanFn).not.toMatch(/SET statement_timeout/)
     expect(scanFn).toMatch(/EXCEPTION WHEN others/)
     expect(c).toMatch(/REVOKE ALL ON SEQUENCE public\.api_v2_webhook_attempts_id_seq FROM PUBLIC, anon, authenticated/)
   })

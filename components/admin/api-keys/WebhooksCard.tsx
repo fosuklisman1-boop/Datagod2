@@ -70,7 +70,7 @@ export function WebhooksCardView(p: {
             description={
               <p>
                 {s.enabled
-                  ? "No new events are sent. Queued events wait and go out if you switch back on. Developers lose the Webhooks tab."
+                  ? "No new events are sent. Queued events wait, and if you switch back on they go out together with events for orders that finished while it was off (last 7 days). Developers lose the Webhooks tab."
                   : "Developers see a Webhooks tab and can save a URL. Every minute, finished live orders are sent to their URLs, signed, with retries."}
               </p>
             }
