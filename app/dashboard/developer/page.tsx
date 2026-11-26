@@ -2,7 +2,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { Activity, BarChart3, BookOpen, KeyRound, PackageSearch, ScrollText } from "lucide-react"
+import { Activity, BarChart3, BookOpen, KeyRound, PackageSearch, ScrollText, Webhook } from "lucide-react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -15,6 +15,8 @@ import { OverviewTab } from "@/components/developer/dashboard/OverviewTab"
 import { UsageTab } from "@/components/developer/dashboard/UsageTab"
 import { LogsTab } from "@/components/developer/dashboard/LogsTab"
 import { OrdersTab } from "@/components/developer/dashboard/OrdersTab"
+import { WebhooksTab } from "@/components/developer/dashboard/WebhooksTab"
+import { dashJson } from "@/components/developer/dashboard/dash-fetch"
 import { v2DocsRegistry, V2_BASE_URL } from "@/lib/api-v2/docs/registry"
 import { parseTab, type DashTab } from "@/lib/api-v2/dev-dashboard-view"
 
@@ -24,8 +26,18 @@ const PAGE_TABS: { id: DashTab; label: string; icon: typeof KeyRound }[] = [
   { id: "usage", label: "Usage", icon: BarChart3 },
   { id: "logs", label: "Logs", icon: ScrollText },
   { id: "orders", label: "Orders", icon: PackageSearch },
+  { id: "webhooks", label: "Webhooks", icon: Webhook },
   { id: "docs", label: "Documentation", icon: BookOpen },
 ]
+
+/** The Webhooks tab is listed only once the admin switch is on (R6 ships dark). A direct ?tab=webhooks link still says "not on yet". */
+function useWebhooksOn(): boolean {
+  const [on, setOn] = useState(false)
+  useEffect(() => {
+    void dashJson<{ enabled_globally?: boolean }>("/api/user/v2-dashboard/webhook").then((r) => setOn(r.ok && r.data.enabled_globally === true))
+  }, [])
+  return on
+}
 
 /**
  * The dashboard header (components/layout/header.tsx) is fixed: 0.5rem top padding plus h-14 (md: h-16),
@@ -63,6 +75,8 @@ function useTab(): [DashTab, (t: DashTab) => void] {
 export default function DeveloperPage() {
   const stickyTop = useHeaderOffset()
   const [tab, setTab] = useTab()
+  const webhooksOn = useWebhooksOn()
+  const tabs = PAGE_TABS.filter((t) => t.id !== "webhooks" || webhooksOn || tab === "webhooks")
 
   return (
     <DashboardLayout>
@@ -81,7 +95,7 @@ export default function DeveloperPage() {
         <Tabs value={tab} onValueChange={(v) => setTab(parseTab(v))}>
           <div className="-mx-2 overflow-x-auto px-2 sm:mx-0 sm:px-0">
             <TabsList className="inline-flex min-w-full gap-1 rounded-2xl bg-muted p-1 h-auto sm:min-w-0">
-              {PAGE_TABS.map(({ id, label, icon: Icon }) => (
+              {tabs.map(({ id, label, icon: Icon }) => (
                 <TabsTrigger
                   key={id}
                   value={id}
@@ -107,6 +121,9 @@ export default function DeveloperPage() {
           </TabsContent>
           <TabsContent value="orders" className="mt-4">
             {tab === "orders" && <OrdersTab />}
+          </TabsContent>
+          <TabsContent value="webhooks" className="mt-4">
+            {tab === "webhooks" && <WebhooksTab />}
           </TabsContent>
           <TabsContent value="docs" className="mt-4">
             <DocsPage sections={v2DocsRegistry} compact stickyTop={stickyTop} top={<PostmanButtons />} />

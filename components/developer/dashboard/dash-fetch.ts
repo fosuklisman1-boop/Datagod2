@@ -10,7 +10,7 @@ async function authHeader(): Promise<Record<string, string>> {
 export type DashResult<T> = { ok: true; data: T } | { ok: false; error: string }
 
 /** Session-authenticated JSON call to /api/user/v2-dashboard/*. Never throws. */
-export async function dashJson<T>(path: string, init: { method?: "GET" | "PUT"; body?: unknown } = {}): Promise<DashResult<T>> {
+export async function dashJson<T>(path: string, init: { method?: "GET" | "PUT" | "POST" | "DELETE"; body?: unknown } = {}): Promise<DashResult<T>> {
   try {
     const res = await fetch(path, {
       method: init.method ?? "GET",

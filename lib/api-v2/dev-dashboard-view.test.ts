@@ -18,7 +18,8 @@ describe("stale responses and row updates", () => {
 
 describe("dashboard view helpers", () => {
   it("tabs: six, unknown reads overview", () => {
-    expect(DASH_TABS).toEqual(["overview", "keys", "usage", "logs", "orders", "docs"])
+    expect(DASH_TABS).toEqual(["overview", "keys", "usage", "logs", "orders", "webhooks", "docs"])
+    expect(parseTab("webhooks")).toBe("webhooks")
     expect(parseTab("logs")).toBe("logs")
     expect(parseTab("legacy")).toBe("overview")
     expect(parseTab(null)).toBe("overview")

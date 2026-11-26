@@ -1,6 +1,6 @@
 /** Pure helpers for the Release 3 developer dashboard UI (browser-safe: no server imports). */
 
-export const DASH_TABS = ["overview", "keys", "usage", "logs", "orders", "docs"] as const
+export const DASH_TABS = ["overview", "keys", "usage", "logs", "orders", "webhooks", "docs"] as const
 export type DashTab = (typeof DASH_TABS)[number]
 
 export function parseTab(v: string | null | undefined): DashTab {
