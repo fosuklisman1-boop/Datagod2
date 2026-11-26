@@ -76,6 +76,10 @@ function blockedV6(b: number[]): boolean {
   const zero = (from: number, to: number) => b.slice(from, to).every((x) => x === 0)
   if (zero(0, 10) && b[10] === 0xff && b[11] === 0xff) return blockedV4Int(v4At(12)) // ::ffff:a.b.c.d
   if (zero(0, 12)) return true // ::, ::1, ::a.b.c.d (deprecated compatible)
+  if (zero(0, 8) && b[8] === 0xff && b[9] === 0xff && b[10] === 0 && b[11] === 0) return true // ::ffff:0:0/96 SIIT
+  if (b[0] === 0x00 && b[1] === 0x64 && b[2] === 0xff && b[3] === 0x9b && b[4] === 0x00 && b[5] === 0x01) return true // 64:ff9b:1::/48 local NAT64
+  if (b[0] === 0xfe && (b[1] & 0xc0) === 0xc0) return true // fec0::/10 deprecated site-local
+  if (b[0] === 0x3f && (b[1] & 0xf0) === 0xf0) return true // 3fff::/20 documentation
   if (b[0] === 0x00 && b[1] === 0x64 && b[2] === 0xff && b[3] === 0x9b && zero(4, 12)) return blockedV4Int(v4At(12)) // NAT64
   if (b[0] === 0x20 && b[1] === 0x02) return blockedV4Int(v4At(2)) // 6to4
   if ((b[0] & 0xfe) === 0xfc) return true // fc00::/7 unique local
@@ -105,12 +109,21 @@ export function isBlockedAddress(ip: string): boolean {
 export type Resolved = { ok: true; address: string; family: number } | { ok: false; error: string }
 export type LookupAll = (host: string) => Promise<{ address: string; family: number }[]>
 
-export async function resolveSafe(host: string, lookupAll: LookupAll): Promise<Resolved> {
+/** A stalling DNS server gives up after timeoutMs (the send timer only starts once an address is vetted). */
+export async function resolveSafe(host: string, lookupAll: LookupAll, timeoutMs = 3000): Promise<Resolved> {
   let addrs: { address: string; family: number }[]
+  let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    addrs = await lookupAll(host)
+    addrs = await Promise.race([
+      lookupAll(host),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("dns timeout")), timeoutMs)
+      }),
+    ])
   } catch {
     return { ok: false, error: "DNS lookup failed for the webhook host." }
+  } finally {
+    clearTimeout(timer)
   }
   if (!Array.isArray(addrs) || addrs.length === 0) return { ok: false, error: "DNS lookup failed for the webhook host." }
   if (addrs.some((a) => isBlockedAddress(a?.address))) return { ok: false, error: "The webhook host resolves to a private or reserved address." }

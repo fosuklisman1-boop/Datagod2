@@ -87,8 +87,11 @@ export async function deliverOne(client: RpcClientLike, job: Job, deps: CycleDep
 export async function runWebhookCycle(
   client: RpcClientLike,
   deps: CycleDeps,
-  opts: { scanLimit?: number; claimLimit?: number; concurrency?: number } = {},
+  opts: { scanLimit?: number; claimLimit?: number; concurrency?: number; deadlineMs?: number } = {},
 ): Promise<{ scanned: number; sent: number; delivered: number; failed: number }> {
+  // maxDuration is 60 s: stop starting sends after 40 s (a send is at most 3 s DNS + 10 s HTTP). Jobs not started keep
+  // their 3-minute lease and are retried then, with their attempt already counted.
+  const deadline = Date.now() + (opts.deadlineMs ?? 40_000)
   let scanned = 0
   try {
     const s = await client.rpc("api_v2_webhook_scan", { p_now: deps.now().toISOString(), p_limit: opts.scanLimit ?? 500 })
@@ -104,7 +107,7 @@ export async function runWebhookCycle(
   let failed = 0
   let next = 0
   const lane = async () => {
-    while (next < jobs.length) {
+    while (next < jobs.length && Date.now() < deadline) {
       const j = jobs[next++]
       const r = await deliverOne(client, j, deps)
       if (r.ok) delivered++
@@ -112,5 +115,5 @@ export async function runWebhookCycle(
     }
   }
   await Promise.all(Array.from({ length: Math.min(opts.concurrency ?? 10, jobs.length) }, lane))
-  return { scanned, sent: jobs.length, delivered, failed }
+  return { scanned, sent: delivered + failed, delivered, failed }
 }

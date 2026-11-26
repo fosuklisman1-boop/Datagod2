@@ -56,6 +56,8 @@ export function httpsPost(p: PostRequest): Promise<{ status: number; body: strin
         method: "POST",
         headers: { ...p.headers, "Content-Length": String(Buffer.byteLength(p.body)) },
         lookup: pinnedLookup(p.address, p.family) as never,
+        // agent:false = no global/proxy agent. Never set NODE_USE_ENV_PROXY / HTTPS_PROXY on Vercel: a proxy would make
+        // the proxy, not this pinned address, the thing we connect to.
         agent: false,
       },
       (res) => {

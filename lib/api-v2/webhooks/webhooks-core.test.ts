@@ -68,6 +68,7 @@ describe("isBlockedAddress", () => {
     "192.0.2.5", "192.168.1.1", "198.18.0.1", "198.51.100.1", "203.0.113.9", "224.0.0.1", "240.0.0.1", "255.255.255.255",
     "::", "::1", "fc00::1", "fd12:3456::1", "fe80::1", "ff02::1", "2001:db8::1", "::ffff:10.0.0.1", "::ffff:127.0.0.1",
     "::ffff:a00:1", "64:ff9b::a00:1", "64:ff9b::7f00:1", "2002:a00:1::1", "::127.0.0.1", "garbage", "",
+    "::ffff:0:10.0.0.1", "::ffff:0:8.8.8.8", "64:ff9b:1::808:808", "fec0::1", "3fff::1",
   ])("blocks %s", (ip) => expect(isBlockedAddress(ip)).toBe(true))
   it.each(["8.8.8.8", "1.1.1.1", "172.32.0.1", "100.128.0.1", "2606:4700:4700::1111", "2a00:1450:4009:80b::200e", "::ffff:8.8.8.8", "64:ff9b::808:808"])(
     "allows %s",
@@ -86,6 +87,10 @@ describe("resolveSafe", () => {
   })
   it("refuses when ANY address is private (mixed public + private answer)", async () => {
     const r = await resolveSafe("h.example.com", lookup([{ address: "8.8.8.8", family: 4 }, { address: "10.0.0.1", family: 4 }]))
+    expect(r).toMatchObject({ ok: false })
+  })
+  it("gives up on a DNS answer that never comes", async () => {
+    const r = await resolveSafe("h.example.com", () => new Promise(() => undefined), 20)
     expect(r).toMatchObject({ ok: false })
   })
   it("refuses an empty answer and a lookup error", async () => {
@@ -209,6 +214,17 @@ describe("runWebhookCycle", () => {
     expect(peak).toBeLessThanOrEqual(10)
     expect(calls.filter((c) => c.fn === "api_v2_webhook_record")).toHaveLength(23)
     expect(calls[0].fn).toBe("api_v2_webhook_scan")
+  })
+  it("stops starting new sends after the deadline (unsent jobs stay leased and retry later)", async () => {
+    const jobs = Array.from({ length: 5 }, (_, i) => job({ id: "evt_" + String(i).padStart(24, "0") }))
+    const { client, calls } = fakeClient(jobs)
+    const out = await runWebhookCycle(client, deps({ post: async () => (await new Promise((r) => setTimeout(r, 30)), { status: 200, body: "" }) }), {
+      concurrency: 1,
+      deadlineMs: 40,
+    })
+    expect(out.sent).toBeLessThan(5)
+    expect(out.sent).toBeGreaterThan(0)
+    expect(calls.filter((c) => c.fn === "api_v2_webhook_record")).toHaveLength(out.sent)
   })
   it("a scan error still delivers what is already queued", async () => {
     const { client } = fakeClient([job()], { scanError: true })
