@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { AIProviderConfig, DEFAULT_CONFIG } from "@/lib/ai-provider-config"
 import { assistantSettingsInputSchema, resolveAssistantSettings } from "@/lib/ai-console/settings"
+import { resetAIConfigCache } from "@/lib/ai-console/load-config"
+import { resolveVoiceSettings, voiceSettingsInputSchema } from "@/lib/ai-voice/settings"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -66,6 +68,7 @@ export async function GET(request: NextRequest) {
     whatsapp_provider: cfg.whatsapp_provider ?? DEFAULT_CONFIG.whatsapp_provider,
     whatsapp_model: cfg.whatsapp_model ?? DEFAULT_CONFIG.whatsapp_model,
     ...assistant,
+    voice: resolveVoiceSettings(cfg),
   })
 }
 
@@ -90,6 +93,17 @@ export async function PUT(request: NextRequest) {
   const parsedSettings = assistantSettingsInputSchema.safeParse(settingsInput)
   if (!parsedSettings.success) {
     return NextResponse.json({ error: "Invalid assistant settings" }, { status: 400 })
+  }
+
+  // Voice settings (Nuance Live): validated strictly; merged over the stored block only when it parses.
+  const rawVoice = (body as Record<string, unknown>).voice
+  let voiceInput: ReturnType<typeof voiceSettingsInputSchema.parse> | undefined
+  if (rawVoice !== undefined) {
+    const parsedVoice = voiceSettingsInputSchema.safeParse(rawVoice)
+    if (!parsedVoice.success) {
+      return NextResponse.json({ error: "Invalid voice settings" }, { status: 400 })
+    }
+    voiceInput = parsedVoice.data
   }
 
   // Load existing config so we don't overwrite keys the user didn't touch
@@ -129,6 +143,15 @@ export async function PUT(request: NextRequest) {
     whatsapp_model: body.whatsapp_model ?? current.whatsapp_model,
     ...parsedSettings.data,
   }
+  if (voiceInput) {
+    const base = resolveVoiceSettings(current)
+    updated.voice = {
+      ...base,
+      ...voiceInput,
+      audiences: { ...base.audiences, ...voiceInput.audiences },
+      dailyCalls: { ...base.dailyCalls, ...voiceInput.dailyCalls },
+    }
+  }
 
   const { error } = await supabase
     .from("admin_settings")
@@ -139,5 +162,6 @@ export async function PUT(request: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
 
+  resetAIConfigCache()
   return NextResponse.json({ success: true })
 }

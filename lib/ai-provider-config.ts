@@ -21,6 +21,8 @@ export interface AIProviderConfig {
   tone?: "default" | "professional" | "friendly" | "fun" | "strict" | "concise"
   audiences?: { admins: boolean; signedIn: boolean; shopVisitors: boolean; publicVisitors: boolean }
   max_tool_steps?: number | null
+  // Nuance Live voice/video calls; see lib/ai-voice/settings.ts
+  voice?: import("@/lib/ai-voice/settings").VoiceSettings
 }
 
 export const PROVIDER_MODELS: Record<ProviderName, { id: string; label: string }[]> = {
