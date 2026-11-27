@@ -45,6 +45,7 @@ const CATALOGUED = [
   "PUT /api/admin/api-v2/services/:service",
   "GET /api/admin/api-v2/trend",
   "GET /api/admin/api-v2/money-settings",
+  "GET /api/admin/phone-login",
   "GET /api/admin/api-v2/webhook-settings",
   "GET /api/admin/api-v2/developers/:userId/spend-cap",
   "GET /api/admin/api-v1/retirement",
@@ -86,7 +87,10 @@ const EXCLUDED_HERE = ["POST /api/admin/api-v1/retirement/notify"]
 describe("platform catalog coverage", () => {
   it("catalogues exactly the listed routes, registered in CATALOG, none pending or excluded", () => {
     expect(PLATFORM_ENTRIES.map((e) => key(e.method, e.path)).sort()).toEqual([...CATALOGUED].sort())
-    expect(CATALOGUED.length).toBe(59)
+    expect(CATALOGUED.length).toBe(60)
+    // Phone login: the AI may read the status, never switch the code check off (security control).
+    expect(EXCLUDED.find((x) => key(x.method, x.path) === "POST /api/admin/phone-login")?.reason).toMatch(/security control/)
+    expect(CATALOGUED).not.toContain("POST /api/admin/phone-login")
     // Release 5: the AI may read money protection, never change it (fraud controls).
     for (const k of ["PUT /api/admin/api-v2/money-settings", "PUT /api/admin/api-v2/developers/:userId/spend-cap"]) {
       const row = EXCLUDED.find((x) => key(x.method, x.path) === k)

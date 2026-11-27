@@ -1118,6 +1118,12 @@ export const PLATFORM_ENTRIES: CatalogEntry[] = [
     kind: "lookup", risk: "normal", auth: "admin",
     resultKeep: ["alerts[].id", "alerts[].created_at", "alerts[].severity", "alerts[].category", "alerts[].title", "alerts[].acknowledged_at", "unackedCount"],
   }),
+  // Phone login: read-only here; the switch write is excluded (it turns the new-device SMS code check on or off)
+  mk({
+    id: "phone_login.status", page: SECURITY, summary: "Show whether phone-number sign-in and the new-device SMS code are switched on, and the last 24 hours of phone sign-ins, codes sent and passed, and lockouts (counts only).",
+    method: "GET", path: "/api/admin/phone-login", kind: "lookup", risk: "normal", auth: "admin",
+    resultKeep: ["settings.enabled", "settings.newDeviceCode", "last24h.login_ok", "last24h.login_unchallenged", "last24h.challenge_sent", "last24h.challenge_passed", "last24h.lockout"],
+  }),
   mk({
     id: "security_alerts.acknowledge", page: SECURITY, summary: "Mark one security alert, or every unhandled alert, as handled (nobody is blocked or unblocked).",
     method: "POST", path: "/api/admin/security-alerts", body: z.object({ action: z.enum(["acknowledge", "acknowledge_all"]), id: uuid.optional() }).strict(),
