@@ -9,6 +9,7 @@ import { useAdminProtected } from "@/hooks/use-admin"
 import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
+import { PhoneLoginCard } from "@/components/admin/phone-login-card"
 import { Loader2, CheckCircle2, RefreshCw } from "lucide-react"
 
 interface SecurityAlert {
@@ -137,6 +138,8 @@ export default function AdminSecurityPage() {
             <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} /> Refresh
           </Button>
         </div>
+
+        <PhoneLoginCard />
 
         <div className="flex gap-2">
           {(["unacked", "critical", "all"] as Filter[]).map((f) => (

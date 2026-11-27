@@ -214,6 +214,10 @@
       "schedule": "45 3 * * *"
     },
     {
+      "path": "/api/cron/phone-login-retention",
+      "schedule": "17 3 * * *"
+    },
+    {
       "path": "/api/cron/mtn-blocked-recheck",
       "schedule": "30 6 * * *"
     },

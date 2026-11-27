@@ -122,6 +122,9 @@ export const SMSTemplates = {
   verificationCode: (code: string) =>
     `DTGOD: Your code is ${code}. Valid for 10 minutes. Do not share it with anyone.`,
 
+  phoneLoginCode: (code: string) =>
+    `Datagod sign-in code: ${code}. Someone is signing in to your account on a new device. If this isn't you, don't share this code and change your password.`,
+
   passwordReset: (link: string) =>
     `DTGOD: A password reset was requested for your account. Use this link to proceed: ${link}. Valid for 1 hour. If you did not request this, please ignore this message.`,
 
