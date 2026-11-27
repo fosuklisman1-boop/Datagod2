@@ -4,7 +4,8 @@ import { useState, useRef, useEffect, useCallback } from "react"
 import { Sparkles, X, ChevronDown, RefreshCw } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import { useDraggableFloatingPosition } from "@/hooks/use-draggable-floating-position"
-import { ChatWelcome, ChatInput, HandoffButton, MessageText, CopyAnnounceProvider, SuggestionChips, TypingIndicator, useAssistantProfile } from "@/components/ai/chat"
+import { ChatWelcome, ChatInput, HandoffButton, MessageText, CopyAnnounceProvider, SuggestionChips, TypingIndicator, useAssistantProfile, VoiceCallButtons, CallPanel, useVoiceCall } from "@/components/ai/chat"
+import { callToMessages } from "@/lib/ai-voice/call-messages"
 import { createIdleTimeout } from "@/lib/ai-chat-ui/idle-timeout"
 import { widgetVisible, isAssistantOffResponse, assistantOffMessage, showTryAgain } from "@/lib/ai-chat-ui/widget-visibility"
 import { followupsFor } from "@/lib/ai-chat-ui/suggestions"
@@ -68,7 +69,7 @@ export function HomeAIChatWidget() {
   const [showScrollBtn, setShowScrollBtn] = useState(false)
   const [whatsapp, setWhatsapp]         = useState<string | null>(null)
   const [historyLoaded, setHistoryLoaded] = useState(false)
-  const { name: assistantName, audiences } = useAssistantProfile()
+  const { name: assistantName, audiences, voice } = useAssistantProfile()
 
   useEffect(() => {
     const saved = safeLoad(getStorage(), HISTORY_KEY)
@@ -157,6 +158,14 @@ export function HomeAIChatWidget() {
   // One key per chat session; the server groups this chat's transcript turns under it.
   const conversationKeyRef = useRef<string | null>(null)
   if (conversationKeyRef.current === null) conversationKeyRef.current = newConversationKey()
+
+  const call = useVoiceCall({
+    context: "home",
+    assistantName,
+    conversationKey: () => conversationKeyRef.current,
+    onCallEnded: (turns, cards) => setMessages(prev => [...prev, ...callToMessages(turns, cards, Date.now())]),
+  })
+  const callOpen = call.state === "starting" || call.state === "live"
 
   const sendMessageInner = useCallback(async (overrideText?: string, baseMessages?: Message[]) => {
     const text = (overrideText ?? "").trim()
@@ -251,7 +260,7 @@ export function HomeAIChatWidget() {
     <>
       {isOpen && (
         <div className="fixed inset-0 z-[60] flex bg-black/50 backdrop-blur-sm sm:items-center sm:justify-center sm:p-4" onClick={() => setIsOpen(false)}>
-          <div className="w-full h-full sm:h-[85vh] sm:max-h-[700px] sm:w-[420px] sm:max-w-[calc(100vw-2rem)] bg-card sm:rounded-2xl border border-primary/20 shadow-[0_24px_48px_rgba(0,0,0,0.12)] shadow-primary/10 flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className={`w-full h-full sm:h-[85vh] sm:max-h-[700px] sm:w-[420px] sm:max-w-[calc(100vw-2rem)] bg-card sm:rounded-2xl border border-primary/20 shadow-[0_24px_48px_rgba(0,0,0,0.12)] shadow-primary/10 flex flex-col overflow-hidden ${callOpen ? "lg:w-[880px]" : ""}`} onClick={(e) => e.stopPropagation()}>
           {/* Header */}
           <div className="bg-primary text-primary-foreground px-4 py-3 flex items-center justify-between flex-shrink-0">
             <div>
@@ -259,6 +268,7 @@ export function HomeAIChatWidget() {
               <p className="text-primary-foreground opacity-90 text-xs">Your AI receptionist</p>
             </div>
             <div className="flex items-center gap-3">
+              {voice.public && !call.blocked && <VoiceCallButtons onStart={call.start} disabled={isStreaming || callOpen} />}
               <HandoffButton mode="whatsapp" messages={messages} conversationKey={conversationKeyRef.current} whatsappNumber={whatsapp} className="text-xs font-medium text-primary-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground" />
               {messages.length > 0 && (
                 <button onClick={newChat} disabled={isStreaming} className="text-xs font-medium text-primary-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground disabled:opacity-50">New chat</button>
@@ -269,6 +279,9 @@ export function HomeAIChatWidget() {
             </div>
           </div>
 
+          {callOpen ? (
+            <CallPanel call={call} name={assistantName} />
+          ) : (<>
           {/* Messages */}
           <div
             ref={scrollContainerRef}
@@ -349,7 +362,9 @@ export function HomeAIChatWidget() {
           </div>
 
           {/* Input */}
+          {call.endMessage && <p role="status" className="border-t border-border bg-muted/40 px-4 py-2 text-xs text-muted-foreground">{call.endMessage}</p>}
           <ChatInput autoFocus name={assistantName} onSend={(t) => sendMessage(t)} disabled={isStreaming} />
+          </>)}
           </div>
         </div>
       )}

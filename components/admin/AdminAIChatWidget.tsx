@@ -7,7 +7,8 @@ import { useDraggableFloatingPosition } from "@/hooks/use-draggable-floating-pos
 import { usePathname, useRouter } from "next/navigation"
 import { DraftCard } from "@/components/ai/DraftCard"
 import { parseDraftParam } from "@/lib/ai-drafts/deep-link"
-import { ChatWelcome, ChatInput, SuggestionChips, TypingIndicator, useAssistantProfile } from "@/components/ai/chat"
+import { ChatWelcome, ChatInput, SuggestionChips, TypingIndicator, useAssistantProfile, VoiceCallButtons, CallPanel, useVoiceCall } from "@/components/ai/chat"
+import { callToMessages } from "@/lib/ai-voice/call-messages"
 import { AssistantMarkdown } from "@/components/ai/chat/AssistantMarkdown"
 import { createIdleTimeout } from "@/lib/ai-chat-ui/idle-timeout"
 import { widgetVisible, isAssistantOffResponse, assistantOffMessage, showTryAgain } from "@/lib/ai-chat-ui/widget-visibility"
@@ -95,7 +96,7 @@ export function AdminAIChatWidget() {
   const [userId, setUserId] = useState<string | null>(null)
   const [firstName, setFirstName] = useState("")
   const [historyLoaded, setHistoryLoaded] = useState(false)
-  const { name: assistantName, audiences } = useAssistantProfile()
+  const { name: assistantName, audiences, voice } = useAssistantProfile()
   const [hintIndex, setHintIndex] = useState(0)
   const [hintVisible, setHintVisible] = useState(true)
 
@@ -107,6 +108,15 @@ export function AdminAIChatWidget() {
   if (conversationKeyRef.current === null && typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     conversationKeyRef.current = crypto.randomUUID()
   }
+
+  const call = useVoiceCall({
+    context: "admin",
+    assistantName,
+    authHeader: async () => `Bearer ${await getAccessToken()}`,
+    conversationKey: () => conversationKeyRef.current,
+    onCallEnded: (turns, cards) => setMessages(prev => [...prev, ...callToMessages(turns, cards, Date.now())]),
+  })
+  const callOpen = call.state === "starting" || call.state === "live"
   const [showScrollBtn, setShowScrollBtn] = useState(false)
   const { position: fabPosition, containerRef: fabContainerRef, onPointerDown: onFabPointerDown, onClickCapture: onFabClickCapture } =
     useDraggableFloatingPosition("datagod_ai_widget_position")
@@ -314,13 +324,14 @@ export function AdminAIChatWidget() {
     <>
       {isOpen && (
         <div className="fixed inset-0 z-[60] flex bg-black/50 backdrop-blur-sm sm:items-center sm:justify-center sm:p-4" onClick={() => setIsOpen(false)}>
-          <div className="w-full h-full sm:h-[85vh] sm:max-h-[700px] sm:w-[460px] sm:max-w-[calc(100vw-2rem)] bg-card sm:rounded-2xl border border-border shadow-[0_32px_64px_rgba(0,0,0,0.35)] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className={`w-full h-full sm:h-[85vh] sm:max-h-[700px] sm:w-[460px] sm:max-w-[calc(100vw-2rem)] bg-card sm:rounded-2xl border border-border shadow-[0_32px_64px_rgba(0,0,0,0.35)] flex flex-col overflow-hidden ${callOpen ? "lg:w-[880px]" : ""}`} onClick={(e) => e.stopPropagation()}>
           <div className="bg-primary text-primary-foreground px-4 py-3 flex items-center justify-between flex-shrink-0 border-b border-border">
             <div>
               <p className="font-semibold text-sm">{assistantName}</p>
               <p className="text-primary-foreground opacity-90 text-xs">Full platform access</p>
             </div>
             <div className="flex items-center gap-3">
+              {voice.admin && !call.blocked && <VoiceCallButtons onStart={call.start} disabled={isStreaming || callOpen} />}
               {messages.length > 0 && (
                 <button onClick={newChat} disabled={isStreaming} className="text-xs font-medium text-primary-foreground underline-offset-2 hover:text-primary-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground disabled:opacity-50">New chat</button>
               )}
@@ -330,6 +341,9 @@ export function AdminAIChatWidget() {
             </div>
           </div>
 
+          {callOpen ? (
+            <CallPanel call={call} name={assistantName} getToken={getAccessToken} />
+          ) : (<>
           <div className="flex-1 min-h-0 relative overflow-hidden">
             <div ref={scrollContainerRef} onScroll={handleScroll} className="absolute inset-0 overflow-y-auto overscroll-contain p-4 space-y-3 bg-transparent">
               {linkedCard && (
@@ -428,7 +442,9 @@ export function AdminAIChatWidget() {
             )}
           </div>
 
+          {call.endMessage && <p role="status" className="border-t border-border bg-muted/40 px-4 py-2 text-xs text-muted-foreground">{call.endMessage}</p>}
           <ChatInput autoFocus name={assistantName} onSend={(t) => sendMessage(t)} disabled={isStreaming} />
+          </>)}
           </div>
         </div>
       )}
