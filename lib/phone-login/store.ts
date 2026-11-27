@@ -11,6 +11,8 @@ export type EventKind =
   | "fail"
   | "lockout"
   | "login_ok"
+  | "login_unchallenged"
+  | "attempt"
   | "challenge_sent"
   | "challenge_passed"
   | "password_changed"
@@ -62,6 +64,22 @@ export async function isLocked(db: SupabaseClient, phoneHash: string): Promise<b
   const { data, error } = await db.rpc("phone_login_is_locked", { p_phone_hash: phoneHash })
   if (error) throw error
   return data === true
+}
+
+/**
+ * Atomically reserves a password-check slot for this phone (per-phone advisory lock in the RPC). False = locked:
+ * 5 recent failures plus in-flight attempts reached the cap. THROWS on an RPC error; anything but `true` is locked.
+ */
+export async function beginAttempt(db: SupabaseClient, phoneHash: string, ipHash: string): Promise<boolean> {
+  const { data, error } = await db.rpc("phone_login_begin_attempt", { p_phone_hash: phoneHash, p_ip_hash: ipHash })
+  if (error) throw error
+  return data === true
+}
+
+/** Releases the slot taken by beginAttempt (called after a correct password). THROWS on an RPC error. */
+export async function endAttempt(db: SupabaseClient, phoneHash: string): Promise<void> {
+  const { error } = await db.rpc("phone_login_end_attempt", { p_phone_hash: phoneHash })
+  if (error) throw error
 }
 
 export async function recordFailure(

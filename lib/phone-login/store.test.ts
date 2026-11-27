@@ -3,6 +3,8 @@ import { LIMITS } from "./core"
 import {
   findAccount,
   isLocked,
+  beginAttempt,
+  endAttempt,
   recordFailure,
   recordEvent,
   countDistinctPhonesFromIp,
@@ -199,6 +201,33 @@ describe("isLocked / recordFailure", () => {
     })
     await expect(isLocked(db, "h")).rejects.toThrow("x")
     await expect(recordFailure(db, "h", "i")).rejects.toThrow("y")
+  })
+})
+
+describe("beginAttempt / endAttempt", () => {
+  it("beginAttempt returns the RPC boolean (false = locked) and passes both hashes", async () => {
+    const { db } = makeDb({ rpc: { phone_login_begin_attempt: { data: false } } })
+    expect(await beginAttempt(db, "h", "i")).toBe(false)
+    const ok = makeDb({ rpc: { phone_login_begin_attempt: { data: true } } })
+    expect(await beginAttempt(ok.db, "h", "i")).toBe(true)
+  })
+
+  it("beginAttempt treats anything but true as locked (fail closed)", async () => {
+    const { db } = makeDb({ rpc: { phone_login_begin_attempt: { data: null } } })
+    expect(await beginAttempt(db, "h", "i")).toBe(false)
+  })
+
+  it("both THROW on an RPC error", async () => {
+    const { db } = makeDb({
+      rpc: { phone_login_begin_attempt: { error: new Error("b") }, phone_login_end_attempt: { error: new Error("e") } },
+    })
+    await expect(beginAttempt(db, "h", "i")).rejects.toThrow("b")
+    await expect(endAttempt(db, "h")).rejects.toThrow("e")
+  })
+
+  it("endAttempt resolves on success", async () => {
+    const { db } = makeDb({ rpc: { phone_login_end_attempt: { data: null } } })
+    await expect(endAttempt(db, "h")).resolves.toBeUndefined()
   })
 })
 

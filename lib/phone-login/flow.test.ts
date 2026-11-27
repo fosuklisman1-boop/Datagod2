@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import type { Account } from "./core"
 import { sha256Hex, phoneHash, ipHash, phoneKey } from "./core"
 
+process.env.PHONE_LOGIN_HASH_SECRET = "flow-test-secret-flow-test-secret-0123456789"
+
 type Ev = { kind: string; f: Record<string, unknown> }
 type Chal = {
   id: string; userId: string; browserSecretHash: string; otpPhone: string; attempts: number
@@ -25,6 +27,16 @@ const st = vi.hoisted(() => ({
   verifyCalls: 0,
   dummyCalls: 0,
   verifyResult: { access_token: "AT", refresh_token: "RT" } as unknown,
+  verifyThrows: false,
+  gate: null as Promise<void> | null,
+  inflight: new Map<string, number>(),
+  begun: 0,
+  ended: 0,
+  recordFailureCalls: 0,
+  revokeThrows: false,
+  mintThrows: false,
+  trustThrows: false,
+  otpSms: null as unknown,
   revoked: [] as string[],
   minted: [] as string[],
   calls: [] as unknown[],
@@ -33,10 +45,22 @@ const st = vi.hoisted(() => ({
 vi.mock("./store", () => ({
   findAccount: vi.fn(async (_db: unknown, sig: string) =>
     st.accounts.get(sig) ?? { matchCount: 0, verifiedCount: 0, userId: null, email: null, phone: null, phoneVerified: false, isSuspended: false }),
-  isLocked: vi.fn(async (_db: unknown, h: string) => (st.failures.get(h) ?? 0) >= 5),
+  // Models the RPC: in-flight attempts count toward the cap together with recorded failures.
+  beginAttempt: vi.fn(async (_db: unknown, h: string) => {
+    if ((st.failures.get(h) ?? 0) + (st.inflight.get(h) ?? 0) >= 5) return false
+    st.inflight.set(h, (st.inflight.get(h) ?? 0) + 1)
+    st.begun++
+    return true
+  }),
+  endAttempt: vi.fn(async (_db: unknown, h: string) => {
+    st.inflight.set(h, Math.max(0, (st.inflight.get(h) ?? 0) - 1))
+    st.ended++
+  }),
   recordFailure: vi.fn(async (_db: unknown, h: string) => {
+    st.recordFailureCalls++
     const n = (st.failures.get(h) ?? 0) + 1
     st.failures.set(h, n)
+    st.inflight.set(h, Math.max(0, (st.inflight.get(h) ?? 0) - 1))
     return { locked: n >= 5 }
   }),
   recordEvent: vi.fn(async (_db: unknown, kind: string, f: Record<string, unknown>) => { st.events.push({ kind, f }) }),
@@ -74,16 +98,29 @@ vi.mock("./store", () => ({
     return d ? { id: d.id } : null
   }),
   trustDevice: vi.fn(async (_db: unknown, d: { userId: string; tokenHash: string; uaLabel: string }) => {
+    if (st.trustThrows) throw new Error("db down")
     st.devices.push({ userId: d.userId, tokenHash: d.tokenHash, id: "dev" + st.devices.length, uaLabel: d.uaLabel })
   }),
   touchDevice: vi.fn(async (_db: unknown, id: string) => { st.touched.push(id) }),
 }))
 
 vi.mock("./session", () => ({
-  verifyPassword: vi.fn(async () => { st.verifyCalls++; return st.verifyResult }),
+  verifyPassword: vi.fn(async () => {
+    st.verifyCalls++
+    if (st.gate) await st.gate
+    if (st.verifyThrows) throw new Error("auth unavailable")
+    return st.verifyResult
+  }),
   dummyPasswordCheck: vi.fn(async () => { st.dummyCalls++ }),
-  revokeSessionLocal: vi.fn(async (_d: unknown, token: string) => { st.revoked.push(token) }),
-  mintSession: vi.fn(async (_d: unknown, email: string) => { st.minted.push(email); return { access_token: "MAT", refresh_token: "MRT" } }),
+  revokeSessionLocal: vi.fn(async (_d: unknown, token: string) => {
+    if (st.revokeThrows) throw new Error("session revoke failed")
+    st.revoked.push(token)
+  }),
+  mintSession: vi.fn(async (_d: unknown, email: string) => {
+    if (st.mintThrows) throw new Error("session mint failed")
+    st.minted.push(email)
+    return { access_token: "MAT", refresh_token: "MRT" }
+  }),
 }))
 
 vi.mock("@/lib/phone-otp", () => ({
@@ -91,7 +128,7 @@ vi.mock("@/lib/phone-otp", () => ({
     st.issued.push({ phone, purpose })
     if (!st.otpIssue.ok) return st.otpIssue
     await d.sendCode(phone, "SECRETCODE")
-    return { ok: true, sms: null }
+    return { ok: true, sms: st.otpSms }
   }),
   defaultPhoneOtpCode: () => "654321",
   checkPhoneOtp: vi.fn(async () => st.otpCheck),
@@ -142,6 +179,8 @@ beforeEach(() => {
   st.touched.length = 0; st.distinctPhones = 0; st.lockouts = 0; st.passwordChanged = false
   st.otpIssue = { ok: true }; st.otpCheck = "verified"; st.issued.length = 0; st.sendThrows = false
   st.verifyCalls = 0; st.dummyCalls = 0; st.verifyResult = { access_token: "AT", refresh_token: "RT" }
+  st.verifyThrows = false; st.gate = null; st.inflight.clear(); st.begun = 0; st.ended = 0; st.recordFailureCalls = 0
+  st.revokeThrows = false; st.mintThrows = false; st.trustThrows = false; st.otpSms = null
   st.revoked.length = 0; st.minted.length = 0; st.calls.length = 0
   sent = []; alerts = []; settings = { enabled: true, newDeviceCode: true }; now = new Date(NOW)
   emails = { "user-A": EMAIL, "user-B": "b@example.com" }
@@ -401,6 +440,132 @@ describe("resendPhoneLoginCode", () => {
     expect(await resendPhoneLoginCode(deps(), { ...c, browserSecret: "bad" })).toEqual({ kind: "restart" })
     now = new Date(NOW.getTime() + 11 * 60_000)
     expect(await resendPhoneLoginCode(deps(), c)).toEqual({ kind: "restart" })
+  })
+})
+
+describe("I3: auth-service errors are not wrong passwords", () => {
+  it("verifyPassword throwing propagates and records NO failure (route answers 503)", async () => {
+    st.verifyThrows = true
+    await expect(start()).rejects.toThrow()
+    expect(st.recordFailureCalls).toBe(0)
+    expect(st.failures.size).toBe(0)
+    expect(st.minted.length + sent.length).toBe(0)
+  })
+
+  it("a real wrong password (null) is the generic fail and records a failure", async () => {
+    st.verifyResult = null
+    expect(await start()).toEqual({ kind: "fail" })
+    expect(st.recordFailureCalls).toBe(1)
+  })
+})
+
+describe("I4: parallel attempts cannot bypass the per-phone lockout", () => {
+  it("6 concurrent starts on one number run at most 5 password checks", async () => {
+    st.verifyResult = null
+    let release!: () => void
+    st.gate = new Promise<void>((r) => { release = r })
+    const all = Promise.all(Array.from({ length: 6 }, () => start()))
+    await new Promise((r) => setTimeout(r, 0))
+    release()
+    const results = await all
+    expect(results.every((r) => r.kind === "fail")).toBe(true)
+    expect(st.verifyCalls).toBeLessThanOrEqual(5)
+    expect(st.dummyCalls).toBeGreaterThanOrEqual(1)
+  })
+
+  it("a correct password releases its slot, whatever happens next", async () => {
+    expect((await start()).kind).toBe("challenge")
+    expect(st.ended).toBe(1)
+    expect(st.inflight.get(phoneHash(phoneKey(TYPED)!.sig)) ?? 0).toBe(0)
+    settings.newDeviceCode = false
+    expect((await start()).kind).toBe("session")
+    expect(st.ended).toBe(2)
+    st.revokeThrows = true
+    settings.newDeviceCode = true
+    await expect(start()).rejects.toThrow()
+    expect(st.ended).toBe(3)
+  })
+
+  it("a wrong password does not double-count (the failure releases the slot itself)", async () => {
+    st.verifyResult = null
+    await start()
+    expect(st.ended).toBe(0)
+    expect(st.inflight.get(phoneHash(phoneKey(TYPED)!.sig)) ?? 0).toBe(0)
+  })
+})
+
+describe("M1-M5 verify/resend/start hardening", () => {
+  it("M1: a null email burns nothing silently: the challenge is killed", async () => {
+    const c = await makeChallenge()
+    emails["user-A"] = null
+    expect(await verify(c)).toEqual({ kind: "restart" })
+    emails["user-A"] = EMAIL
+    expect(await verify(c)).toEqual({ kind: "restart" })
+    expect(st.minted.length).toBe(0)
+  })
+
+  it("M2a: revokeSessionLocal throwing propagates; no SMS, no session", async () => {
+    st.revokeThrows = true
+    await expect(start()).rejects.toThrow("session revoke failed")
+    expect(sent.length).toBe(0)
+    expect(st.challenges.size).toBe(0)
+  })
+
+  it("M2b: mintSession throwing after consume propagates and returns no session", async () => {
+    const c = await makeChallenge()
+    st.mintThrows = true
+    await expect(verify(c)).rejects.toThrow("session mint failed")
+    expect(st.devices.length).toBe(0)
+  })
+
+  it("M2b: trustDevice throwing after consume propagates and returns no session", async () => {
+    const c = await makeChallenge()
+    st.trustThrows = true
+    await expect(verify(c)).rejects.toThrow("db down")
+  })
+
+  it("M3: a failed SMS delivery reported as sms.success=false is send_failed and the challenge is dead", async () => {
+    st.otpSms = { success: false, error: "provider down" }
+    expect(await start()).toEqual({ kind: "send_failed" })
+    for (const c of st.challenges.values()) expect((c as Chal).expiresAt.getTime()).toBeLessThanOrEqual(0)
+  })
+
+  it("M3: resend with sms.success=false is send_failed and kills the challenge", async () => {
+    const c = await makeChallenge()
+    now = new Date(NOW.getTime() + 61_000)
+    st.otpSms = { success: false }
+    expect(await resendPhoneLoginCode(deps(), c)).toEqual({ kind: "send_failed" })
+    st.otpSms = null
+    expect(await resendPhoneLoginCode(deps(), c)).toEqual({ kind: "restart" })
+  })
+
+  it("M3: a successful provider result still counts as sent", async () => {
+    st.otpSms = { success: true, messageId: "m1" }
+    expect((await start()).kind).toBe("challenge")
+  })
+
+  it("M4: switching the feature off stops open challenges (verify and resend -> restart)", async () => {
+    const c = await makeChallenge()
+    now = new Date(NOW.getTime() + 61_000)
+    settings.enabled = false
+    expect(await verify(c)).toEqual({ kind: "restart" })
+    expect(await resendPhoneLoginCode(deps(), c)).toEqual({ kind: "restart" })
+    expect(st.minted.length).toBe(0)
+    expect(sent.length).toBe(1)
+  })
+
+  it("M5: an unchallenged login (code switched off) is labelled login_unchallenged, not login_ok", async () => {
+    settings.newDeviceCode = false
+    expect((await start()).kind).toBe("session")
+    expect(st.events.some((e) => e.kind === "login_unchallenged")).toBe(true)
+    expect(st.events.some((e) => e.kind === "login_ok")).toBe(false)
+  })
+
+  it("M5: a trusted-device login stays login_ok even when the code is off", async () => {
+    settings.newDeviceCode = false
+    st.devices.push({ userId: "user-A", tokenHash: sha256Hex("DEVTOK"), id: "d1" })
+    await start({ deviceToken: "DEVTOK" })
+    expect(st.events.map((e) => e.kind)).toContain("login_ok")
   })
 })
 

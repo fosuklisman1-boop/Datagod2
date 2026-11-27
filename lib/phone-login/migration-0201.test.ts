@@ -37,13 +37,18 @@ describe("0201 migration text", () => {
     expect(st).not.toMatch(/DELETE\s+FROM\s+public\.users/i)
   })
 
-  it("every function is SECURITY DEFINER-safe: search_path pinned and service_role only", () => {
+  it("every function pins search_path; all but the pure ghana_phone_sig are service_role only", () => {
     const m = code(migration())
     const fns = m.match(/CREATE (OR REPLACE )?FUNCTION/g) ?? []
-    expect(fns.length).toBe(6)
-    expect((m.match(/SET search_path = ''/g) ?? []).length).toBe(6)
-    expect((m.match(/GRANT EXECUTE ON FUNCTION[^;]*TO service_role;/g) ?? []).length).toBe(6)
-    expect(m).not.toMatch(/\bTO\s+(anon|authenticated|PUBLIC)\b/i)
+    expect(fns.length).toBe(8)
+    expect((m.match(/SET search_path = ''/g) ?? []).length).toBe(8)
+    // 7 RPC/trigger functions are service_role only; ghana_phone_sig is the one PUBLIC grant (I5: the users index calls it as the writer)
+    expect((m.match(/GRANT EXECUTE ON FUNCTION[^;]*TO service_role;/g) ?? []).length).toBe(7)
+    expect(m.match(/GRANT EXECUTE ON FUNCTION[^;]*TO PUBLIC;/g) ?? []).toEqual([
+      "GRANT EXECUTE ON FUNCTION public.ghana_phone_sig(text) TO PUBLIC;",
+    ])
+    expect(m).not.toMatch(/\bTO\s+(anon|authenticated)\b/i)
+    expect(m).not.toMatch(/REVOKE[^;]*ghana_phone_sig/i)
   })
 })
 
@@ -154,6 +159,65 @@ describe.skipIf(!PGliteCtor)("0201 in PGlite", () => {
     expect((await db.query("SELECT public.phone_login_is_locked('h-a') AS l")).rows[0].l).toBe(false)
   }, 60_000)
 
+  it("I4: begin_attempt caps in-flight + failed attempts per phone at 5; end_attempt frees a slot; failures still lock", async () => {
+    const db = await fresh()
+    await db.exec(migration())
+    const begin = async (h: string) => (await db.query(`SELECT public.phone_login_begin_attempt('${h}','i') AS r`)).rows[0].r
+    const n = async (h: string, kind: string) =>
+      (await db.query(`SELECT count(*)::int AS n FROM public.phone_login_events WHERE phone_hash='${h}' AND kind='${kind}'`)).rows[0].n
+
+    // 5 begins with no ends -> the 6th is refused and writes nothing
+    const got: boolean[] = []
+    for (let i = 0; i < 6; i++) got.push(await begin("h-par"))
+    expect(got).toEqual([true, true, true, true, true, false])
+    expect(await n("h-par", "attempt")).toBe(5)
+    // other phones are unaffected
+    expect(await begin("h-other")).toBe(true)
+
+    // end_attempt frees exactly one slot
+    await db.query("SELECT public.phone_login_end_attempt('h-par')")
+    expect(await n("h-par", "attempt")).toBe(4)
+    expect(await begin("h-par")).toBe(true)
+    expect(await begin("h-par")).toBe(false)
+
+    // a failure replaces its own attempt row (no double count): 2 begins + 1 failure = 2 rows, not 3
+    await begin("h-fail")
+    await begin("h-fail")
+    await db.query("SELECT public.phone_login_record_failure('h-fail','i')")
+    expect(await n("h-fail", "attempt")).toBe(1)
+    expect(await n("h-fail", "fail")).toBe(1)
+
+    // fail rows alone still lock: 5 failures -> begin refused
+    for (let i = 0; i < 5; i++) await db.query("SELECT public.phone_login_record_failure('h-lock','i')")
+    expect(await begin("h-lock")).toBe(false)
+
+    // attempts older than 60 s stop counting; fails older than 15 min stop counting
+    await db.exec("UPDATE public.phone_login_events SET created_at = now() - interval '61 seconds' WHERE kind = 'attempt'")
+    expect(await begin("h-par")).toBe(true)
+    await db.exec("UPDATE public.phone_login_events SET created_at = now() - interval '16 minutes' WHERE kind = 'fail'")
+    expect(await begin("h-lock")).toBe(true)
+
+    // end_attempt with nothing to delete is a no-op
+    await db.query("SELECT public.phone_login_end_attempt('h-nothing')")
+  }, 60_000)
+
+  it("M5/I4: the events CHECK accepts attempt and login_unchallenged and still rejects unknown kinds", async () => {
+    const db = await fresh()
+    await db.exec(migration())
+    await db.exec("INSERT INTO public.phone_login_events(kind) VALUES ('attempt'), ('login_unchallenged')")
+    await expect(db.exec("INSERT INTO public.phone_login_events(kind) VALUES ('bogus')")).rejects.toThrow()
+  }, 60_000)
+
+  it("M7: a fresh install seeds phone_login_enabled = JSON false and phone_login_new_device_code = JSON true", async () => {
+    const db = await fresh()
+    await db.exec(migration())
+    const r = await db.query("SELECT key, value, jsonb_typeof(value) AS t FROM public.admin_settings WHERE key LIKE 'phone_login_%' ORDER BY key")
+    expect(r.rows).toEqual([
+      { key: "phone_login_enabled", value: false, t: "boolean" },
+      { key: "phone_login_new_device_code", value: true, t: "boolean" },
+    ])
+  }, 60_000)
+
   it("each trigger revokes only that user's live devices; password change writes an event", async () => {
     const db = await fresh()
     await db.exec(migration())
@@ -207,9 +271,16 @@ describe.skipIf(!PGliteCtor)("0201 in PGlite", () => {
       expect(await q(`SELECT has_table_privilege('anon','public.${t}','select') OR has_table_privilege('authenticated','public.${t}','select') AS v`)).toBe(false)
       expect(await q(`SELECT relrowsecurity AS v FROM pg_class WHERE oid = 'public.${t}'::regclass`)).toBe(true)
     }
-    for (const f of ["phone_login_find_account(text)", "phone_login_record_failure(text,text)", "phone_login_is_locked(text)", "ghana_phone_sig(text)"]) {
+    for (const f of [
+      "phone_login_find_account(text)", "phone_login_record_failure(text,text)", "phone_login_is_locked(text)",
+      "phone_login_begin_attempt(text,text)", "phone_login_end_attempt(text)",
+    ]) {
       expect(await q(`SELECT has_function_privilege('anon','public.${f}','execute') OR has_function_privilege('authenticated','public.${f}','execute') AS v`)).toBe(false)
       expect(await q(`SELECT has_function_privilege('service_role','public.${f}','execute') AS v`)).toBe(true)
+    }
+    // I5: the expression index calls ghana_phone_sig as the writing role, so every role must be able to execute it
+    for (const role of ["anon", "authenticated", "service_role"]) {
+      expect(await q(`SELECT has_function_privilege('${role}','public.ghana_phone_sig(text)','execute') AS v`)).toBe(true)
     }
     await db.exec("SET enable_seqscan = off")
     const plan = (await db.query("EXPLAIN SELECT id FROM public.users WHERE public.ghana_phone_sig(phone_number) = '241234567'")).rows

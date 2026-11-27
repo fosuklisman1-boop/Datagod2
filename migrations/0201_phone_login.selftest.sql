@@ -28,6 +28,8 @@ DECLARE
   v_line   text;
   v_i      int;
   v_res    boolean;
+  v_h2     text := 'selftest-b-' || gen_random_uuid()::text;
+  v_h3     text := 'selftest-c-' || gen_random_uuid()::text;
 BEGIN
   -- ghana_phone_sig
   IF public.ghana_phone_sig('0241234567') IS DISTINCT FROM '241234567' THEN RAISE EXCEPTION 'FAIL sig_local'; END IF;
@@ -79,6 +81,27 @@ BEGIN
   SELECT count(*) INTO v_n FROM public.phone_login_events WHERE kind = 'lockout' AND phone_hash = v_hash;
   IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL lockout_rows_after_6 %', v_n; END IF;
 
+  -- begin_attempt: in-flight attempts count toward the cap, so parallel requests cannot bypass the lockout
+  FOR v_i IN 1..5 LOOP
+    IF NOT public.phone_login_begin_attempt(v_h2, 'selftest-ip') THEN RAISE EXCEPTION 'FAIL begin_refused_early %', v_i; END IF;
+  END LOOP;
+  IF public.phone_login_begin_attempt(v_h2, 'selftest-ip') THEN RAISE EXCEPTION 'FAIL begin_6th_allowed'; END IF;
+  SELECT count(*) INTO v_n FROM public.phone_login_events WHERE kind = 'attempt' AND phone_hash = v_h2;
+  IF v_n <> 5 THEN RAISE EXCEPTION 'FAIL attempt_rows %', v_n; END IF;
+  -- end_attempt frees exactly one slot
+  PERFORM public.phone_login_end_attempt(v_h2);
+  SELECT count(*) INTO v_n FROM public.phone_login_events WHERE kind = 'attempt' AND phone_hash = v_h2;
+  IF v_n <> 4 THEN RAISE EXCEPTION 'FAIL end_attempt_rows %', v_n; END IF;
+  IF NOT public.phone_login_begin_attempt(v_h2, 'selftest-ip') THEN RAISE EXCEPTION 'FAIL begin_after_end'; END IF;
+  IF public.phone_login_begin_attempt(v_h2, 'selftest-ip') THEN RAISE EXCEPTION 'FAIL begin_after_end_6th'; END IF;
+  -- a failure replaces its own attempt row; fail rows alone still lock
+  PERFORM public.phone_login_begin_attempt(v_h3, 'selftest-ip');
+  PERFORM public.phone_login_begin_attempt(v_h3, 'selftest-ip');
+  PERFORM public.phone_login_record_failure(v_h3, 'selftest-ip');
+  SELECT count(*) INTO v_n FROM public.phone_login_events WHERE kind = 'attempt' AND phone_hash = v_h3;
+  IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL failure_keeps_attempt %', v_n; END IF;
+  IF public.phone_login_begin_attempt(v_hash, 'selftest-ip') THEN RAISE EXCEPTION 'FAIL begin_when_locked'; END IF;
+
   -- revoke triggers, on an existing user present in both tables
   SELECT u.id INTO v_u FROM public.users u JOIN auth.users a ON a.id = u.id ORDER BY u.id LIMIT 1;
   IF v_u IS NOT NULL THEN
@@ -129,6 +152,18 @@ BEGIN
     RAISE EXCEPTION 'FAIL find_account_executable_by_client';
   END IF;
   IF NOT has_function_privilege('service_role', 'public.phone_login_find_account(text)', 'execute') THEN RAISE EXCEPTION 'FAIL service_role_cannot_execute'; END IF;
+  FOREACH v_line IN ARRAY ARRAY['public.phone_login_begin_attempt(text,text)', 'public.phone_login_end_attempt(text)', 'public.phone_login_record_failure(text,text)', 'public.phone_login_is_locked(text)'] LOOP
+    IF has_function_privilege('anon', v_line, 'execute') OR has_function_privilege('authenticated', v_line, 'execute') THEN
+      RAISE EXCEPTION 'FAIL rpc_executable_by_client %', v_line;
+    END IF;
+    IF NOT has_function_privilege('service_role', v_line, 'execute') THEN RAISE EXCEPTION 'FAIL rpc_service_role_cannot_execute %', v_line; END IF;
+  END LOOP;
+  -- the users expression index calls ghana_phone_sig as the WRITING role: every client role must be able to execute it
+  IF NOT has_function_privilege('authenticated', 'public.ghana_phone_sig(text)', 'execute')
+     OR NOT has_function_privilege('anon', 'public.ghana_phone_sig(text)', 'execute')
+     OR NOT has_function_privilege('service_role', 'public.ghana_phone_sig(text)', 'execute') THEN
+    RAISE EXCEPTION 'FAIL ghana_phone_sig_not_executable';
+  END IF;
 
   -- the expression index serves the lookup
   SET LOCAL enable_seqscan = off;
@@ -141,6 +176,20 @@ BEGIN
   IF (SELECT count(*) FROM public.admin_settings WHERE key IN ('phone_login_enabled', 'phone_login_new_device_code')) <> 2 THEN
     RAISE EXCEPTION 'FAIL settings_missing';
   END IF;
+  -- both are JSON booleans; rows this migration just inserted (xmin = this transaction) must hold the seeded values:
+  -- phone_login_enabled = false, phone_login_new_device_code = true (a pre-existing row may legitimately differ)
+  FOR v_r IN
+    SELECT key, value, (xmin::text = (txid_current() % 4294967296)::text) AS fresh
+      FROM public.admin_settings WHERE key IN ('phone_login_enabled', 'phone_login_new_device_code')
+  LOOP
+    IF jsonb_typeof(v_r.value) IS DISTINCT FROM 'boolean' THEN RAISE EXCEPTION 'FAIL setting_not_boolean %', v_r.key; END IF;
+    IF v_r.fresh AND v_r.key = 'phone_login_enabled' AND v_r.value IS DISTINCT FROM 'false'::jsonb THEN
+      RAISE EXCEPTION 'FAIL seed_enabled_not_false';
+    END IF;
+    IF v_r.fresh AND v_r.key = 'phone_login_new_device_code' AND v_r.value IS DISTINCT FROM 'true'::jsonb THEN
+      RAISE EXCEPTION 'FAIL seed_code_not_true';
+    END IF;
+  END LOOP;
 
   RAISE EXCEPTION 'SELFTEST_OK 0201 (rolled back)';
 END $selftest$;

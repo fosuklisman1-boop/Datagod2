@@ -6,7 +6,8 @@
  *    with the new-device code switched off, or (b) after a code check AND an atomic challenge
  *    consume; verify mints only for the email of the user the challenge row belongs to;
  *  - alerts and events carry hashes and ids only, never a phone, code, password or email.
- * DB errors from findAccount / isLocked / recordFailure propagate (the route answers 503).
+ * DB errors from findAccount / beginAttempt / endAttempt / recordFailure, and auth-service errors from
+ * verifyPassword (anything but a real wrong password), propagate (the route answers 503) and never count as a failure.
  */
 
 import { randomUUID } from "node:crypto"
@@ -37,7 +38,8 @@ import {
   findTrustedDevice,
   getChallenge,
   hadPasswordChangeSince,
-  isLocked,
+  beginAttempt,
+  endAttempt,
   killChallenge,
   recordEvent,
   recordFailure,
@@ -68,6 +70,11 @@ export type StartResult =
 
 const WINDOW_15_MIN = 900_000
 const HOUR_MS = 3_600_000
+
+/** sendSMS reports a delivery failure as `{ success: false }` instead of throwing. */
+function smsFailed(sms: unknown): boolean {
+  return typeof sms === "object" && sms !== null && (sms as { success?: unknown }).success === false
+}
 
 function otpDeps(d: FlowDeps): PhoneOtpDeps {
   return {
@@ -122,7 +129,8 @@ export async function startPhoneLogin(
   const pHash = hashPhone(key.sig)
   const iHash = hashIp(i.ip)
 
-  if (await isLocked(d.db, pHash)) {
+  // Atomic reserve-a-slot (per-phone lock in the RPC): parallel requests cannot all pass a stale "not locked" read.
+  if (!(await beginAttempt(d.db, pHash, iHash))) {
     await dummyPasswordCheck(d.session)
     return { kind: "fail" }
   }
@@ -134,11 +142,14 @@ export async function startPhoneLogin(
     return { kind: "fail" }
   }
 
+  // verifyPassword returns null only for a real wrong password; any auth-service error THROWS (no failure is recorded).
   const session = await verifyPassword(d.session, account.email, i.password)
   if (!session) {
     await failAfterRecord(d, pHash, iHash)
     return { kind: "fail" }
   }
+  // Correct password: free the slot now, whatever happens next (recordFailure frees it on the wrong-password path).
+  await endAttempt(d.db, pHash)
 
   if (i.deviceToken) {
     const dev = await findTrustedDevice(d.db, sha256Hex(i.deviceToken), account.userId, d.now())
@@ -150,7 +161,8 @@ export async function startPhoneLogin(
   }
 
   if (!settings.newDeviceCode) {
-    await recordEvent(d.db, "login_ok", { userId: account.userId, phoneHash: pHash, ipHash: iHash })
+    // Labelled apart from login_ok so admins can see logins that skipped the code check.
+    await recordEvent(d.db, "login_unchallenged", { userId: account.userId, phoneHash: pHash, ipHash: iHash })
     return { kind: "session", session }
   }
 
@@ -173,7 +185,7 @@ export async function startPhoneLogin(
   let sentOk = false
   try {
     const r = await issuePhoneOtp(otpDeps(d), otpPhone, PHONE_LOGIN_PURPOSE)
-    sentOk = r.ok
+    sentOk = r.ok && !smsFailed(r.sms)
   } catch {
     sentOk = false
   }
@@ -209,6 +221,8 @@ export async function verifyPhoneLogin(
   d: FlowDeps,
   i: { challengeId: string; browserSecret: string | null; code: string; ip: string; userAgent: string | null },
 ): Promise<VerifyResult> {
+  // The kill switch must also stop sign-ins already in flight.
+  if (!(await d.settings()).enabled) return { kind: "restart" }
   const c = await liveChallenge(d, i.challengeId, i.browserSecret)
   if (!c) return { kind: "restart" }
   const max = LIMITS.maxCodeAttempts
@@ -234,9 +248,13 @@ export async function verifyPhoneLogin(
     return { kind: "invalid", attemptsLeft: max - attempts }
   }
 
-  // Resolve the email BEFORE consuming so a lookup failure does not burn a valid code.
+  // A lookup that THROWS propagates before the challenge is consumed. A null email is final: checkPhoneOtp has
+  // already marked the code used, so the challenge is killed rather than left half-alive.
   const email = await d.emailForUser(c.userId)
-  if (!email) return { kind: "restart" }
+  if (!email) {
+    await killChallenge(d.db, c.id)
+    return { kind: "restart" }
+  }
 
   if (!(await consumeChallenge(d.db, c.id, d.now()))) return { kind: "restart" }
 
@@ -277,6 +295,7 @@ export async function resendPhoneLoginCode(
   d: FlowDeps,
   i: { challengeId: string; browserSecret: string | null },
 ): Promise<ResendResult> {
+  if (!(await d.settings()).enabled) return { kind: "restart" }
   const c = await liveChallenge(d, i.challengeId, i.browserSecret)
   if (!c) return { kind: "restart" }
 
@@ -294,6 +313,10 @@ export async function resendPhoneLoginCode(
   }
   if (!r.ok) {
     if (r.reason === "PHONE_LIMIT") return { kind: "wait", seconds: 3600 }
+    await killChallenge(d.db, c.id)
+    return { kind: "send_failed" }
+  }
+  if (smsFailed(r.sms)) {
     await killChallenge(d.db, c.id)
     return { kind: "send_failed" }
   }

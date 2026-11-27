@@ -6,13 +6,15 @@
 --   ghana_phone_sig(text)            IMMUTABLE; same rules as ghanaSignificant in lib/phone-format.ts. Expression index on public.users.
 --   phone_login_find_account(text)   always exactly one row; user columns are filled only when exactly one account has that sig.
 --   phone_login_events               fail / lockout / login_ok / ... rows (the spec's phone_login_failures, widened for admin counts).
---   phone_login_record_failure/_is_locked   5 failed attempts per phone_hash in 15 min locks it.
+--   phone_login_begin_attempt/_end_attempt/_record_failure/_is_locked   per phone_hash: failures (15 min) + in-flight attempts (60 s) >= 5 locks it;
+--                                    begin_attempt reserves a slot atomically (per-phone advisory lock), so parallel requests cannot bypass the lock.
 --   phone_login_challenges, trusted_devices  new-device code state and remembered browsers.
 --   Triggers revoke every live trusted device of a user when: password changes, user is banned, phone changes, user is suspended.
 --   admin_settings: phone_login_enabled='false', phone_login_new_device_code='true' (insert only, never overwrites).
 --
 -- All three tables have RLS on with no policies and no grants to anon/authenticated: service_role (BYPASSRLS) only.
--- Every function is SECURITY DEFINER with search_path = '' and EXECUTE for service_role only.
+-- Every function pins search_path = ''. The RPCs and triggers are SECURITY DEFINER with EXECUTE for service_role only; the one exception is
+-- the pure ghana_phone_sig(text), executable by everyone because the users index calls it when any role writes public.users.
 --
 -- PRE-CHECKS (each must return the stated value before applying):
 --   SELECT to_regclass('public.users'), to_regclass('auth.users'), to_regclass('public.admin_settings');   -- all NOT NULL
@@ -55,7 +57,7 @@ CREATE INDEX IF NOT EXISTS users_phone_sig_idx ON public.users (public.ghana_pho
 -- ---------------------------------------------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.phone_login_events (
   id         bigserial PRIMARY KEY,
-  kind       text NOT NULL CHECK (kind IN ('fail','lockout','login_ok','challenge_sent','challenge_passed','password_changed','code_switch_off')),
+  kind       text NOT NULL CHECK (kind IN ('fail','lockout','attempt','login_ok','login_unchallenged','challenge_sent','challenge_passed','password_changed','code_switch_off')),
   user_id    uuid NULL,
   phone_hash text NULL,
   ip_hash    text NULL,
@@ -139,6 +141,11 @@ DECLARE
 BEGIN
   -- serialise per phone so exactly one lockout row is written when the count reaches 5
   PERFORM pg_advisory_xact_lock(hashtext('phone_login:' || coalesce(p_phone_hash, '')));
+  -- the failure replaces the in-flight attempt row reserved by phone_login_begin_attempt (no double count)
+  DELETE FROM public.phone_login_events WHERE id = (
+    SELECT id FROM public.phone_login_events
+     WHERE kind = 'attempt' AND phone_hash = p_phone_hash AND created_at > now() - interval '60 seconds'
+     ORDER BY id DESC LIMIT 1);
   INSERT INTO public.phone_login_events (kind, phone_hash, ip_hash) VALUES ('fail', p_phone_hash, p_ip_hash);
   SELECT count(*)::int INTO v_n FROM public.phone_login_events
    WHERE kind = 'fail' AND phone_hash = p_phone_hash AND created_at > now() - interval '15 minutes';
@@ -146,6 +153,44 @@ BEGIN
     INSERT INTO public.phone_login_events (kind, phone_hash, ip_hash) VALUES ('lockout', p_phone_hash, p_ip_hash);
   END IF;
   RETURN v_n >= 5;
+END
+$fn$;
+
+-- Atomically reserves a password-check slot. Same per-phone lock as record_failure, so parallel requests cannot all pass a
+-- stale "not locked" read. Counts 'fail' rows (15 min) PLUS in-flight 'attempt' rows (60 s); >= 5 -> false (locked).
+CREATE OR REPLACE FUNCTION public.phone_login_begin_attempt(p_phone_hash text, p_ip_hash text)
+RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = ''
+AS $fn$
+DECLARE
+  v_n int;
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtext('phone_login:' || coalesce(p_phone_hash, '')));
+  SELECT count(*)::int INTO v_n FROM public.phone_login_events
+   WHERE phone_hash = p_phone_hash
+     AND ((kind = 'fail' AND created_at > now() - interval '15 minutes')
+       OR (kind = 'attempt' AND created_at > now() - interval '60 seconds'));
+  IF v_n >= 5 THEN
+    RETURN false;
+  END IF;
+  INSERT INTO public.phone_login_events (kind, phone_hash, ip_hash) VALUES ('attempt', p_phone_hash, p_ip_hash);
+  RETURN true;
+END
+$fn$;
+
+-- Frees the slot taken by begin_attempt (called after a correct password). Deletes the newest 'attempt' row of the last 60 s.
+CREATE OR REPLACE FUNCTION public.phone_login_end_attempt(p_phone_hash text)
+RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = ''
+AS $fn$
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtext('phone_login:' || coalesce(p_phone_hash, '')));
+  DELETE FROM public.phone_login_events WHERE id = (
+    SELECT id FROM public.phone_login_events
+     WHERE kind = 'attempt' AND phone_hash = p_phone_hash AND created_at > now() - interval '60 seconds'
+     ORDER BY id DESC LIMIT 1);
 END
 $fn$;
 
@@ -205,15 +250,20 @@ CREATE TRIGGER trg_phone_login_user AFTER UPDATE ON public.users
 -- ---------------------------------------------------------------------------------------------------------------------
 -- Function privileges: service_role only
 -- ---------------------------------------------------------------------------------------------------------------------
-REVOKE ALL ON FUNCTION public.ghana_phone_sig(text)                       FROM PUBLIC, anon, authenticated;
+-- ghana_phone_sig is the exception: the expression index users_phone_sig_idx calls it on every INSERT / non-HOT UPDATE of
+-- public.users AS THE WRITING ROLE, so revoking EXECUTE would break those writes. It is pure (no table access, no data).
+GRANT EXECUTE ON FUNCTION public.ghana_phone_sig(text) TO PUBLIC;
 REVOKE ALL ON FUNCTION public.phone_login_find_account(text)              FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.phone_login_record_failure(text, text)      FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.phone_login_begin_attempt(text, text)       FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.phone_login_end_attempt(text)               FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.phone_login_is_locked(text)                 FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.phone_login_revoke_devices()                FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.phone_login_password_changed()              FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.ghana_phone_sig(text)                    TO service_role;
 GRANT EXECUTE ON FUNCTION public.phone_login_find_account(text)           TO service_role;
 GRANT EXECUTE ON FUNCTION public.phone_login_record_failure(text, text)   TO service_role;
+GRANT EXECUTE ON FUNCTION public.phone_login_begin_attempt(text, text)    TO service_role;
+GRANT EXECUTE ON FUNCTION public.phone_login_end_attempt(text)            TO service_role;
 GRANT EXECUTE ON FUNCTION public.phone_login_is_locked(text)              TO service_role;
 GRANT EXECUTE ON FUNCTION public.phone_login_revoke_devices()             TO service_role;
 GRANT EXECUTE ON FUNCTION public.phone_login_password_changed()           TO service_role;

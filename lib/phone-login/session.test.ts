@@ -50,14 +50,30 @@ describe("verifyPassword", () => {
     expect(await verifyPassword(m.deps, "a@b.c", "pw")).toEqual(sess)
     expect(m.signInWithPassword).toHaveBeenCalledWith({ email: "a@b.c", password: "pw" })
   })
-  it("returns null on an auth error", async () => {
-    const m = makeDeps({ signIn: { data: { session: null }, error: new Error("bad") } })
+  it("returns null on invalid_credentials (a real wrong password)", async () => {
+    const m = makeDeps({ signIn: { data: { session: null }, error: Object.assign(new Error("Invalid login credentials"), { code: "invalid_credentials", status: 400 }) } })
     expect(await verifyPassword(m.deps, "a@b.c", "pw")).toBeNull()
   })
-  it("returns null when the client throws", async () => {
+  it("returns null on email_not_confirmed and on the legacy invalid-login message without a code", async () => {
+    const m1 = makeDeps({ signIn: { data: { session: null }, error: Object.assign(new Error("Email not confirmed"), { code: "email_not_confirmed", status: 400 }) } })
+    expect(await verifyPassword(m1.deps, "a@b.c", "pw")).toBeNull()
+    const m2 = makeDeps({ signIn: { data: { session: null }, error: Object.assign(new Error("Invalid login credentials"), { status: 400 }) } })
+    expect(await verifyPassword(m2.deps, "a@b.c", "pw")).toBeNull()
+  })
+  it("THROWS on rate limit, server error and captcha so the caller never counts them as a wrong password", async () => {
+    for (const [code, status] of [["over_request_rate_limit", 429], ["unexpected_failure", 500], ["captcha_failed", 400], [undefined, 503]] as const) {
+      const m = makeDeps({ signIn: { data: { session: null }, error: Object.assign(new Error("boom"), { code, status }) } })
+      await expect(verifyPassword(m.deps, "a@b.c", "pw")).rejects.toThrow()
+    }
+  })
+  it("THROWS when the client throws (network)", async () => {
     const m = makeDeps()
     m.signInWithPassword.mockRejectedValue(new Error("net"))
-    expect(await verifyPassword(m.deps, "a@b.c", "pw")).toBeNull()
+    await expect(verifyPassword(m.deps, "a@b.c", "pw")).rejects.toThrow()
+  })
+  it("THROWS when there is neither a session nor an error", async () => {
+    const m = makeDeps({ signIn: { data: { session: null }, error: null } })
+    await expect(verifyPassword(m.deps, "a@b.c", "pw")).rejects.toThrow()
   })
 })
 

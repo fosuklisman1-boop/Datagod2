@@ -18,15 +18,24 @@ function toSession(s: { access_token: string; refresh_token: string; expires_at?
   return { access_token: s.access_token, refresh_token: s.refresh_token, expires_at: s.expires_at }
 }
 
-/** Verifies a password. Any failure returns null (caller treats it as a wrong password). */
+/** GoTrue answers a wrong password with code `invalid_credentials` (older servers: only the message). */
+function isWrongPassword(error: { code?: string; message?: string }): boolean {
+  if (error.code === "invalid_credentials" || error.code === "email_not_confirmed") return true
+  return !error.code && /invalid login credentials/i.test(error.message ?? "")
+}
+
+/**
+ * Verifies a password. Returns null ONLY for a real wrong password. Any other failure (rate limit, 5xx,
+ * captcha, network) THROWS so the caller answers 503 and never counts it against the user's lockout.
+ */
 export async function verifyPassword(d: SessionDeps, email: string, password: string): Promise<Session | null> {
-  try {
-    const { data, error } = await d.anon().auth.signInWithPassword({ email, password })
-    if (error || !data?.session) return null
-    return toSession(data.session)
-  } catch {
-    return null
+  const { data, error } = await d.anon().auth.signInWithPassword({ email, password })
+  if (error) {
+    if (isWrongPassword(error)) return null
+    throw new Error("password check unavailable")
   }
+  if (!data?.session) throw new Error("password check unavailable")
+  return toSession(data.session)
 }
 
 /** Timing equalizer for unknown numbers. Result is ignored; never throws. */
