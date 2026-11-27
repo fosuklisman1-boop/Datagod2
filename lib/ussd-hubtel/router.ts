@@ -2,6 +2,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { keyForDigit } from "@/lib/ussd/menu-items"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
+import { getStockNotices } from "@/lib/network-stock-service"
 import { BOT_MENUS_HIDDEN, getHubtelUssdConfig, type BotMenuGate, type HubtelUssdConfig } from "./config"
 import {
   defaultAfaServices, defaultAirtimeServices, defaultNetworkPlansServices, defaultPayBillsServices, defaultRcServices,
@@ -56,6 +57,7 @@ export function defaultRouterDeps(supabase: SupabaseClient): RouterDeps {
     networkPlans: defaultNetworkPlansServices(),
     payBills: defaultPayBillsServices(),
     botMenus: () => loadBotMenuGate(supabase),
+    stockNotices: () => getStockNotices(supabase),
     verifyRecipient: async (phone, blockContext, defer) => {
       // Generous bound: screens cap their own wait, and a check that outlives a screen finishes in
       // the background (deps.defer) and caches its verdict for the pay step.

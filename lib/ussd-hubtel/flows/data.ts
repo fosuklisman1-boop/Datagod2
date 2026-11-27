@@ -9,7 +9,7 @@ import { priceForTier } from "../catalog"
 import { HUBTEL_NETWORKS, networkMenuText, bundleMenuText, confirmMenuText } from "../menus"
 import { blockedRecipientScreen, enterRecipientStep, recipientStep, whoForScreen } from "../recipient-step"
 import { backFromInternetType } from "./internet-bundles"
-import { finish, goto, replaySubmittedOrder, say, type FlowCtx, type StepTable } from "../flow-kit"
+import { finish, goto, replaySubmittedOrder, say, stockNoticeFor, type FlowCtx, type StepTable } from "../flow-kit"
 import { checkoutOrChoose, type Prepare, type PreparedOrder } from "./pay-choice"
 import type { HubtelReply, HubtelSession, PayKind } from "../types"
 import { confirmNote, recipientBlockedAtPay, RECIPIENT_BLOCKED_NOTE } from "../confirm-note"
@@ -32,6 +32,10 @@ async function selectNetwork(ctx: FlowCtx): Promise<HubtelReply> {
   if (input === "0") return backFromInternetType(ctx)
   const net = HUBTEL_NETWORKS.find(n => n.digit === input)
   if (!net) return say(ctx, networkMenuText(), "SELECT_NETWORK", NETWORK)
+
+  // Admin marked the network out of stock: show the reason, stay on the network menu.
+  const notice = await stockNoticeFor(deps, net.dbName)
+  if (notice) return say(ctx, `${notice}\n` + networkMenuText(), "SELECT_NETWORK", NETWORK)
 
   const caller = await deps.resolveCaller(session.dialingPhone)
   const { bundles, total } = await deps.fetchBundles(net.dbName, 0, caller.effectivePriceTier, caller.subAgentParentShopId, caller.userId, caller.priceRole)

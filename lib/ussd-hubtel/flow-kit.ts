@@ -18,6 +18,7 @@ import { safeDbError } from "./log-safe"
 import { findWalletPaymentBySession, type WalletPayDeps } from "./wallet-pay"
 import { isMissingTable } from "@/lib/refunds/hubtel-wallet"
 import type { DeliveryChannel } from "@/lib/delivery-estimate/query"
+import { noticeFor, type StockNotices } from "@/lib/network-stock-notice"
 import type { HubtelFieldType, HubtelPlatform, HubtelReply, HubtelRequest, HubtelSession, HubtelStep } from "./types"
 
 export interface RouterDeps {
@@ -46,6 +47,11 @@ export interface RouterDeps {
    * and must be fast (cached); a purchase never waits on it or fails because of it.
    */
   deliveryEstimate?(channel: DeliveryChannel): Promise<string | null>
+  /**
+   * Admin network-wide out-of-stock notices: DB network name -> text the customer sees in place of bundles.
+   * Optional; must fail open to {} (read it through stockNoticeFor, which also absorbs a throw).
+   */
+  stockNotices?(): Promise<StockNotices>
   /**
    * Live customer-facing number verification (same check as the storefront / data packages page). Optional;
    * false = not yet verified (warn, still sellable); "blocked" = rejected while the admin blocking toggle is on
@@ -312,4 +318,18 @@ export async function submitOrder(ctx: FlowCtx, args: SubmitNewOrder | SubmitCre
 
   await deps.sessions.del(sid)
   return addToCart(sid, { itemName: cartItemNameFor(order.id), price: args.price, message: CART_MESSAGE, platform })
+}
+
+/** Every admin out-of-stock notice, or {} when the dep is absent or fails (fail open: today's behaviour). */
+export async function stockNoticesOf(deps: RouterDeps): Promise<StockNotices> {
+  try {
+    return (await deps.stockNotices?.()) ?? {}
+  } catch {
+    return {}
+  }
+}
+
+/** The admin's out-of-stock text for `network` (any spelling), or null to carry on as normal. */
+export async function stockNoticeFor(deps: RouterDeps, network: string): Promise<string | null> {
+  return noticeFor(await stockNoticesOf(deps), network)
 }
