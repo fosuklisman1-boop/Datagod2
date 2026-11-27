@@ -6,10 +6,13 @@ vi.mock("@supabase/supabase-js", () => ({ createClient: () => ({}) }))
 vi.mock("@/lib/cron-auth", () => ({
   verifyCronAuth: vi.fn(() => (h.authorized ? { authorized: true } : { authorized: false, errorResponse: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) })),
 }))
-vi.mock("@/lib/ai-console/retention", () => ({ deleteOldConversations: vi.fn(async () => 7) }))
+vi.mock("@/lib/ai-console/retention", () => ({
+  deleteOldConversations: vi.fn(async () => 7),
+  deleteOldVoiceCalls: vi.fn(async () => 3),
+}))
 
 import { GET } from "./route"
-import { deleteOldConversations } from "@/lib/ai-console/retention"
+import { deleteOldConversations, deleteOldVoiceCalls } from "@/lib/ai-console/retention"
 
 beforeEach(() => { vi.clearAllMocks(); h.authorized = true })
 
@@ -18,9 +21,24 @@ describe("GET /api/cron/ai-conversations-retention", () => {
     h.authorized = false
     expect((await GET(new NextRequest("http://localhost/x"))).status).toBe(401)
     expect(deleteOldConversations).not.toHaveBeenCalled()
+    expect(deleteOldVoiceCalls).not.toHaveBeenCalled()
   })
-  it("runs and returns the count", async () => {
+  it("runs and returns the counts", async () => {
     const r = await GET(new NextRequest("http://localhost/x"))
-    expect(await r.json()).toEqual({ success: true, data: { deleted: 7 } })
+    expect(await r.json()).toEqual({ success: true, data: { deleted: 7, voiceCallsDeleted: 3 } })
+  })
+  it("still runs conversation retention when voice-call retention fails", async () => {
+    vi.mocked(deleteOldVoiceCalls).mockRejectedValueOnce(new Error("boom"))
+    const r = await GET(new NextRequest("http://localhost/x"))
+    expect(deleteOldConversations).toHaveBeenCalledTimes(1)
+    expect(r.status).toBe(500)
+    expect(await r.json()).toEqual({ success: false, error: "Internal server error" })
+  })
+  it("still runs voice-call retention when conversation retention fails", async () => {
+    vi.mocked(deleteOldConversations).mockRejectedValueOnce(new Error("boom"))
+    const r = await GET(new NextRequest("http://localhost/x"))
+    expect(deleteOldVoiceCalls).toHaveBeenCalledTimes(1)
+    expect(r.status).toBe(500)
+    expect(await r.json()).toEqual({ success: false, error: "Internal server error" })
   })
 })
