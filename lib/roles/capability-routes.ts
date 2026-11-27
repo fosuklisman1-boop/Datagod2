@@ -114,6 +114,7 @@ export const UNGATED_SESSION_ROUTES: Readonly<Record<string, string>> = {
   "review-prompt": "read-only review prompt eligibility",
   "ai/chat": "support chat, always available",
   "ai/voice/token": "starts the caller's own Clings voice call; the route enforces its own gates (voice switches, audience, admin role + catalog for admin context, daily caps, concurrency)",
+  "ai/voice/queue": "check-in and leave for the caller's own waiting-line ticket (matched by user id or device cookie); it only decides when the caller may ask the token route again, which enforces every gate",
   "ai/voice/end": "closes the caller's own voice call row (matched by user id or device cookie); no capability applies",
   "ai/drafts/[id]": "own AI draft state; any action runs through the real endpoint, which enforces its own capability",
   "ai/drafts/[id]/confirm": "runs the caller's own AI draft via the real endpoint with their JWT, which enforces its own capability",
