@@ -1,5 +1,20 @@
 import { describe, it, expect } from "vitest"
-import { maskForVoice, clampForAppend } from "./mask"
+import { maskForVoice, clampForAppend, toVoiceText } from "./mask"
+
+describe("toVoiceText", () => {
+  it("maps currency, quotes, dashes and drops emoji", () => {
+    expect(toVoiceText("₵5 — “ok” 😀")).toBe('GHS 5 - "ok"')
+    expect(toVoiceText("GH₵10 it’s… fine – yes")).toBe("GHS 10 it's... fine - yes")
+  })
+  it("strips markdown", () => {
+    expect(toVoiceText("# Title\n- **bold** item\n* __x__ [link](https://a.b/c)")).toBe(
+      "Title bold item x link",
+    )
+  })
+  it("always returns printable ASCII", () => {
+    expect(toVoiceText("café ✓ 日本")).toMatch(/^[\x20-\x7E]*$/)
+  })
+})
 
 describe("maskForVoice", () => {
   it("masks a local phone number to its last three digits", () => {

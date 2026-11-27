@@ -57,6 +57,25 @@ export function maskForVoice(text: string): string {
   return normalised.replace(DIGIT_RUN, maskRun).replace(MIXED_STREAM, maskMixedStream)
 }
 
+// Forces free-form text to plain printable ASCII English for Nuance.
+export function toVoiceText(text: string): string {
+  let s = text.normalize("NFKC")
+  s = s
+    .replace(/GH?[¢₵]/g, "GHS ")
+    .replace(/[₵]/g, "GHS ")
+    .replace(/[‘’‚′]/g, "'")
+    .replace(/[“”„″]/g, '"')
+    .replace(/[‐-―−]/g, "-")
+    .replace(/…/g, "...")
+  s = s
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/^[ \t]*#{1,6}[ \t]+/gm, "")
+    .replace(/^[ \t]*[-*][ \t]+/gm, "")
+    .replace(/\*\*|__/g, "")
+  s = s.replace(/[^\x20-\x7E\r\n\t]/g, "")
+  return s.replace(/\s+/g, " ").trim()
+}
+
 export function clampForAppend(text: string, max = 2000): string {
   const masked = maskForVoice(text)
   if (masked.length <= max) return masked

@@ -52,7 +52,19 @@ describe("createCallSession", () => {
     expect(c).not.toMatch(/\d{7}/)
   })
 
-  it("masks phone numbers in the answer", async () => {
+  it("sends ASCII-only content", async () => {
+    const raw = "**Done** ₵5 — “ok” … 😀 [see](http://x.y)"
+    const a = setup(async () => ({ text: "x", cards: [{ id: "c", summary: raw }] }))
+    await a.session.onInterfaceEvent(DELEG)
+    expect(a.sent[1].content as string).toMatch(/^[\x20-\x7E]*$/)
+    const b = setup(async () => ({ text: raw, cards: [] }))
+    await b.session.onInterfaceEvent(DELEG)
+    expect(b.sent[1].content).toBe('Done GHS 5 - "ok" ... see')
+    await b.session.onCardOutcome({ summary: "Send ₵5 — “ok” 😀", outcome: "confirmed" })
+    expect(b.sent[2].content as string).toMatch(/^[\x20-\x7E]*$/)
+  })
+
+  it("masks phone numbers in the answer",async () => {
     const { sent, session } = setup(async () => ({ text: "Sent 2GB to 0241234567", cards: [] }))
     await session.onInterfaceEvent(DELEG)
     const c = sent[1].content as string

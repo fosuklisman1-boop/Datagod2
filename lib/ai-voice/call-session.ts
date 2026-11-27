@@ -2,7 +2,9 @@
 // answer back. Framework-agnostic: link, relay and transcript are injected.
 // Everything sent to Nuance is plain ASCII English and passes clampForAppend.
 
-import { clampForAppend } from "./mask"
+import { clampForAppend as clampMasked, toVoiceText } from "./mask"
+
+const clampForAppend = (text: string) => clampMasked(toVoiceText(text))
 import type { CallTranscript, Turn } from "./transcript"
 
 export interface ChatRelay {
