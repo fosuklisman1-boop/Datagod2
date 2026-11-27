@@ -44,8 +44,13 @@ BEGIN
   IF v_sig2 IS NOT NULL THEN
     SELECT * INTO v_r FROM public.phone_login_find_account(v_sig2);
     IF v_r.match_count < 2 THEN RAISE EXCEPTION 'FAIL find_dup_count %', v_r.match_count; END IF;
-    IF v_r.user_id IS NOT NULL OR v_r.email IS NOT NULL OR v_r.phone_number IS NOT NULL
-       OR v_r.phone_verified IS NOT NULL OR v_r.is_suspended IS NOT NULL THEN RAISE EXCEPTION 'FAIL find_dup_leaks'; END IF;
+    IF v_r.verified_count = 1 THEN
+      -- one verified owner among several: that owner is returned, never an unverified squatter
+      IF v_r.user_id IS NULL OR v_r.phone_verified IS NOT TRUE THEN RAISE EXCEPTION 'FAIL find_dup_owner_hidden'; END IF;
+    ELSIF v_r.user_id IS NOT NULL OR v_r.email IS NOT NULL OR v_r.phone_number IS NOT NULL
+       OR v_r.phone_verified IS NOT NULL OR v_r.is_suspended IS NOT NULL THEN
+      RAISE EXCEPTION 'FAIL find_dup_leaks';
+    END IF;
   END IF;
 
   SELECT public.ghana_phone_sig(phone_number) INTO v_sig1 FROM public.users
@@ -79,27 +84,35 @@ BEGIN
   IF v_u IS NOT NULL THEN
     -- password
     INSERT INTO public.trusted_devices(user_id, token_hash, expires_at) VALUES (v_u, 'selftest-pw', now() + interval '1 day');
+    INSERT INTO public.phone_login_challenges(id, user_id, browser_secret_hash, otp_phone, last_sent_at, expires_at) VALUES ('selftest-c-pw', v_u, 'b', '0', now(), now() + interval '10 minutes');
     SELECT count(*) INTO v_ev FROM public.phone_login_events WHERE kind = 'password_changed' AND user_id = v_u;
     UPDATE auth.users SET encrypted_password = coalesce(encrypted_password, '') || 'x' WHERE id = v_u;
     IF (SELECT revoked_at FROM public.trusted_devices WHERE token_hash = 'selftest-pw') IS NULL THEN RAISE EXCEPTION 'FAIL pw_not_revoked'; END IF;
+    IF (SELECT expires_at > now() FROM public.phone_login_challenges WHERE id = 'selftest-c-pw') THEN RAISE EXCEPTION 'FAIL pw_challenge_alive'; END IF;
     SELECT count(*) INTO v_n FROM public.phone_login_events WHERE kind = 'password_changed' AND user_id = v_u;
     IF v_n <> v_ev + 1 THEN RAISE EXCEPTION 'FAIL pw_event %', v_n; END IF;
 
     -- ban
     INSERT INTO public.trusted_devices(user_id, token_hash, expires_at) VALUES (v_u, 'selftest-ban', now() + interval '1 day');
+    INSERT INTO public.phone_login_challenges(id, user_id, browser_secret_hash, otp_phone, last_sent_at, expires_at) VALUES ('selftest-c-ban', v_u, 'b', '0', now(), now() + interval '10 minutes');
     UPDATE auth.users SET banned_until = now() + interval '1 hour' WHERE id = v_u;
     IF (SELECT revoked_at FROM public.trusted_devices WHERE token_hash = 'selftest-ban') IS NULL THEN RAISE EXCEPTION 'FAIL ban_not_revoked'; END IF;
+    IF (SELECT expires_at > now() FROM public.phone_login_challenges WHERE id = 'selftest-c-ban') THEN RAISE EXCEPTION 'FAIL ban_challenge_alive'; END IF;
 
     -- phone change
     INSERT INTO public.trusted_devices(user_id, token_hash, expires_at) VALUES (v_u, 'selftest-phone', now() + interval '1 day');
+    INSERT INTO public.phone_login_challenges(id, user_id, browser_secret_hash, otp_phone, last_sent_at, expires_at) VALUES ('selftest-c-phone', v_u, 'b', '0', now(), now() + interval '10 minutes');
     UPDATE public.users SET phone_number = coalesce(phone_number, '') || ' ' WHERE id = v_u;
     IF (SELECT revoked_at FROM public.trusted_devices WHERE token_hash = 'selftest-phone') IS NULL THEN RAISE EXCEPTION 'FAIL phone_not_revoked'; END IF;
+    IF (SELECT expires_at > now() FROM public.phone_login_challenges WHERE id = 'selftest-c-phone') THEN RAISE EXCEPTION 'FAIL phone_challenge_alive'; END IF;
 
     -- suspension
     UPDATE public.users SET is_suspended = false WHERE id = v_u;
     INSERT INTO public.trusted_devices(user_id, token_hash, expires_at) VALUES (v_u, 'selftest-susp', now() + interval '1 day');
+    INSERT INTO public.phone_login_challenges(id, user_id, browser_secret_hash, otp_phone, last_sent_at, expires_at) VALUES ('selftest-c-susp', v_u, 'b', '0', now(), now() + interval '10 minutes');
     UPDATE public.users SET is_suspended = true WHERE id = v_u;
     IF (SELECT revoked_at FROM public.trusted_devices WHERE token_hash = 'selftest-susp') IS NULL THEN RAISE EXCEPTION 'FAIL susp_not_revoked'; END IF;
+    IF (SELECT expires_at > now() FROM public.phone_login_challenges WHERE id = 'selftest-c-susp') THEN RAISE EXCEPTION 'FAIL susp_challenge_alive'; END IF;
   END IF;
 
   -- RLS + privileges

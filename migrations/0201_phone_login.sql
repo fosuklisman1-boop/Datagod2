@@ -101,24 +101,30 @@ GRANT ALL ON SEQUENCE public.phone_login_events_id_seq TO service_role;
 -- ---------------------------------------------------------------------------------------------------------------------
 -- Lookup + lockout RPCs
 -- ---------------------------------------------------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.phone_login_find_account(p_sig text)
-RETURNS TABLE (match_count int, user_id uuid, email text, phone_number text, phone_verified boolean, is_suspended boolean)
+DROP FUNCTION IF EXISTS public.phone_login_find_account(text);
+CREATE FUNCTION public.phone_login_find_account(p_sig text)
+RETURNS TABLE (match_count int, verified_count int, user_id uuid, email text, phone_number text, phone_verified boolean, is_suspended boolean)
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = ''
 AS $fn$
 DECLARE
   v_count int;
+  v_ver   int;
 BEGIN
-  SELECT count(*)::int INTO v_count FROM public.users u WHERE public.ghana_phone_sig(u.phone_number) = p_sig;
+  SELECT count(*)::int, (count(*) FILTER (WHERE u.phone_verified IS TRUE))::int INTO v_count, v_ver
+    FROM public.users u WHERE public.ghana_phone_sig(u.phone_number) = p_sig;
 
-  IF v_count = 1 THEN
+  -- user columns: the single VERIFIED row if there is exactly one (an unverified squatter must not block the owner);
+  -- else the single row if only one account has the number (the app refuses it when unverified); else NULL.
+  IF v_ver = 1 OR (v_count = 1 AND v_ver = 0) THEN
     RETURN QUERY
-      SELECT 1, u.id, au.email::text, u.phone_number, u.phone_verified, u.is_suspended
+      SELECT v_count, v_ver, u.id, au.email::text, u.phone_number, u.phone_verified, u.is_suspended
         FROM public.users u
         LEFT JOIN auth.users au ON au.id = u.id
-       WHERE public.ghana_phone_sig(u.phone_number) = p_sig;
+       WHERE public.ghana_phone_sig(u.phone_number) = p_sig
+         AND (v_ver = 0 OR u.phone_verified IS TRUE);
   ELSE
-    RETURN QUERY SELECT v_count, NULL::uuid, NULL::text, NULL::text, NULL::boolean, NULL::boolean;
+    RETURN QUERY SELECT v_count, v_ver, NULL::uuid, NULL::text, NULL::text, NULL::boolean, NULL::boolean;
   END IF;
 END
 $fn$;
@@ -162,6 +168,7 @@ SET search_path = ''
 AS $fn$
 BEGIN
   UPDATE public.trusted_devices SET revoked_at = now() WHERE user_id = NEW.id AND revoked_at IS NULL;
+  UPDATE public.phone_login_challenges SET expires_at = now() WHERE user_id = NEW.id AND consumed_at IS NULL AND expires_at > now();
   RETURN NEW;
 END
 $fn$;
@@ -173,6 +180,7 @@ SET search_path = ''
 AS $fn$
 BEGIN
   UPDATE public.trusted_devices SET revoked_at = now() WHERE user_id = NEW.id AND revoked_at IS NULL;
+  UPDATE public.phone_login_challenges SET expires_at = now() WHERE user_id = NEW.id AND consumed_at IS NULL AND expires_at > now();
   INSERT INTO public.phone_login_events (kind, user_id) VALUES ('password_changed', NEW.id);
   RETURN NEW;
 END

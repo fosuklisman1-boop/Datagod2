@@ -39,7 +39,7 @@ describe("0201 migration text", () => {
 
   it("every function is SECURITY DEFINER-safe: search_path pinned and service_role only", () => {
     const m = code(migration())
-    const fns = m.match(/CREATE OR REPLACE FUNCTION/g) ?? []
+    const fns = m.match(/CREATE (OR REPLACE )?FUNCTION/g) ?? []
     expect(fns.length).toBe(6)
     expect((m.match(/SET search_path = ''/g) ?? []).length).toBe(6)
     expect((m.match(/GRANT EXECUTE ON FUNCTION[^;]*TO service_role;/g) ?? []).length).toBe(6)
@@ -101,15 +101,31 @@ describe.skipIf(!PGliteCtor)("0201 in PGlite", () => {
     // The self-test skips data checks on empty tables; prove the stubs satisfy them by checking the same conditions here.
     const db = await fresh()
     await db.exec(migration())
+    // 1 verified (U1) + 1 unverified (U2): the verified owner wins, an unverified squatter cannot block them
     const dup = await db.query("SELECT * FROM public.phone_login_find_account('241234567')")
-    expect(dup.rows).toEqual([{ match_count: 2, user_id: null, email: null, phone_number: null, phone_verified: null, is_suspended: null }])
+    expect(dup.rows).toEqual([
+      { match_count: 2, verified_count: 1, user_id: U1, email: "u1@example.invalid", phone_number: "0241234567", phone_verified: true, is_suspended: null },
+    ])
     const one = await db.query("SELECT * FROM public.phone_login_find_account('551112223')")
     expect(one.rows).toEqual([
-      { match_count: 1, user_id: U3, email: "u3@example.invalid", phone_number: "0551112223", phone_verified: true, is_suspended: null },
+      { match_count: 1, verified_count: 1, user_id: U3, email: "u3@example.invalid", phone_number: "0551112223", phone_verified: true, is_suspended: null },
     ])
     const none = await db.query("SELECT * FROM public.phone_login_find_account('999999999')")
-    expect(none.rows[0].match_count).toBe(0)
-    await db.exec("ROLLBACK")
+    expect(none.rows).toEqual([
+      { match_count: 0, verified_count: 0, user_id: null, email: null, phone_number: null, phone_verified: null, is_suspended: null },
+    ])
+    // 2 verified on one sig: ambiguous, user columns NULL
+    await db.exec(`UPDATE public.users SET phone_verified = true WHERE id = '${U2}'`)
+    const two = await db.query("SELECT * FROM public.phone_login_find_account('241234567')")
+    expect(two.rows).toEqual([
+      { match_count: 2, verified_count: 2, user_id: null, email: null, phone_number: null, phone_verified: null, is_suspended: null },
+    ])
+    // a single unverified row is returned as is (the app refuses it as ineligible)
+    await db.exec(`UPDATE public.users SET phone_verified = false WHERE id = '${U3}'`)
+    const unv = await db.query("SELECT * FROM public.phone_login_find_account('551112223')")
+    expect(unv.rows).toEqual([
+      { match_count: 1, verified_count: 0, user_id: U3, email: "u3@example.invalid", phone_number: "0551112223", phone_verified: false, is_suspended: null },
+    ])
   }, 60_000)
 
   it("applies twice (idempotent) and seeds the two settings without overwriting", async () => {
@@ -145,26 +161,37 @@ describe.skipIf(!PGliteCtor)("0201 in PGlite", () => {
       db.exec(`INSERT INTO public.trusted_devices(user_id, token_hash, expires_at) VALUES ('${u}', '${h}', now() + interval '1 day')`)
     const revoked = async (h: string) => (await db.query(`SELECT revoked_at IS NOT NULL AS r FROM public.trusted_devices WHERE token_hash='${h}'`)).rows[0].r
 
-    await dev(U1, "pw"); await dev(U3, "other")
+    const chal = (id: string, u: string) =>
+      db.exec(`INSERT INTO public.phone_login_challenges(id, user_id, browser_secret_hash, otp_phone, last_sent_at, expires_at)
+               VALUES ('${id}', '${u}', 'b', '0241234567', now(), now() + interval '10 minutes')`)
+    const dead = async (id: string) => (await db.query(`SELECT expires_at <= now() AS d FROM public.phone_login_challenges WHERE id='${id}'`)).rows[0].d
+
+    await dev(U1, "pw"); await dev(U3, "other"); await chal("c-pw", U1); await chal("c-other", U3)
     await db.exec(`UPDATE auth.users SET encrypted_password = 'new' WHERE id = '${U1}'`)
     expect(await revoked("pw")).toBe(true)
+    expect(await dead("c-pw")).toBe(true)
+    expect(await dead("c-other")).toBe(false)
     expect(await revoked("other")).toBe(false)
     expect((await db.query(`SELECT count(*)::int AS n FROM public.phone_login_events WHERE kind='password_changed' AND user_id='${U1}'`)).rows[0].n).toBe(1)
 
     await db.exec(`UPDATE auth.users SET encrypted_password = 'new' WHERE id = '${U1}'`) // no change, no event
     expect((await db.query(`SELECT count(*)::int AS n FROM public.phone_login_events WHERE kind='password_changed'`)).rows[0].n).toBe(1)
 
-    await dev(U1, "ban")
+    await dev(U1, "ban"); await chal("c-ban", U1)
     await db.exec(`UPDATE auth.users SET banned_until = now() + interval '1 hour' WHERE id = '${U1}'`)
     expect(await revoked("ban")).toBe(true)
+    expect(await dead("c-ban")).toBe(true)
 
-    await dev(U1, "phone")
+    await dev(U1, "phone"); await chal("c-phone", U1)
     await db.exec(`UPDATE public.users SET phone_number = '0201112223' WHERE id = '${U1}'`)
     expect(await revoked("phone")).toBe(true)
+    expect(await dead("c-phone")).toBe(true)
 
-    await dev(U1, "susp")
+    await dev(U1, "susp"); await chal("c-susp", U1)
     await db.exec(`UPDATE public.users SET is_suspended = true WHERE id = '${U1}'`)
     expect(await revoked("susp")).toBe(true)
+    expect(await dead("c-susp")).toBe(true)
+    expect(await dead("c-other")).toBe(false)
 
     await dev(U1, "unrelated")
     await db.exec(`UPDATE public.users SET phone_verified = false, is_suspended = false WHERE id = '${U1}'`) // un-suspend is not a revoke
