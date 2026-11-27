@@ -1,15 +1,15 @@
-// migrations/0203_ai_voice_queue.sql and its self-test, run in PGlite (WASM Postgres). Nothing here touches a real database.
+// migrations/0204_ai_voice_queue.sql and its self-test, run in PGlite (WASM Postgres). Nothing here touches a real database.
 import { describe, it, expect } from "vitest"
 import { readFileSync } from "fs"
 import { join } from "path"
 import { buildRunString, code } from "../ai-console/migration-0189-run"
 
 const read = (f: string) => readFileSync(join(process.cwd(), "migrations", f), "utf8").replace(/\r\n/g, "\n")
-const FILE = "0203_ai_voice_queue.sql"
-const SELFTEST_FILE = "0203_ai_voice_queue.selftest.sql"
+const FILE = "0204_ai_voice_queue.sql"
+const SELFTEST_FILE = "0204_ai_voice_queue.selftest.sql"
 const migration = () => read(FILE)
 
-describe("0203 migration text", () => {
+describe("0204 migration text", () => {
   it("is one transaction with timeouts and exactly one COMMIT", () => {
     const c = code(migration())
     expect(c).toMatch(/^BEGIN;\s*$/m)
@@ -21,7 +21,7 @@ describe("0203 migration text", () => {
   it("the run string has no COMMIT and ends by raising SELFTEST_OK", () => {
     const run = buildRunString(migration(), read(SELFTEST_FILE))
     expect(code(run)).not.toMatch(/\bCOMMIT\b/i)
-    expect(code(run).trimEnd()).toMatch(/RAISE EXCEPTION 'SELFTEST_OK 0203[^']*';\s*END\s*\$selftest\$;$/)
+    expect(code(run).trimEnd()).toMatch(/RAISE EXCEPTION 'SELFTEST_OK 0204[^']*';\s*END\s*\$selftest\$;$/)
   })
 
   it("locks the table down to the service role", () => {
@@ -55,10 +55,10 @@ async function fresh(): Promise<any> {
   return db
 }
 
-describe.skipIf(!PGliteCtor)("0203 in PGlite", () => {
+describe.skipIf(!PGliteCtor)("0204 in PGlite", () => {
   it("the self-rolling-back run string reports SELFTEST_OK and leaves no table behind", async () => {
     const db = await fresh()
-    await expect(db.exec(buildRunString(migration(), read(SELFTEST_FILE)))).rejects.toThrow(/^SELFTEST_OK 0203/)
+    await expect(db.exec(buildRunString(migration(), read(SELFTEST_FILE)))).rejects.toThrow(/^SELFTEST_OK 0204/)
     await db.exec("ROLLBACK")
     const r = await db.query("select to_regclass('public.ai_voice_queue') as t")
     expect(r.rows[0].t).toBeNull()

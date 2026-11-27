@@ -1,6 +1,6 @@
--- 0203_ai_voice_queue.selftest.sql
--- Self-rolling-back check of migration 0203. For a prod dry run, concatenate it after the migration with BEGIN;/COMMIT;
--- removed. Always ends by raising SELFTEST_OK 0203 (or a FAIL message), so nothing it does is kept.
+-- 0204_ai_voice_queue.selftest.sql
+-- Self-rolling-back check of migration 0204. For a prod dry run, concatenate it after the migration with BEGIN;/COMMIT;
+-- removed. Always ends by raising SELFTEST_OK 0204 (or a FAIL message), so nothing it does is kept.
 -- No nested BEGIN ... END blocks: the dry-run builder rejects any END; inside the self-test.
 DO $selftest$
 DECLARE
@@ -23,8 +23,8 @@ BEGIN
   END IF;
 
   -- A device ticket defaults to waiting.
-  INSERT INTO public.ai_voice_queue (device_hash, context, mode) VALUES ('selftest0203', 'home', 'voice');
-  SELECT status INTO v_status FROM public.ai_voice_queue WHERE device_hash = 'selftest0203';
+  INSERT INTO public.ai_voice_queue (device_hash, context, mode) VALUES ('selftest0204', 'home', 'voice');
+  SELECT status INTO v_status FROM public.ai_voice_queue WHERE device_hash = 'selftest0204';
   IF v_status IS DISTINCT FROM 'waiting' THEN RAISE EXCEPTION 'FAIL default status'; END IF;
 
   -- The CHECK constraints are in place (read from the catalog; no failing inserts needed).
@@ -42,6 +42,6 @@ BEGIN
   END IF;
   IF NOT has_table_privilege('service_role', 'public.ai_voice_queue', 'SELECT') THEN RAISE EXCEPTION 'FAIL service_role'; END IF;
 
-  RAISE EXCEPTION 'SELFTEST_OK 0203';
+  RAISE EXCEPTION 'SELFTEST_OK 0204';
 END
 $selftest$;

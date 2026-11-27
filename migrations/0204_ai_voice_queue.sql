@@ -1,4 +1,4 @@
--- 0203_ai_voice_queue.sql
+-- 0204_ai_voice_queue.sql (applied to prod 2026-11-27 as "0203"; renumbered after main's 0203_phone_login took that number)
 -- Clings voice calls: a waiting line for when every Nuance account's call slot is taken. A ticket is one caller
 -- (signed-in user or device) waiting for a slot; the check-in route admits the first in line when a slot frees up.
 -- New table only, no backfill. Service role only (RLS on, no policies, client roles revoked).
