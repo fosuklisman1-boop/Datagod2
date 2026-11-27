@@ -1,7 +1,7 @@
 // Pure helpers for phone-number login. No database or request access here so
 // every rule can be unit-tested in isolation.
 
-import { createHash, randomBytes } from "node:crypto"
+import { createHash, createHmac, randomBytes } from "node:crypto"
 import { ghanaSignificant, normalizeGhanaPhone } from "@/lib/phone-format"
 
 export const GENERIC_LOGIN_ERROR = "Phone number or password is incorrect."
@@ -32,12 +32,31 @@ export function sha256Hex(s: string): string {
   return createHash("sha256").update(s, "utf8").digest("hex")
 }
 
+const MIN_HASH_SECRET_LEN = 32
+
+function hashSecret(): string | null {
+  const s = process.env.PHONE_LOGIN_HASH_SECRET
+  return s && s.length >= MIN_HASH_SECRET_LEN ? s : null
+}
+
+/** False when PHONE_LOGIN_HASH_SECRET is missing or shorter than 32 chars: the routes then fail closed (503). */
+export function hashSecretConfigured(): boolean {
+  return hashSecret() !== null
+}
+
+/** Keyed hash so a leaked events table cannot be reversed by enumerating phone numbers / IPs. Never unkeyed. */
+function keyedHash(input: string): string {
+  const secret = hashSecret()
+  if (!secret) throw new Error("phone login hash secret is not configured")
+  return createHmac("sha256", secret).update(input, "utf8").digest("hex")
+}
+
 export function phoneHash(sig: string): string {
-  return sha256Hex("phone-login:" + sig)
+  return keyedHash("phone-login:" + sig)
 }
 
 export function ipHash(ip: string): string {
-  return sha256Hex("phone-login-ip:" + ip)
+  return keyedHash("phone-login-ip:" + ip)
 }
 
 /** 32 random bytes as base64url (43 characters, no padding). */

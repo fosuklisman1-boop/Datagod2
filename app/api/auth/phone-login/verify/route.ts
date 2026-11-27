@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server"
 import { verifyPhoneLogin } from "@/lib/phone-login/flow"
+import { hashSecretConfigured } from "@/lib/phone-login/core"
 import { getClientIdentifier } from "@/lib/rate-limiter"
 import { buildFlowDeps } from "../deps"
 import {
@@ -17,6 +18,7 @@ import {
 const RESTART_MSG = "This sign-in has expired. Please start again."
 
 export async function POST(request: NextRequest) {
+  if (!hashSecretConfigured()) return unavailable()
   if (!(await ipAllowed(request, "phone_login_verify"))) return tooMany()
 
   const body = await readBody(request)

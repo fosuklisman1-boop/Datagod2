@@ -41,9 +41,10 @@ describe("POST /api/auth/check-phone", () => {
     expect(r.status).toBe(400)
     expect(await r.json()).toEqual({ error: "Phone number must be 9 or 10 digits" })
   })
-  it("a 9-10 digit string that is not a Ghana mobile keeps the invalid response", async () => {
+  it("a 9-10 digit string that is not a Ghana mobile is a 400 with the Ghana-mobile copy", async () => {
     const r = await POST(req({ phoneNumber: "1234567890" }))
     expect(r.status).toBe(400)
+    expect(await r.json()).toEqual({ error: "Enter a valid Ghana mobile number" })
     expect(h.rpc).not.toHaveBeenCalled()
   })
   it("rpc error -> 500", async () => {

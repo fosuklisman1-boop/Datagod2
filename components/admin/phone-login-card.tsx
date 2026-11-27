@@ -8,10 +8,17 @@ import { toast } from "sonner"
 import { Loader2, Smartphone } from "lucide-react"
 
 type Settings = { enabled: boolean; newDeviceCode: boolean }
-type Counts = { login_ok: number; challenge_sent: number; challenge_passed: number; lockout: number }
+type Counts = {
+  login_ok: number
+  login_unchallenged: number
+  challenge_sent: number
+  challenge_passed: number
+  lockout: number
+}
 
 const COUNT_LABELS: Array<[keyof Counts, string]> = [
   ["login_ok", "Logins"],
+  ["login_unchallenged", "Logins without a code"],
   ["challenge_sent", "Codes sent"],
   ["challenge_passed", "Codes passed"],
   ["lockout", "Lockouts"],
@@ -110,7 +117,7 @@ export function PhoneLoginCard() {
             </div>
             <div>
               <p className="text-xs text-muted-foreground mb-2">Last 24 hours</p>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                 {COUNT_LABELS.map(([k, label]) => (
                   <div key={k} className="rounded-md border p-3">
                     <div className="text-xl font-semibold text-primary">{counts?.[k] ?? 0}</div>

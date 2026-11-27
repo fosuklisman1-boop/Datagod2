@@ -56,11 +56,11 @@ describe("GET /api/admin/phone-login", () => {
     expect((await GET(new NextRequest("http://localhost/x"))).status).toBe(401)
   })
   it("returns settings and 24h counts", async () => {
-    h.counts = { login_ok: 5, challenge_sent: 2, challenge_passed: 1, lockout: 3 }
+    h.counts = { login_ok: 5, login_unchallenged: 4, challenge_sent: 2, challenge_passed: 1, lockout: 3 }
     const r = await GET(new NextRequest("http://localhost/x"))
     expect(await r.json()).toEqual({
       settings: { enabled: true, newDeviceCode: true },
-      last24h: { login_ok: 5, challenge_sent: 2, challenge_passed: 1, lockout: 3 },
+      last24h: { login_ok: 5, login_unchallenged: 4, challenge_sent: 2, challenge_passed: 1, lockout: 3 },
     })
   })
   it("500s when the settings read fails", async () => {
@@ -114,6 +114,25 @@ describe("POST /api/admin/phone-login", () => {
       detail: { by: "admin-1" },
     })
     expect(recordEvent).toHaveBeenCalledWith(expect.anything(), "code_switch_off", { userId: "admin-1" })
+  })
+  it("I6: a throwing alert never fails the response: 200 and the setting is saved", async () => {
+    vi.mocked(raiseSecurityAlert).mockRejectedValueOnce(new Error("alerts down"))
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const r = await POST(post({ enabled: true, newDeviceCode: false }))
+    expect(r.status).toBe(200)
+    expect(await r.json()).toEqual({ settings: { enabled: true, newDeviceCode: false } })
+    expect(setPhoneLoginSettings).toHaveBeenCalledWith(expect.anything(), { enabled: true, newDeviceCode: false })
+    expect(spy).toHaveBeenCalledWith("phone_login_alert_error")
+    expect(JSON.stringify(spy.mock.calls)).not.toContain("alerts down")
+    spy.mockRestore()
+  })
+  it("I6: a throwing recordEvent also never fails the response, and the alert is still attempted", async () => {
+    vi.mocked(recordEvent).mockRejectedValueOnce(new Error("events down"))
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const r = await POST(post({ enabled: true, newDeviceCode: false }))
+    expect(r.status).toBe(200)
+    expect(raiseSecurityAlert).toHaveBeenCalledTimes(1)
+    spy.mockRestore()
   })
   it("turning the code ON does not alert", async () => {
     h.strict = { enabled: true, newDeviceCode: false }

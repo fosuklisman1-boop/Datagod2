@@ -25,6 +25,48 @@ export function tooMany(): NextResponse {
   return json({ error: "Too many attempts. Please try again later." }, 429)
 }
 
+export interface TimingDeps {
+  now: () => number
+  sleep: (ms: number) => Promise<void>
+  random: () => number
+}
+
+const realTiming: TimingDeps = {
+  now: () => Date.now(),
+  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  random: () => Math.random(),
+}
+
+let timing: TimingDeps = realTiming
+
+/** Tests only: swap the clock/sleep/random; pass null to restore the real ones. */
+export function _setTimingDepsForTest(d: TimingDeps | null): void {
+  timing = d ?? realTiming
+}
+
+export const STEP1_FLOOR_MS = 700
+export const STEP1_JITTER_MS = 100
+
+/** Request start, on the injectable clock. */
+export function timingNow(): number {
+  return timing.now()
+}
+
+/**
+ * Pads the response so it leaves no sooner than `floorMs` (+ 0..jitterMs random) after `startMs`. Hides the gap
+ * between a real bcrypt compare and the dummy check for an unknown number: EVERY step-1 outcome goes through it.
+ */
+export async function withTimingFloor(
+  startMs: number,
+  floorMs: number,
+  jitterMs: number,
+  deps: TimingDeps = timing,
+): Promise<void> {
+  const target = startMs + floorMs + deps.random() * jitterMs
+  const remaining = target - deps.now()
+  if (remaining > 0) await deps.sleep(remaining)
+}
+
 /** Fixed tag only: never the error, which may carry PII from the driver. */
 export function logFlowError(): void {
   console.error("phone_login_error")

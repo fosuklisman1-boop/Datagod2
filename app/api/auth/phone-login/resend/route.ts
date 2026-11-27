@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server"
 import { resendPhoneLoginCode } from "@/lib/phone-login/flow"
+import { hashSecretConfigured } from "@/lib/phone-login/core"
 import { buildFlowDeps } from "../deps"
 import {
   CHALLENGE_COOKIE,
@@ -15,6 +16,7 @@ import {
 const RESTART_MSG = "This sign-in has expired. Please start again."
 
 export async function POST(request: NextRequest) {
+  if (!hashSecretConfigured()) return unavailable()
   // Resend shares the verify bucket: it triggers SMS, so it must be IP-limited too.
   if (!(await ipAllowed(request, "phone_login_verify"))) return tooMany()
 

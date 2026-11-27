@@ -19,9 +19,24 @@ const req = (body: unknown, cookie?: string) =>
     headers: cookie ? { cookie } : {},
   })
 
+const SECRET = "resend-test-secret-resend-test-secret-0123456"
+
 beforeEach(() => {
+  process.env.PHONE_LOGIN_HASH_SECRET = SECRET
   h.resend.mockReset()
   h.limit.mockReset().mockResolvedValue({ allowed: true })
+})
+
+describe("POST /api/auth/phone-login/resend hash secret (M6)", () => {
+  it("missing or short secret -> 503 and the flow is never called", async () => {
+    for (const v of [undefined, "short"]) {
+      if (v === undefined) delete process.env.PHONE_LOGIN_HASH_SECRET
+      else process.env.PHONE_LOGIN_HASH_SECRET = v
+      const res = await POST(req({ challengeId: "cid" }, "dg_plc=SEC"))
+      expect(res.status).toBe(503)
+    }
+    expect(h.resend).not.toHaveBeenCalled()
+  })
 })
 
 describe("POST /api/auth/phone-login/resend", () => {

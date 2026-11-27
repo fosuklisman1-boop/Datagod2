@@ -1,21 +1,28 @@
 import { NextRequest } from "next/server"
 import { startPhoneLogin } from "@/lib/phone-login/flow"
+import { hashSecretConfigured } from "@/lib/phone-login/core"
 import { getClientIdentifier } from "@/lib/rate-limiter"
 import { buildFlowDeps } from "./deps"
 import {
   DEVICE_COOKIE,
+  STEP1_FLOOR_MS,
+  STEP1_JITTER_MS,
   genericFail,
   ipAllowed,
   json,
   logFlowError,
   readBody,
   setChallengeCookie,
+  timingNow,
   tooMany,
   unavailable,
+  withTimingFloor,
 } from "./http"
 
 export async function GET() {
   try {
+    // Fail closed: without the hash secret the feature is not usable, whatever the setting says.
+    if (!hashSecretConfigured()) return json({ enabled: false })
     const s = await buildFlowDeps().settings()
     return json({ enabled: s.enabled })
   } catch {
@@ -24,7 +31,8 @@ export async function GET() {
   }
 }
 
-export async function POST(request: NextRequest) {
+async function handle(request: NextRequest) {
+  if (!hashSecretConfigured()) return unavailable()
   if (!(await ipAllowed(request, "phone_login"))) return tooMany()
 
   const body = await readBody(request)
@@ -60,4 +68,12 @@ export async function POST(request: NextRequest) {
     logFlowError()
     return unavailable()
   }
+}
+
+export async function POST(request: NextRequest) {
+  const startMs = timingNow()
+  const res = await handle(request)
+  // Every outcome leaves no sooner than the floor, so a real bcrypt compare and the dummy check look the same.
+  await withTimingFloor(startMs, STEP1_FLOOR_MS, STEP1_JITTER_MS)
+  return res
 }

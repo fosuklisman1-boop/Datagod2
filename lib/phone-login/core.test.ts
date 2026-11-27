@@ -1,5 +1,7 @@
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, afterEach } from "vitest"
+import { createHmac } from "node:crypto"
 import {
+  hashSecretConfigured,
   GENERIC_LOGIN_ERROR,
   PHONE_LOGIN_PURPOSE,
   LIMITS,
@@ -78,11 +80,41 @@ describe("hashing", () => {
     expect(sha256Hex("abc")).toMatch(/^[0-9a-f]{64}$/)
   })
 
-  it("phoneHash is stable and differs from ipHash of the same string", () => {
+  const SECRET = "test-secret-test-secret-test-secret-1234"
+  const saved = process.env.PHONE_LOGIN_HASH_SECRET
+  afterEach(() => {
+    if (saved === undefined) delete process.env.PHONE_LOGIN_HASH_SECRET
+    else process.env.PHONE_LOGIN_HASH_SECRET = saved
+  })
+
+  it("phoneHash/ipHash are HMAC-SHA256 with the server secret, domain-prefixed, and differ from each other", () => {
+    process.env.PHONE_LOGIN_HASH_SECRET = SECRET
+    const hmac = (s: string) => createHmac("sha256", SECRET).update(s, "utf8").digest("hex")
     expect(phoneHash("241234567")).toBe(phoneHash("241234567"))
-    expect(phoneHash("241234567")).toBe(sha256Hex("phone-login:241234567"))
+    expect(phoneHash("241234567")).toBe(hmac("phone-login:241234567"))
+    expect(phoneHash("241234567")).not.toBe(sha256Hex("phone-login:241234567"))
     expect(phoneHash("x")).not.toBe(ipHash("x"))
-    expect(ipHash("x")).toBe(sha256Hex("phone-login-ip:x"))
+    expect(ipHash("x")).toBe(hmac("phone-login-ip:x"))
+  })
+
+  it("a different secret gives different hashes", () => {
+    process.env.PHONE_LOGIN_HASH_SECRET = SECRET
+    const a = phoneHash("241234567")
+    process.env.PHONE_LOGIN_HASH_SECRET = SECRET + "other"
+    expect(phoneHash("241234567")).not.toBe(a)
+  })
+
+  it("fails closed: a missing or short secret throws and is reported unconfigured (never an unkeyed hash)", () => {
+    delete process.env.PHONE_LOGIN_HASH_SECRET
+    expect(hashSecretConfigured()).toBe(false)
+    expect(() => phoneHash("241234567")).toThrow()
+    expect(() => ipHash("1.2.3.4")).toThrow()
+    process.env.PHONE_LOGIN_HASH_SECRET = "x".repeat(31)
+    expect(hashSecretConfigured()).toBe(false)
+    expect(() => phoneHash("241234567")).toThrow()
+    process.env.PHONE_LOGIN_HASH_SECRET = "x".repeat(32)
+    expect(hashSecretConfigured()).toBe(true)
+    expect(() => phoneHash("241234567")).not.toThrow()
   })
 })
 

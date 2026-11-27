@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
     const key = phoneKey(phoneNumber)
     if (!key) {
       return NextResponse.json(
-        { error: "Phone number must be 9 or 10 digits" },
+        { error: "Enter a valid Ghana mobile number" },
         { status: 400 }
       )
     }

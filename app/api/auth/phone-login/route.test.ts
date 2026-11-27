@@ -16,6 +16,22 @@ vi.mock("@/lib/rate-limiter", () => ({
 
 import { GET, POST } from "./route"
 import { GENERIC_LOGIN_ERROR } from "@/lib/phone-login/core"
+import { _setTimingDepsForTest } from "./http"
+
+const SECRET = "route-test-secret-route-test-secret-0123456789"
+process.env.PHONE_LOGIN_HASH_SECRET = SECRET
+
+// Fake clock: sleeping advances time instantly, so the timing floor is observable without waiting.
+let clock = 0
+let slept: number[] = []
+const fakeTiming = {
+  now: () => clock,
+  sleep: async (ms: number) => {
+    slept.push(ms)
+    clock += ms
+  },
+  random: () => 0.5,
+}
 
 const req = (body: unknown, cookie?: string) =>
   new NextRequest("http://localhost/api/auth/phone-login", {
@@ -25,6 +41,10 @@ const req = (body: unknown, cookie?: string) =>
   })
 
 beforeEach(() => {
+  process.env.PHONE_LOGIN_HASH_SECRET = SECRET
+  clock = 5_000
+  slept = []
+  _setTimingDepsForTest(fakeTiming)
   h.start.mockReset()
   h.settings.mockReset()
   h.limit.mockReset().mockResolvedValue({ allowed: true })
@@ -41,6 +61,55 @@ describe("GET /api/auth/phone-login", () => {
     h.settings.mockRejectedValue(new Error("db"))
     const res = await GET()
     expect(res.status).toBe(503)
+  })
+  it("reports enabled:false when the hash secret is missing, even if the setting is on (fail closed)", async () => {
+    h.settings.mockResolvedValue({ enabled: true, newDeviceCode: true })
+    delete process.env.PHONE_LOGIN_HASH_SECRET
+    expect(await (await GET()).json()).toEqual({ enabled: false })
+    process.env.PHONE_LOGIN_HASH_SECRET = "short"
+    expect(await (await GET()).json()).toEqual({ enabled: false })
+  })
+})
+
+describe("POST /api/auth/phone-login hash secret (M6)", () => {
+  it("missing or short secret -> 503 fixed body, flow never called", async () => {
+    for (const v of [undefined, "x".repeat(31)]) {
+      if (v === undefined) delete process.env.PHONE_LOGIN_HASH_SECRET
+      else process.env.PHONE_LOGIN_HASH_SECRET = v
+      const res = await POST(req({ phone: "0241234567", password: "pw" }))
+      expect(res.status).toBe(503)
+      expect(await res.json()).toEqual({ error: "Phone sign-in is unavailable right now. Please use email." })
+    }
+    expect(h.start).not.toHaveBeenCalled()
+  })
+})
+
+describe("POST /api/auth/phone-login timing floor (I2)", () => {
+  const good = { phone: "0241234567", password: "pw" }
+  const cases: Array<[string, () => Promise<Response>]> = [
+    ["fail", () => { h.start.mockResolvedValue({ kind: "fail" }); return POST(req(good)) }],
+    ["session", () => { h.start.mockResolvedValue({ kind: "session", session: { access_token: "a", refresh_token: "r" } }); return POST(req(good)) }],
+    ["challenge", () => { h.start.mockResolvedValue({ kind: "challenge", challengeId: "c", browserSecret: "s", maskedPhone: "m" }); return POST(req(good)) }],
+    ["disabled 404", () => { h.start.mockResolvedValue({ kind: "disabled" }); return POST(req(good)) }],
+    ["send_failed 503", () => { h.start.mockResolvedValue({ kind: "send_failed" }); return POST(req(good)) }],
+    ["flow throws 503", () => { h.start.mockRejectedValue(new Error("x")); vi.spyOn(console, "error").mockImplementation(() => {}); return POST(req(good)) }],
+    ["429 limiter", () => { h.limit.mockResolvedValue({ allowed: false }); return POST(req(good)) }],
+    ["bad body", () => POST(req("not json"))],
+    ["secret missing 503", () => { delete process.env.PHONE_LOGIN_HASH_SECRET; return POST(req(good)) }],
+  ]
+  it.each(cases)("every outcome waits the 700 ms floor (+ jitter): %s", async (_n, run) => {
+    const t0 = clock
+    await run()
+    expect(clock - t0).toBeGreaterThanOrEqual(700)
+    expect(clock - t0).toBeLessThan(800)
+  })
+
+  it("a slow flow (real bcrypt) is not padded further once past the floor", async () => {
+    h.start.mockImplementation(async () => { clock += 900; return { kind: "fail" } })
+    const t0 = clock
+    await POST(req(good))
+    expect(clock - t0).toBe(900)
+    expect(slept).toEqual([])
   })
 })
 

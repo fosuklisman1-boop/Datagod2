@@ -26,13 +26,14 @@ export async function GET(request: NextRequest) {
   try {
     const client = db()
     const settings = await getPhoneLoginSettingsStrict(client)
-    const [login_ok, challenge_sent, challenge_passed, lockout] = await Promise.all([
+    const [login_ok, login_unchallenged, challenge_sent, challenge_passed, lockout] = await Promise.all([
       countEvents(client, "login_ok", DAY_MS),
+      countEvents(client, "login_unchallenged", DAY_MS),
       countEvents(client, "challenge_sent", DAY_MS),
       countEvents(client, "challenge_passed", DAY_MS),
       countEvents(client, "lockout", DAY_MS),
     ])
-    return json({ settings, last24h: { login_ok, challenge_sent, challenge_passed, lockout } })
+    return json({ settings, last24h: { login_ok, login_unchallenged, challenge_sent, challenge_passed, lockout } })
   } catch {
     return json({ error: "Could not load phone login settings" }, 500)
   }
@@ -60,14 +61,24 @@ export async function POST(request: NextRequest) {
     await setPhoneLoginSettings(client, next)
 
     if (prev.newDeviceCode && !next.newDeviceCode) {
-      await recordEvent(client, "code_switch_off", { userId })
-      await raiseSecurityAlert({
-        severity: "high",
-        category: "phone_login_code_off",
-        title: "Phone login new-device code switched OFF",
-        actor: userId ?? null,
-        detail: { by: userId },
-      })
+      // The setting is already saved: the audit row and the alert must never turn this into a 500
+      // (a retry would see prev === next and never alert again). Each is attempted on its own.
+      try {
+        await recordEvent(client, "code_switch_off", { userId })
+      } catch {
+        console.error("phone_login_alert_error")
+      }
+      try {
+        await raiseSecurityAlert({
+          severity: "high",
+          category: "phone_login_code_off",
+          title: "Phone login new-device code switched OFF",
+          actor: userId ?? null,
+          detail: { by: userId },
+        })
+      } catch {
+        console.error("phone_login_alert_error")
+      }
     }
     return json({ settings: next })
   } catch {
