@@ -18,6 +18,8 @@ export interface VoiceDraft {
   dailyStorefront: string
   visitorTotal: string
   callsPerKey: string
+  queueMax: string
+  queueMaxWaitMinutes: string
 }
 
 type TextKey = keyof Omit<VoiceDraft, "settings">
@@ -32,6 +34,8 @@ export function toVoiceDraft(s: VoiceSettings): VoiceDraft {
     dailyStorefront: String(s.dailyCalls.storefront),
     visitorTotal: String(s.visitorDailyTotal),
     callsPerKey: String(s.callsPerKey),
+    queueMax: String(s.queueMax),
+    queueMaxWaitMinutes: String(s.queueMaxWaitMinutes),
   }
 }
 
@@ -48,6 +52,8 @@ export function voiceErrors(d: VoiceDraft): Partial<Record<TextKey, string>> {
   }
   if (!isInt(num(d.visitorTotal), 0, 1000)) e.visitorTotal = "Whole number from 0 to 1000."
   if (!isInt(num(d.callsPerKey), 1, 20)) e.callsPerKey = "Whole number from 1 to 20."
+  if (!isInt(num(d.queueMax), 1, 100)) e.queueMax = "Whole number from 1 to 100."
+  if (!isInt(num(d.queueMaxWaitMinutes), 1, 60)) e.queueMaxWaitMinutes = "Whole minutes from 1 to 60."
   return e
 }
 
@@ -60,6 +66,8 @@ export function voiceFromDraft(d: VoiceDraft): VoiceSettings {
     dailyCalls: { dashboard: num(d.dailyDashboard), public: num(d.dailyPublic), storefront: num(d.dailyStorefront) },
     visitorDailyTotal: num(d.visitorTotal),
     callsPerKey: num(d.callsPerKey),
+    queueMax: num(d.queueMax),
+    queueMaxWaitMinutes: num(d.queueMaxWaitMinutes),
   }
 }
 
@@ -220,6 +228,24 @@ export function VoiceCard({ draft, onChange }: { draft: VoiceDraft; onChange: (d
           </div>
           <NumField id="voice-per-key" label="Calls at once per Nuance account" value={draft.callsPerKey}
             onChange={(v) => setF({ callsPerKey: v })} error={err.callsPerKey} hint="1 to 20. Nuance's free beta allows 1." />
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div className="flex items-center gap-3 rounded-xl border border-border p-3">
+            <div className="min-w-0 flex-1">
+              <Label htmlFor="voice-queue" className="text-sm font-medium text-foreground">Waiting line</Label>
+              <p className="text-xs text-muted-foreground">
+                When every call slot is taken, callers wait on the page and their call starts on their turn. Off shows
+                &quot;busy&quot; instead. When the day&apos;s credits are gone there is no line: calls show as closed for today.
+              </p>
+            </div>
+            <Pill on={s.queueEnabled} />
+            <Switch id="voice-queue" checked={s.queueEnabled} onCheckedChange={(v) => setS({ queueEnabled: v })} />
+          </div>
+          <NumField id="voice-queue-max" label="Longest line" value={draft.queueMax}
+            onChange={(v) => setF({ queueMax: v })} error={err.queueMax} hint="1 to 100 callers waiting at once. More are told the line is full." />
+          <NumField id="voice-queue-wait" label="Longest wait shown (minutes)" value={draft.queueMaxWaitMinutes}
+            onChange={(v) => setF({ queueMaxWaitMinutes: v })} error={err.queueMaxWaitMinutes} hint="1 to 60. A caller whose estimated wait is longer is told it is busy." />
         </div>
       </CardContent>
     </Card>

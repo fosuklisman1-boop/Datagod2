@@ -17,7 +17,32 @@ const DEFAULTS = {
   visitorDailyTotal: 30,
   multiAccount: false,
   callsPerKey: 1,
+  queueEnabled: false,
+  queueMax: 10,
+  queueMaxWaitMinutes: 10,
 }
+
+describe("waiting line settings", () => {
+  it("defaults: off, 10 in line, 10 minutes", () => {
+    expect(resolveVoiceSettings({})).toMatchObject({ queueEnabled: false, queueMax: 10, queueMaxWaitMinutes: 10 })
+  })
+  it("keeps valid values and falls back on bad ones", () => {
+    expect(resolveVoiceSettings({ voice: { queueEnabled: true, queueMax: 25, queueMaxWaitMinutes: 5 } }))
+      .toMatchObject({ queueEnabled: true, queueMax: 25, queueMaxWaitMinutes: 5 })
+    expect(resolveVoiceSettings({ voice: { queueEnabled: "yes", queueMax: 0, queueMaxWaitMinutes: 61 } }))
+      .toMatchObject({ queueEnabled: false, queueMax: 10, queueMaxWaitMinutes: 10 })
+    expect(resolveVoiceSettings({ voice: { queueMax: 101, queueMaxWaitMinutes: 1.5 } }))
+      .toMatchObject({ queueMax: 10, queueMaxWaitMinutes: 10 })
+  })
+  it("admin writes accept queueEnabled, queueMax 1..100, queueMaxWaitMinutes 1..60 and reject out-of-range", () => {
+    expect(voiceSettingsInputSchema.safeParse({ queueEnabled: true, queueMax: 100, queueMaxWaitMinutes: 60 }).success).toBe(true)
+    expect(voiceSettingsInputSchema.safeParse({ queueMax: 0 }).success).toBe(false)
+    expect(voiceSettingsInputSchema.safeParse({ queueMax: 101 }).success).toBe(false)
+    expect(voiceSettingsInputSchema.safeParse({ queueMaxWaitMinutes: 0 }).success).toBe(false)
+    expect(voiceSettingsInputSchema.safeParse({ queueMaxWaitMinutes: 61 }).success).toBe(false)
+    expect(voiceSettingsInputSchema.safeParse({ queueEnabled: "on" }).success).toBe(false)
+  })
+})
 
 describe("multiple Nuance accounts settings", () => {
   it("keeps valid values and falls back on bad ones", () => {

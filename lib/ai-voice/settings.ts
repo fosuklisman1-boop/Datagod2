@@ -13,6 +13,9 @@ export interface VoiceSettings {
   visitorDailyTotal: number // 0..1000
   multiAccount: boolean // use NUANCE_API_KEY_2..9 too (Nuance beta); off = account 1 only
   callsPerKey: number // 1..20 calls at once per Nuance account (free beta plan: 1)
+  queueEnabled: boolean // a waiting line when every call slot is taken; off = "busy"
+  queueMax: number // 1..100 callers waiting at once
+  queueMaxWaitMinutes: number // 1..60: a longer estimated wait is refused as busy
 }
 
 export const VOICE_PERSONA_IDS = ["sam", "sonia", "mira"] as const
@@ -29,6 +32,9 @@ export const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
   visitorDailyTotal: 30,
   multiAccount: false,
   callsPerKey: 1,
+  queueEnabled: false,
+  queueMax: 10,
+  queueMaxWaitMinutes: 10,
 }
 
 const dailyCap = z.number().int().min(0).max(50)
@@ -46,6 +52,9 @@ export const voiceSettingsInputSchema = z.object({
   visitorDailyTotal: z.number().int().min(0).max(1000),
   multiAccount: z.boolean(),
   callsPerKey: z.number().int().min(1).max(20),
+  queueEnabled: z.boolean(),
+  queueMax: z.number().int().min(1).max(100),
+  queueMaxWaitMinutes: z.number().int().min(1).max(60),
 }).partial().strict()
 
 export type VoiceSettingsInput = z.infer<typeof voiceSettingsInputSchema>
@@ -75,6 +84,9 @@ export function resolveVoiceSettings(cfg: unknown): VoiceSettings {
     visitorDailyTotal: intIn(v.visitorDailyTotal, 0, 1000, D.visitorDailyTotal),
     multiAccount: v.multiAccount === true,
     callsPerKey: intIn(v.callsPerKey, 1, 20, D.callsPerKey),
+    queueEnabled: v.queueEnabled === true,
+    queueMax: intIn(v.queueMax, 1, 100, D.queueMax),
+    queueMaxWaitMinutes: intIn(v.queueMaxWaitMinutes, 1, 60, D.queueMaxWaitMinutes),
   }
 }
 
