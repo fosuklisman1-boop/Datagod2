@@ -11,6 +11,8 @@ export interface VoiceSettings {
   maxCallSeconds: number // 60..1800
   dailyCalls: { dashboard: number; public: number; storefront: number } // 0..50 (admins: no cap)
   visitorDailyTotal: number // 0..1000
+  multiAccount: boolean // use NUANCE_API_KEY_2..9 too (Nuance beta); off = account 1 only
+  callsPerKey: number // 1..20 calls at once per Nuance account (free beta plan: 1)
 }
 
 export const VOICE_PERSONA_IDS = ["sam", "sonia", "mira"] as const
@@ -25,6 +27,8 @@ export const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
   maxCallSeconds: 300,
   dailyCalls: { dashboard: 5, public: 1, storefront: 1 },
   visitorDailyTotal: 30,
+  multiAccount: false,
+  callsPerKey: 1,
 }
 
 const dailyCap = z.number().int().min(0).max(50)
@@ -40,6 +44,8 @@ export const voiceSettingsInputSchema = z.object({
   maxCallSeconds: z.number().int().min(60).max(1800),
   dailyCalls: z.object({ dashboard: dailyCap, public: dailyCap, storefront: dailyCap }).partial().strict(),
   visitorDailyTotal: z.number().int().min(0).max(1000),
+  multiAccount: z.boolean(),
+  callsPerKey: z.number().int().min(1).max(20),
 }).partial().strict()
 
 export type VoiceSettingsInput = z.infer<typeof voiceSettingsInputSchema>
@@ -67,6 +73,8 @@ export function resolveVoiceSettings(cfg: unknown): VoiceSettings {
       CAP_KEYS.map((k) => [k, intIn(d[k], 0, 50, D.dailyCalls[k])]),
     ) as VoiceSettings["dailyCalls"],
     visitorDailyTotal: intIn(v.visitorDailyTotal, 0, 1000, D.visitorDailyTotal),
+    multiAccount: v.multiAccount === true,
+    callsPerKey: intIn(v.callsPerKey, 1, 20, D.callsPerKey),
   }
 }
 

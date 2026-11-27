@@ -69,12 +69,16 @@ describe("ai voice usage", () => {
       { context: "admin", user_id: "a" },
     ]
     h.usage = { creditsLeft: 120, renewsAt: "2026-12-01T00:00:00Z" }
+    process.env.NUANCE_API_KEY = "nk_1"
+    process.env.NUANCE_API_KEY_2 = "nk_2"
+    process.env.NUANCE_API_KEY_3 = "nk_3"
     const res = await get()
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
       callsToday: { total: 5, visitors: 2, dashboard: 1, admin: 1 },
       creditsLeft: 120,
       renewsAt: "2026-12-01T00:00:00Z",
+      accounts: 3,
     })
   })
 

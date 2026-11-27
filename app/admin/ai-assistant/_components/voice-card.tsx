@@ -17,6 +17,7 @@ export interface VoiceDraft {
   dailyPublic: string
   dailyStorefront: string
   visitorTotal: string
+  callsPerKey: string
 }
 
 type TextKey = keyof Omit<VoiceDraft, "settings">
@@ -30,6 +31,7 @@ export function toVoiceDraft(s: VoiceSettings): VoiceDraft {
     dailyPublic: String(s.dailyCalls.public),
     dailyStorefront: String(s.dailyCalls.storefront),
     visitorTotal: String(s.visitorDailyTotal),
+    callsPerKey: String(s.callsPerKey),
   }
 }
 
@@ -45,6 +47,7 @@ export function voiceErrors(d: VoiceDraft): Partial<Record<TextKey, string>> {
     if (!isInt(num(d[k]), 0, 50)) e[k] = "Whole number from 0 to 50."
   }
   if (!isInt(num(d.visitorTotal), 0, 1000)) e.visitorTotal = "Whole number from 0 to 1000."
+  if (!isInt(num(d.callsPerKey), 1, 20)) e.callsPerKey = "Whole number from 1 to 20."
   return e
 }
 
@@ -56,6 +59,7 @@ export function voiceFromDraft(d: VoiceDraft): VoiceSettings {
     expressiveness: num(d.expressiveness),
     dailyCalls: { dashboard: num(d.dailyDashboard), public: num(d.dailyPublic), storefront: num(d.dailyStorefront) },
     visitorDailyTotal: num(d.visitorTotal),
+    callsPerKey: num(d.callsPerKey),
   }
 }
 
@@ -66,7 +70,7 @@ const AUDIENCE_ROWS: { key: VoiceAudience; title: string }[] = [
   { key: "admin", title: "Admins" },
 ]
 
-interface Usage { callsToday: { total: number }; creditsLeft: number | null; renewsAt: string | null }
+interface Usage { callsToday: { total: number }; creditsLeft: number | null; renewsAt: string | null; accounts?: number }
 
 function renewTime(iso: string | null): string | null {
   if (!iso) return null
@@ -100,6 +104,7 @@ function UsageLine() {
     <p className="text-xs text-muted-foreground">
       Calls today: {usage.callsToday.total} · Credits left: {usage.creditsLeft ?? "—"}
       {t ? ` (renews ${t})` : ""}
+      {typeof usage.accounts === "number" ? ` · Nuance accounts set up: ${usage.accounts}` : ""}
     </p>
   )
 }
@@ -198,6 +203,23 @@ export function VoiceCard({ draft, onChange }: { draft: VoiceDraft; onChange: (d
             onChange={(v) => setF({ dailyStorefront: v })} error={err.dailyStorefront} hint="0 to 50." />
           <NumField id="voice-cap-total" label="Total visitor calls per day" value={draft.visitorTotal}
             onChange={(v) => setF({ visitorTotal: v })} error={err.visitorTotal} hint="0 to 1000, all visitors together." />
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="flex items-center gap-3 rounded-xl border border-border p-3">
+            <div className="min-w-0 flex-1">
+              <Label htmlFor="voice-multi" className="text-sm font-medium text-foreground">Use multiple Nuance accounts</Label>
+              <p className="text-xs text-muted-foreground">
+                Beta only. When an account runs out of credits or its call slot is busy, the next call uses the next
+                account (NUANCE_API_KEY_2, _3 ... in Vercel). Turn off when Nuance moves to paid plans: only the main
+                key is used.
+              </p>
+            </div>
+            <Pill on={s.multiAccount} />
+            <Switch id="voice-multi" checked={s.multiAccount} onCheckedChange={(v) => setS({ multiAccount: v })} />
+          </div>
+          <NumField id="voice-per-key" label="Calls at once per Nuance account" value={draft.callsPerKey}
+            onChange={(v) => setF({ callsPerKey: v })} error={err.callsPerKey} hint="1 to 20. Nuance's free beta allows 1." />
         </div>
       </CardContent>
     </Card>

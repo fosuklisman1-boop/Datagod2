@@ -11,9 +11,14 @@ import { resolveVoiceSettings, voiceAudienceForContext, voiceAvailable } from "@
 import { checkCallCaps, endUserIdFor } from "@/lib/ai-voice/gate"
 import { buildPersonaPrompt } from "@/lib/ai-voice/prompt"
 import { mintNuanceToken, type FallbackReason } from "@/lib/ai-voice/nuance"
+import { candidateKeys, nuanceKeys } from "@/lib/ai-voice/keys"
 import { deviceHashFor, newDeviceId, readDeviceId, setDeviceCookie, voiceSalt } from "@/lib/ai-voice/device-cookie"
 
 export const dynamic = "force-dynamic"
+export const maxDuration = 60
+
+const MAX_ACCOUNT_ATTEMPTS = 3
+const ACCOUNT_BUDGET_MS = 15_000
 
 const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
@@ -128,6 +133,19 @@ export async function POST(req: NextRequest) {
   if ((pol.count ?? 0) > 0) return fallback("policy")
   if ((open.count ?? 0) > 0) return fallback("busy")
 
+  // 6d. Which Nuance account(s) may take this call. Every account full -> busy, before any row exists.
+  const openByKey: Record<number, number> = {}
+  if (voice.multiAccount) {
+    const { data: openRows, error: openErr } = await supabaseAdmin.from("ai_voice_calls").select("nuance_key")
+      .is("ended_at", null).gt("created_at", openCutoff)
+    if (openErr) return fallback("unavailable")
+    for (const r of (openRows ?? []) as { nuance_key?: number | null }[]) {
+      if (typeof r.nuance_key === "number") openByKey[r.nuance_key] = (openByKey[r.nuance_key] ?? 0) + 1
+    }
+  }
+  const accounts = candidateKeys(nuanceKeys(), { multiAccount: voice.multiAccount, callsPerKey: voice.callsPerKey, openByKey })
+  if (accounts.length === 0) return fallback(voice.multiAccount && nuanceKeys().length > 0 ? "busy" : "unavailable")
+
   // 7. Record the call FIRST, then count including it: parallel requests cannot all pass a stale count.
   // A refused mint keeps its row (it counts toward the caps); a cap_exceeded row does not.
   const row: Record<string, unknown> = {
@@ -172,17 +190,42 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // 9. Mint
-  const minted = await mintNuanceToken({
+  // 9. Mint: try the accounts in order; out of credits or at its start limit -> next account. Any other refusal stops.
+  const mintInput = {
     systemPrompt: buildPersonaPrompt({ assistantName: assistant.name, context: ctx, tone: assistant.tone }),
     personaId: voice.personaId,
     expressiveness: voice.expressiveness,
     endUserId: endUserIdFor(userId ?? null, deviceId, voiceSalt()),
     camera: mode === "video",
-  })
-  if (!minted.ok) {
-    await endRow(`mint_${minted.reason}`)
-    return fallback(minted.reason)
   }
-  return respond({ token: minted.token, callId, maxSeconds: voice.maxCallSeconds })
+  // The account is claimed on the row BEFORE the mint, so a parallel request already sees the slot taken; a recount
+  // after the claim (insert-then-count, like the caps) moves on if a parallel call won the slot. At most 3 accounts per
+  // call and ~15 s, so a slow Nuance cannot hold the request past its time limit.
+  let last: { reason: FallbackReason; key: number } | null = null
+  const started = Date.now()
+  let attempts = 0
+  for (const account of accounts) {
+    if (attempts >= MAX_ACCOUNT_ATTEMPTS || Date.now() - started > ACCOUNT_BUDGET_MS) break
+    const { error: claimErr } = await supabaseAdmin.from("ai_voice_calls").update({ nuance_key: account.index }).eq("id", callId)
+    if (claimErr) {
+      await endRow("claim_failed")
+      return fallback("unavailable")
+    }
+    if (voice.multiAccount) {
+      const { count, error: recountErr } = await supabaseAdmin.from("ai_voice_calls").select("id", { count: "exact", head: true })
+        .eq("nuance_key", account.index).is("ended_at", null).gt("created_at", openCutoff)
+      if (recountErr) { await endRow("count_failed"); return fallback("unavailable") }
+      if ((count ?? 0) > voice.callsPerKey) { last = { reason: "busy", key: account.index }; continue }
+    }
+    attempts++
+    const minted = await mintNuanceToken({ ...mintInput, apiKey: account.key })
+    if (minted.ok) return respond({ token: minted.token, callId, maxSeconds: voice.maxCallSeconds })
+    last = { reason: minted.reason, key: account.index }
+    if (!voice.multiAccount || (minted.reason !== "credits" && minted.reason !== "busy")) break
+  }
+  if (!last) last = { reason: "busy", key: accounts[0].index }
+  await supabaseAdmin.from("ai_voice_calls")
+    .update({ ended_at: new Date().toISOString(), end_reason: `mint_${last!.reason}`, nuance_key: last!.key }).eq("id", callId)
+    .then((r: { error?: unknown }) => { if (r?.error) console.error("[voice] call row update failed") })
+  return fallback(last!.reason)
 }
