@@ -1,6 +1,6 @@
 # Phone-number login: design
 
-Note: migration renumbered 0201 → 0202 on 2026-11-27 (clash with 0201_ai_voice_calls); already applied to prod.
+Note: migration renumbered 0201 → 0202 → 0203 on 2026-11-27 (clashes with 0201_ai_voice_calls and 0202_ai_voice_calls_nuance_key); already applied to prod.
 
 **Date:** 2026-11-27
 **Status:** draft for owner approval

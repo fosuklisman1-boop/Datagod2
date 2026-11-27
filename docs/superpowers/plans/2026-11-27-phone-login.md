@@ -1,6 +1,6 @@
 # Phone-number Login (Phase 1) Implementation Plan
 
-Note: migration renumbered 0201 → 0202 on 2026-11-27 (clash with 0201_ai_voice_calls); already applied to prod.
+Note: migration renumbered 0201 → 0202 → 0203 on 2026-11-27 (clashes with 0201_ai_voice_calls and 0202_ai_voice_calls_nuance_key); already applied to prod.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -71,8 +71,8 @@ client), Postgres 17, Vitest 4, PGlite for migration self-tests, Upstash rate li
 
 | File | Responsibility |
 |---|---|
-| `migrations/0202_phone_login.sql` + `.selftest.sql` | Tables, lookup RPC, failure/event RPCs, triggers, settings rows (use the next free number on main if 0202 is taken) |
-| `lib/phone-login/migration-0202.test.ts` (+ `migration-0202-run.ts`) | PGlite run of the migration + self-test (copy the 0196 pattern) |
+| `migrations/0203_phone_login.sql` + `.selftest.sql` | Tables, lookup RPC, failure/event RPCs, triggers, settings rows (use the next free number on main if 0203 is taken) |
+| `lib/phone-login/migration-0203.test.ts` (+ `migration-0203-run.ts`) | PGlite run of the migration + self-test (copy the 0196 pattern) |
 | `lib/phone-login/core.ts` | Pure helpers: phone key, masking, hashing, token generation, eligibility, constants |
 | `lib/phone-login/settings.ts` | Memoized read of the two settings + strict read for admin |
 | `lib/phone-login/store.ts` | DB access: account lookup, events/lockout, challenges, trusted devices |
@@ -88,11 +88,11 @@ client), Postgres 17, Vitest 4, PGlite for migration self-tests, Upstash rate li
 
 ---
 
-### Task 1: Migration 0202: schema, RPCs, triggers, settings
+### Task 1: Migration 0203: schema, RPCs, triggers, settings
 
 **Files:**
-- Create: `migrations/0202_phone_login.sql`, `migrations/0202_phone_login.selftest.sql`
-- Create: `lib/phone-login/migration-0202-run.ts`, `lib/phone-login/migration-0202.test.ts` (model them on
+- Create: `migrations/0203_phone_login.sql`, `migrations/0203_phone_login.selftest.sql`
+- Create: `lib/phone-login/migration-0203-run.ts`, `lib/phone-login/migration-0203.test.ts` (model them on
   `lib/ai-admin-catalog/migration-0196*.ts`, including how they stub `auth.users`)
 
 **Interfaces (produces):**
@@ -121,7 +121,7 @@ client), Postgres 17, Vitest 4, PGlite for migration self-tests, Upstash rate li
 
 - [ ] **Step 1: Write the failing test.** Copy the 0196 text checks: one transaction, `lock_timeout`, one COMMIT, the
   run string can't commit, the self-test doesn't insert into or delete from `public.users`. Then add a PGlite test
-  `"0202 self-test passes"` that expects the run to raise `SELFTEST_OK 0202`. The self-test asserts:
+  `"0203 self-test passes"` that expects the run to raise `SELFTEST_OK 0203`. The self-test asserts:
   - `ghana_phone_sig` gives `'241234567'` for `'0241234567'`, `'+233 24 123 4567'` and `'233241234567'`, and NULL for
     `'12345'` and `'0141234567'`
   - `find_account` returns `match_count=2` and NULL user columns for a duplicated sig, and `1` with data for a unique sig
@@ -133,12 +133,12 @@ client), Postgres 17, Vitest 4, PGlite for migration self-tests, Upstash rate li
   - `has_function_privilege('anon', 'public.phone_login_find_account(text)', 'execute')` is false
   - the plan for `select … where public.ghana_phone_sig(phone_number) = '241234567'` uses `users_phone_sig_idx`
     (`enable_seqscan = off`)
-- [ ] **Step 2:** Run `npx vitest run B:/worktrees/dg-phone-login/lib/phone-login/migration-0202.test.ts`. Expected:
+- [ ] **Step 2:** Run `npx vitest run B:/worktrees/dg-phone-login/lib/phone-login/migration-0203.test.ts`. Expected:
   FAIL (files missing).
 - [ ] **Step 3:** Write the migration and self-test to the interfaces above.
   `REVOKE ALL … FROM PUBLIC, anon, authenticated; GRANT EXECUTE … TO service_role` on every function.
 - [ ] **Step 4:** Re-run. Expected: PASS.
-- [ ] **Step 5:** Commit `feat(phone-login): 0202 schema, lookup RPC, revoke-all triggers`.
+- [ ] **Step 5:** Commit `feat(phone-login): 0203 schema, lookup RPC, revoke-all triggers`.
 
 ---
 
@@ -460,7 +460,7 @@ Behaviour (spec §5):
 - [ ] **Step 2:** Run `next build` with placeholder env. Expected: success (catches route-export errors).
 - [ ] **Step 3:** Fresh security reviewer (opus, final review) on `git diff origin/main...feat/phone-login`, given the
   spec + this plan + the abuse-case table (spec §7). Fix every confirmed finding with a failing test first.
-- [ ] **Step 4:** Prod protocol for 0202:
+- [ ] **Step 4:** Prod protocol for 0203:
   1. Precheck that the number is free on main, and run the self-test against prod in a self-rolling-back
      transaction.
   2. Show the owner the dry-run result and get their OK, then apply.
