@@ -233,6 +233,9 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }
     shopSlug,
     assistantName,
     conversationKey: () => conversationKeyRef.current,
+    // Same two events the text stream hands this widget: the order form and the quick-action buttons.
+    onCheckoutPrefill: (data) => onCheckoutPrefill?.(data as ShopPackageData),
+    onActionButtons: (buttons) => setActionButtons(buttons as ActionButton[]),
     onCallEnded: (turns, cards) =>
       setMessages(prev => {
         const next = [...prev, ...callToMessages(turns, cards, Date.now())]

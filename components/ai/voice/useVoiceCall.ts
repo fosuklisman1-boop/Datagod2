@@ -23,6 +23,10 @@ export interface UseVoiceCallOptions {
   conversationKey?: () => string | null
   /** Fired once when a call that produced captions or cards ends, so the widget can keep them in its chat history. */
   onCallEnded?: (turns: Turn[], cards: RelayCard[]) => void
+  /** Storefront: the order form data a hand-off produced (same payload the text widget's checkout_prefill event carries). */
+  onCheckoutPrefill?: (data: unknown) => void
+  /** Quick-action buttons a hand-off produced (same payload the text widget's action_buttons event carries). */
+  onActionButtons?: (buttons: unknown[]) => void
 }
 
 /** Thin React wrapper over the plain call controller (lib/ai-voice/call-controller.ts). */
@@ -42,6 +46,8 @@ export function useVoiceCall(opts: UseVoiceCallOptions) {
       assistantName: () => optsRef.current.assistantName,
       conversationKey: () => optsRef.current.conversationKey?.() ?? null,
       onCallEnded: (t, c) => optsRef.current.onCallEnded?.(t, c),
+      onCheckoutPrefill: (d) => optsRef.current.onCheckoutPrefill?.(d),
+      onActionButtons: (b) => optsRef.current.onActionButtons?.(b),
       loadSdk: () => import("@nuancelabs/js-sdk"),
       getTurnstileToken: () => getCallTurnstileToken(),
     }),

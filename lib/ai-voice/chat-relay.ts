@@ -35,6 +35,10 @@ export function createChatRelay(opts: {
   conversationKey?: () => string | null
   /** Called with the full card data so the widget can render usable DraftCards. */
   onCards?: (cards: RelayCard[]) => void
+  /** The storefront order form data, exactly what the text widget receives from a checkout_prefill event. */
+  onCheckoutPrefill?: (data: unknown) => void
+  /** Quick-action buttons, exactly what the text widget receives from an action_buttons event. */
+  onActionButtons?: (buttons: unknown[]) => void
 }): ChatRelay {
   const doFetch = opts.fetchImpl ?? ((...a: Parameters<typeof fetch>) => fetch(...a))
   return {
@@ -49,6 +53,8 @@ export function createChatRelay(opts: {
         body: JSON.stringify({
           messages: history.slice(-MAX_TURNS).map((t) => ({ role: t.role, content: t.content })),
           context: opts.context,
+          // Tells the chat route this is a call: only read-only and prepare_* tools are offered.
+          channel: "voice",
           ...(opts.shopSlug ? { shopSlug: opts.shopSlug } : {}),
           ...(key ? { conversationKey: key } : {}),
         }),
@@ -60,6 +66,8 @@ export function createChatRelay(opts: {
       let buffer = ""
       let text = ""
       let failed = false
+      let prefill: unknown = null
+      let buttons: unknown[] | null = null
       const cards: RelayCard[] = []
       const handle = (part: string) => {
         const line = part.startsWith("data: ") ? part.slice(6) : part
@@ -68,7 +76,13 @@ export function createChatRelay(opts: {
         try { ev = JSON.parse(line) } catch { return }
         if (ev.type === "text" && typeof ev.content === "string") text += ev.content
         else if (ev.type === "error") failed = true
-        else if (ev.type === "draft_card" && typeof ev.draft_id === "string") {
+        else if (ev.type === "checkout_prefill") {
+          const d = ev.data
+          // A tool error is not an order form: never tell the caller it was filled in.
+          if (d && typeof d === "object" && !("error" in (d as Record<string, unknown>))) prefill = d
+        } else if (ev.type === "action_buttons") {
+          if (Array.isArray(ev.buttons) && ev.buttons.length > 0) buttons = ev.buttons as unknown[]
+        } else if (ev.type === "draft_card" && typeof ev.draft_id === "string") {
           cards.push({
             id: ev.draft_id,
             summary: summariseCard(ev.display),
@@ -89,7 +103,9 @@ export function createChatRelay(opts: {
       if (buffer) handle(buffer)
       if (failed) throw new Error("chat relay stream error")
       if (cards.length > 0) opts.onCards?.(cards)
-      return { text, cards: cards.map((c) => ({ id: c.id, summary: c.summary })) }
+      if (prefill) opts.onCheckoutPrefill?.(prefill)
+      if (buttons) opts.onActionButtons?.(buttons)
+      return { text, cards: cards.map((c) => ({ id: c.id, summary: c.summary })), prefilled: prefill !== null }
     },
   }
 }

@@ -8,7 +8,7 @@ const clampForAppend = (text: string) => clampMasked(toVoiceText(text))
 import type { CallTranscript, Turn } from "./transcript"
 
 export interface ChatRelay {
-  ask(history: Turn[]): Promise<{ text: string; cards: Array<{ id: string; summary: string }> }>
+  ask(history: Turn[]): Promise<{ text: string; cards: Array<{ id: string; summary: string }>; prefilled?: boolean }>
 }
 export interface LiveLink {
   send(ev: Record<string, unknown>): Promise<void>
@@ -17,6 +17,7 @@ export interface LiveLink {
 
 export const CARD_COMMENTARY =
   "I've put a card on your screen with the details. Please check it and tap Confirm if it's right."
+export const PREFILL_COMMENTARY = "I've filled in the order form on your screen. Please check it and pay there."
 export const FAILURE_COMMENTARY =
   "I couldn't get that done right now. Please try again, or use the text chat."
 
@@ -53,8 +54,11 @@ export function createCallSession(deps: {
         timer = setTimeout(() => reject(new Error("relay timeout")), timeoutMs)
       })
       const res = await Promise.race([relay.ask(transcript.turns()), timeout])
+      // A storefront hand-off that filled the order form: fixed line, the customer pays on screen.
+      if (res.prefilled) return PREFILL_COMMENTARY
       if (res.cards.length > 0) return CARD_COMMENTARY + " " + res.cards[0].summary
-      return res.text
+      // Nothing came back (no text, no card, no form): say so instead of sending the persona an empty line.
+      return res.text.trim() ? res.text : FAILURE_COMMENTARY
     } catch {
       return FAILURE_COMMENTARY
     } finally {

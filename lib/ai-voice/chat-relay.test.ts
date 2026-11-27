@@ -26,7 +26,7 @@ describe("createChatRelay", () => {
       { role: "assistant", content: "hey" },
       { role: "user", content: "price?" },
     ])
-    expect(res).toEqual({ text: "Hello there.", cards: [] })
+    expect(res).toEqual({ text: "Hello there.", cards: [], prefilled: false })
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe("/api/ai/chat")
     expect(init.method).toBe("POST")
@@ -39,7 +39,43 @@ describe("createChatRelay", () => {
       ],
       context: "storefront",
       shopSlug: "demo",
+      channel: "voice",
     })
+  })
+
+  it("I6: forwards checkout_prefill and action_buttons to the widget callbacks, as the text widget gets them", async () => {
+    const data = { id: "pkg1", network: "MTN", name: "5GB", price: 20 }
+    const buttons = [{ label: "Buy now", href: "/x" }]
+    const fetchImpl = vi.fn(async () =>
+      sse([
+        { type: "text", content: "Filled." },
+        { type: "checkout_prefill", data },
+        { type: "action_buttons", buttons },
+        { type: "done" },
+      ]),
+    )
+    const prefills: unknown[] = []
+    const btns: unknown[] = []
+    const relay = createChatRelay({
+      context: "storefront",
+      shopSlug: "demo",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      onCheckoutPrefill: (d) => prefills.push(d),
+      onActionButtons: (b) => btns.push(b),
+    })
+    const res = await relay.ask([{ role: "user", content: "buy 5gb" }])
+    expect(prefills).toEqual([data])
+    expect(btns).toEqual([buttons])
+    expect(res.prefilled).toBe(true)
+  })
+
+  it("I6: an errored prefill result (no package) is not reported as a prefill", async () => {
+    const fetchImpl = vi.fn(async () => sse([{ type: "checkout_prefill", data: { error: "not found" } }, { type: "done" }]))
+    const prefills: unknown[] = []
+    const relay = createChatRelay({ context: "storefront", fetchImpl: fetchImpl as unknown as typeof fetch, onCheckoutPrefill: (d) => prefills.push(d) })
+    const res = await relay.ask([{ role: "user", content: "x" }])
+    expect(prefills).toEqual([])
+    expect(res.prefilled).toBe(false)
   })
 
   it("omits Authorization and shopSlug when absent; keeps only the last 10 turns", async () => {

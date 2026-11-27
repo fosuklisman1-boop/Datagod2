@@ -40,6 +40,10 @@ export interface CallControllerDeps {
   assistantName: () => string
   conversationKey?: () => string | null
   onCallEnded?: (turns: Turn[], cards: RelayCard[]) => void
+  /** The storefront order form data from a hand-off (what the text widget gets from checkout_prefill). */
+  onCheckoutPrefill?: (data: unknown) => void
+  /** Quick-action buttons from a hand-off (what the text widget gets from action_buttons). */
+  onActionButtons?: (buttons: unknown[]) => void
   fetchImpl?: typeof fetch
   loadSdk: () => Promise<SdkLike>
   getTurnstileToken?: () => Promise<string | undefined>
@@ -254,6 +258,13 @@ export function createCallController(deps: CallControllerDeps) {
         shopSlug: deps.shopSlug,
         authHeader: async () => deps.authHeader?.(),
         conversationKey: () => deps.conversationKey?.() ?? null,
+        fetchImpl: doFetch,
+        onCheckoutPrefill: (data) => {
+          if (!stale() && !finished) deps.onCheckoutPrefill?.(data)
+        },
+        onActionButtons: (buttons) => {
+          if (!stale() && !finished) deps.onActionButtons?.(buttons)
+        },
         onCards: (found) => {
           if (stale()) return
           const known = new Set(cards.map((x) => x.id))

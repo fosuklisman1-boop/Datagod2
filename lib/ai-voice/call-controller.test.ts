@@ -5,6 +5,7 @@ type Handler = (ev: any) => void
 
 function fakeConv(id: string) {
   const changeHandlers: Handler[] = []
+  const ifaceHandlers: Handler[] = []
   let resolveConnect!: () => void
   const connectP = new Promise<void>((r) => (resolveConnect = r))
   const conv: any = {
@@ -19,7 +20,8 @@ function fakeConv(id: string) {
     },
     avatar: { audioTrack: null, videoTrack: null },
     onChange: (h: Handler) => (changeHandlers.push(h), () => {}),
-    onInterfaceEvent: () => () => {},
+    onInterfaceEvent: (h: Handler) => (ifaceHandlers.push(h), () => {}),
+    emitIface: (ev: unknown) => ifaceHandlers.forEach((h) => h(ev)),
     sendInterfaceEvent: vi.fn(async () => {}),
     connect: vi.fn(async () => { conv.connected = true; await connectP }),
     disconnect: vi.fn(async () => { conv.disconnected++ }),
@@ -35,7 +37,7 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
-function setup() {
+function setup(extra: Partial<Parameters<typeof createCallController>[0]> = {}, chatSse = "") {
   const convs: any[] = []
   const endCalls: any[] = []
   const tokenGates: Array<ReturnType<typeof deferred<void>>> = []
@@ -51,6 +53,7 @@ function setup() {
       endCalls.push(JSON.parse(init.body))
       return new Response(null, { status: 204 })
     }
+    if (url === "/api/ai/chat") return new Response(chatSse, { status: 200 })
     throw new Error("unexpected " + url)
   })
   const sdk: SdkLike = {
@@ -67,6 +70,7 @@ function setup() {
     loadSdk: async () => sdk,
     setInterval: () => 1,
     clearInterval: () => {},
+    ...extra,
   })
   return { ctrl, convs, endCalls, tokenGates, sdk, fetchImpl }
 }
@@ -169,6 +173,28 @@ describe("call controller", () => {
     expect(second.endCalls[0].startedAt).toBeUndefined()
     second.convs[0].resolveConnect()
     await p2
+  })
+
+  it("I6: checkout_prefill and action_buttons from a hand-off reach the widget callbacks", async () => {
+    const data = { id: "pkg1", network: "MTN" }
+    const buttons = [{ label: "Buy", href: "/b" }]
+    const sse = [{ type: "text", content: "ok" }, { type: "checkout_prefill", data }, { type: "action_buttons", buttons }, { type: "done" }]
+      .map((e) => `data: ${JSON.stringify(e)}\n\n`).join("")
+    const prefills: unknown[] = []
+    const btns: unknown[] = []
+    const { ctrl, convs } = setup({ onCheckoutPrefill: (d) => prefills.push(d), onActionButtons: (b) => btns.push(b) }, sse)
+    const p = ctrl.start("voice")
+    await flush()
+    convs[0].emit({ type: "avatar-presented" })
+    convs[0].emitIface({ type: "session.delegation.created", delegation: { id: "d1", target: "client" } })
+    await flush()
+    await flush()
+    expect(prefills).toEqual([data])
+    expect(btns).toEqual([buttons])
+    // a hang-up before the answer arrives must not push stale UI: nothing more after the call ended
+    ctrl.hangUp()
+    convs[0].resolveConnect()
+    await p
   })
 
   it("I4: pageHide hangs up at once, posting the end with the auth header cached at start", async () => {

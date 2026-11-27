@@ -10,6 +10,7 @@ import { resolveProviderForContext } from "@/lib/ai-providers"
 import { loadAIConfigChecked } from "@/lib/ai-console/load-config"
 import { audienceForContext, maxIterationsFor, resolveAssistantSettings } from "@/lib/ai-console/settings"
 import { runAgenticLoop } from "@/lib/ai-agentic-loop"
+import { isVoiceChannel, voiceToolFilter } from "@/lib/ai-voice/tool-filter"
 import { resolveCustomDomain } from "@/lib/custom-domain-lookup"
 import { normalizeDomainHost, DomainService } from "@/lib/custom-domains"
 import { z } from "zod"
@@ -141,6 +142,7 @@ export async function POST(req: NextRequest) {
     shopSlug?: string
     shopId?: string  // not trusted — verified server-side below
     conversationKey?: unknown  // client-generated uuid per chat session; validated below
+    channel?: unknown  // "voice" = a call relay (restricted tool list); anything else = text chat
   }
   try {
     body = await req.json()
@@ -554,6 +556,9 @@ export async function POST(req: NextRequest) {
             ? { sellsData, sellsAirtime, sellsResultsChecker: sellsRC }
             : undefined,
           adminCatalog: context === "admin" && assistantSettings.adminCatalog,
+          // A voice call (the Nuance persona relays through this route) never gets a tool that acts without a
+          // card: only read-only and prepare_* tools. Any other channel value is plain text chat.
+          ...(isVoiceChannel(body.channel) ? { toolFilter: voiceToolFilter } : {}),
           maxTokens: context === "admin" ? 2048 : 1500,
           maxIterations: maxIterationsFor(context, assistantSettings),
           onEvent: (e: Record<string, unknown>) => {

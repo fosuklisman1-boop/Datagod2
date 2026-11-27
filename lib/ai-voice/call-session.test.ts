@@ -3,6 +3,7 @@ import { CallTranscript } from "./transcript"
 import {
   CARD_COMMENTARY,
   FAILURE_COMMENTARY,
+  PREFILL_COMMENTARY,
   createCallSession,
   type ChatRelay,
   type LiveLink,
@@ -50,6 +51,22 @@ describe("createCallSession", () => {
     expect(c).toBe(CARD_COMMENTARY + " " + maskForVoice("Send 2GB to 0241234567"))
     expect(c).not.toContain("SECRET")
     expect(c).not.toMatch(/\d{7}/)
+  })
+
+  it("I6: a checkout prefill gets the fixed ASCII line and never the relay text", async () => {
+    const { sent, session } = setup(async () => ({ text: "Sent to 0241234567 SECRET", cards: [], prefilled: true }))
+    await session.onInterfaceEvent(DELEG)
+    expect(PREFILL_COMMENTARY).toBe("I've filled in the order form on your screen. Please check it and pay there.")
+    expect(sent[1].content).toBe(PREFILL_COMMENTARY)
+    expect(PREFILL_COMMENTARY).toMatch(/^[\x20-\x7E]*$/)
+  })
+
+  it("T6: an empty relay result (no text, no cards, no prefill) is the failure line, not silence", async () => {
+    for (const text of ["", "   "]) {
+      const { sent, session } = setup(async () => ({ text, cards: [] }))
+      await session.onInterfaceEvent(DELEG)
+      expect(sent[1].content).toBe(FAILURE_COMMENTARY)
+    }
   })
 
   it("sends ASCII-only content", async () => {

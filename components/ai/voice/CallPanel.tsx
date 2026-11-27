@@ -16,11 +16,8 @@ function formatLeft(s: number): string {
  * The live-call body of a Clings widget. Voice mode shows the Clings avatar with a speaking pulse (the persona's
  * video is never attached); video mode shows the persona video. On `lg:` it is two columns: video | captions + cards.
  */
-const NO_TOKEN = async (): Promise<string> => {
-  throw new Error("Not signed in")
-}
-
-export function CallPanel({ call, name, getToken = NO_TOKEN }: { call: VoiceCall; name: string; getToken?: () => Promise<string> }) {
+/** `getToken` is the signed-in widgets' token getter (the one they hand their own DraftCards). Guest widgets omit it and show no Confirm card. */
+export function CallPanel({ call, name, getToken }: { call: VoiceCall; name: string; getToken?: () => Promise<string> }) {
   const live = call.state === "live"
   const logRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -105,7 +102,7 @@ export function CallPanel({ call, name, getToken = NO_TOKEN }: { call: VoiceCall
             </div>
           </div>
         ))}
-        {call.cards.map((c) => (
+        {getToken && call.cards.map((c) => (
           <DraftCard
             key={c.id}
             draftId={c.id}

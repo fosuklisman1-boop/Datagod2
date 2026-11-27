@@ -107,6 +107,7 @@ export function DashboardAIChatWidget() {
     assistantName,
     authHeader: async () => `Bearer ${await getAccessToken()}`,
     conversationKey: () => conversationKeyRef.current,
+    onActionButtons: (buttons) => setActionButtons(buttons as ActionButton[]),
     onCallEnded: (turns, cards) => setMessages(prev => [...prev, ...callToMessages(turns, cards, Date.now())]),
   })
   const callOpen = call.state === "starting" || call.state === "live"

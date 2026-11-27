@@ -164,6 +164,7 @@ export function HomeAIChatWidget() {
     context: "home",
     assistantName,
     conversationKey: () => conversationKeyRef.current,
+    onActionButtons: (buttons) => setActionButtons(buttons as ActionButton[]),
     onCallEnded: (turns, cards) => setMessages(prev => [...prev, ...callToMessages(turns, cards, Date.now())]),
   })
   const callOpen = call.state === "starting" || call.state === "live"
