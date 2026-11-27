@@ -9,6 +9,8 @@ const h = vi.hoisted(() => ({
   suspension: "active" as string,
   shop: null as Record<string, unknown> | null,
   counts: { mine: 0, visitors: 0 },
+  policyRows: 0,
+  openRows: 0,
   inserted: [] as Record<string, unknown>[],
   updates: [] as Record<string, unknown>[],
   insertError: false,
@@ -20,6 +22,8 @@ const h = vi.hoisted(() => ({
   mint: { ok: true, token: "tok_abc", warnings: [] } as Record<string, unknown>,
   mintCalls: [] as Record<string, unknown>[],
   countOps: [] as unknown[][],
+  policyOps: [] as unknown[][],
+  openOps: [] as unknown[][],
   updateError: false,
 }))
 
@@ -30,7 +34,7 @@ vi.mock("@supabase/supabase-js", () => ({
       const ops: Op[] = []
       const b: any = {}
       let idx = -1
-      for (const m of ["select", "eq", "in", "gte", "or", "is", "update", "insert"]) {
+      for (const m of ["select", "eq", "in", "gt", "gte", "or", "is", "update", "insert"]) {
         b[m] = (...args: unknown[]) => {
           ops.push({ method: m, args })
           if (m === "insert") { idx = h.inserted.length; h.inserted.push({ ...(args[0] as Record<string, unknown>) }) }
@@ -42,7 +46,10 @@ vi.mock("@supabase/supabase-js", () => ({
         if (table === "ai_voice_calls") {
           const sel = ops.find((o) => o.method === "select")
           if (sel && (sel.args[1] as any)?.head) {
-            const isVisitor = ops.some((o) => o.method === "in")
+            // I3: today's policy-ended rows for this identity. I4: this identity's still-open rows.
+            if (ops.some((o) => o.method === "in" && o.args[0] === "end_reason")) { h.policyOps.push(ops.map((o) => [o.method, ...o.args])); return { count: h.policyRows, error: null } }
+            if (ops.some((o) => o.method === "gt" && o.args[0] === "created_at")) { h.openOps.push(ops.map((o) => [o.method, ...o.args])); return { count: h.openRows, error: null } }
+            const isVisitor = ops.some((o) => o.method === "in" && o.args[0] === "context")
             h.countOps.push(ops.map((o) => [o.method, ...o.args]))
             const own = h.inserted.filter((r) => r.end_reason !== "cap_exceeded")
             return isVisitor
@@ -100,6 +107,7 @@ beforeEach(() => {
   Object.assign(h, {
     config: ON(), user: null, role: "user", suspension: "active", shop: null, counts: { mine: 0, visitors: 0 },
     inserted: [], updates: [], insertError: false, turnstileEnabled: false, turnstileValid: true, rateAllowed: true, rateDegraded: false, rateCalls: [], countOps: [], updateError: false,
+    policyRows: 0, openRows: 0, policyOps: [], openOps: [],
     mint: { ok: true, token: "tok_abc", warnings: [] }, mintCalls: [],
   })
   process.env.NUANCE_DEVICE_SALT = "salt"
@@ -285,5 +293,76 @@ describe("fix round 1: paid-call protection", () => {
     await POST(req({ context: "dashboard", mode: "voice" }, authed))
     expect(err).toHaveBeenCalledWith("[voice] call row update failed")
     err.mockRestore()
+  })
+})
+
+describe("final review: gates the text assistant already has", () => {
+  it("C2: admin voice is refused (disabled) while the admin catalog switch is off", async () => {
+    h.user = { id: "u1" }
+    h.role = "admin"
+    const res = await POST(req({ context: "admin", mode: "voice" }, authed))
+    expect(await res.json()).toEqual({ fallback: "text", reason: "disabled" })
+    expect(h.mintCalls).toHaveLength(0)
+    expect(h.inserted).toHaveLength(0)
+  })
+
+  it("C2: admin voice works once the admin catalog switch is on", async () => {
+    h.user = { id: "u1" }
+    h.role = "admin"
+    h.config = { ...ON(), admin_catalog_enabled: true }
+    const body = await (await POST(req({ context: "admin", mode: "voice" }, authed))).json()
+    expect(body.token).toBe("tok_abc")
+  })
+
+  it("I5: the text assistant's audience switch also turns the call off", async () => {
+    h.user = { id: "u1" }
+    h.config = { ...ON(), audiences: { signedIn: false } }
+    expect(await (await POST(req({ context: "dashboard", mode: "voice" }, authed))).json()).toEqual({ fallback: "text", reason: "disabled" })
+    resetAIConfigCache()
+    h.config = { ...ON(), audiences: { publicVisitors: false } }
+    expect(await (await POST(req({ context: "home", mode: "voice" }))).json()).toEqual({ fallback: "text", reason: "disabled" })
+    resetAIConfigCache()
+    h.config = { ...ON(), audiences: { shopVisitors: false } }
+    h.shop = { id: "s1", is_active: true, is_blocked: false }
+    expect(await (await POST(req({ context: "storefront", mode: "voice", shopSlug: "g" }))).json()).toEqual({ fallback: "text", reason: "disabled" })
+    expect(h.mintCalls).toHaveLength(0)
+    expect(h.inserted).toHaveLength(0)
+  })
+
+  it("I3: an identity whose call ended for content/age today is refused (policy), no row, no mint", async () => {
+    h.user = { id: "u1" }
+    h.policyRows = 1
+    expect(await (await POST(req({ context: "dashboard", mode: "voice" }, authed))).json()).toEqual({ fallback: "text", reason: "policy" })
+    expect(h.mintCalls).toHaveLength(0)
+    expect(h.inserted).toHaveLength(0)
+    const flat = JSON.stringify(h.policyOps[0])
+    for (const r of ["content", "age_check", "policy-violation", "age-check"]) expect(flat).toContain(r)
+    expect(h.policyOps[0]).toContainEqual(["eq", "user_id", "u1"])
+  })
+
+  it("I3: a visitor is matched by device hash", async () => {
+    h.policyRows = 1
+    expect(await (await POST(req({ context: "home", mode: "voice" }))).json()).toEqual({ fallback: "text", reason: "policy" })
+    expect(h.policyOps[0].some((o) => (o as unknown[])[0] === "eq" && (o as unknown[])[1] === "device_hash")).toBe(true)
+  })
+
+  it("I4: an identity with a call still open inside max_seconds + 60 s is refused (busy), no row, no mint", async () => {
+    h.user = { id: "u1" }
+    h.openRows = 1
+    expect(await (await POST(req({ context: "dashboard", mode: "voice" }, authed))).json()).toEqual({ fallback: "text", reason: "busy" })
+    expect(h.mintCalls).toHaveLength(0)
+    expect(h.inserted).toHaveLength(0)
+    const ops = h.openOps[0]
+    expect(ops).toContainEqual(["is", "ended_at", null])
+    expect(ops).toContainEqual(["eq", "user_id", "u1"])
+    const gt = ops.find((o) => (o as unknown[])[0] === "gt") as unknown[]
+    const cutoff = Date.parse(String(gt[2]))
+    // 240 s max + 60 s grace: the cutoff is about 300 s ago
+    expect(Math.abs(Date.now() - cutoff - 300_000)).toBeLessThan(5_000)
+  })
+
+  it("with no policy or open rows the call goes through", async () => {
+    h.user = { id: "u1" }
+    expect((await (await POST(req({ context: "dashboard", mode: "voice" }, authed))).json()).token).toBe("tok_abc")
   })
 })

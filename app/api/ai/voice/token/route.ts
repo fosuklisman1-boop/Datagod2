@@ -5,7 +5,8 @@ import { suspensionStatus } from "@/lib/auth/suspension"
 import { shopHandleOrFilter } from "@/lib/shop-handle"
 import { isTurnstileEnabled, verifyTurnstileToken, getRequestIp } from "@/lib/turnstile"
 import { loadAIConfig } from "@/lib/ai-console/load-config"
-import { resolveAssistantSettings } from "@/lib/ai-console/settings"
+import { audienceForContext, resolveAssistantSettings } from "@/lib/ai-console/settings"
+import { POLICY_END_REASONS } from "@/lib/ai-voice/end-reasons"
 import { resolveVoiceSettings, voiceAudienceForContext, voiceAvailable } from "@/lib/ai-voice/settings"
 import { checkCallCaps, endUserIdFor } from "@/lib/ai-voice/gate"
 import { buildPersonaPrompt } from "@/lib/ai-voice/prompt"
@@ -71,6 +72,9 @@ export async function POST(req: NextRequest) {
   const voice = resolveVoiceSettings(cfg)
   const audience = voiceAudienceForContext(ctx)
   if (!audience || !voiceAvailable(voice, audience)) return fallback("disabled")
+  // The text assistant's own audience switch also turns the call off (same switch the chat route enforces).
+  const assistant = resolveAssistantSettings(cfg)
+  if (!assistant.audiences[audienceForContext(ctx)]) return fallback("disabled")
 
   // 3. Identity / admin gate
   if ((ctx === "dashboard" || ctx === "admin") && !userId) return respond({ error: "Unauthorized" }, 401)
@@ -82,6 +86,8 @@ export async function POST(req: NextRequest) {
     if (ctx === "admin") {
       const { data: profile } = await supabaseAdmin.from("users").select("role").eq("id", userId).maybeSingle()
       if ((profile as { role?: string } | null)?.role !== "admin") return respond({ error: "Admin access required" }, 403)
+      // Admin voice only exists with the admin catalog on: its confirm cards replace every acting admin tool.
+      if (!assistant.adminCatalog) return fallback("disabled")
     }
   }
 
@@ -104,6 +110,23 @@ export async function POST(req: NextRequest) {
     const t = await verifyTurnstileToken(turnstileToken, getRequestIp(req.headers))
     if (!t.valid) return fallback("bot")
   }
+
+  // 6b. Same identity, earlier call stopped for content/age today -> refused (the page-session block alone resets on reload).
+  // 6c. Same identity, a call still open inside its own max length + 60 s -> busy (no parallel calls, no stacked mints).
+  // Both run BEFORE the insert, so a refusal leaves no row behind to block the next attempt.
+  const midnightUtc = new Date()
+  midnightUtc.setUTCHours(0, 0, 0, 0)
+  const byIdentity = <T extends { eq: (c: string, v: string) => T }>(q: T): T =>
+    userId ? q.eq("user_id", userId) : q.eq("device_hash", deviceHash!)
+  const policyQ = supabaseAdmin.from("ai_voice_calls").select("id", { count: "exact", head: true })
+    .gte("created_at", midnightUtc.toISOString()).in("end_reason", [...POLICY_END_REASONS])
+  const openCutoff = new Date(Date.now() - (voice.maxCallSeconds + 60) * 1000).toISOString()
+  const openQ = supabaseAdmin.from("ai_voice_calls").select("id", { count: "exact", head: true })
+    .is("ended_at", null).gt("created_at", openCutoff)
+  const [pol, open] = await Promise.all([byIdentity(policyQ), byIdentity(openQ)])
+  if (pol.error || open.error) return fallback("unavailable") // spends paid credits: an unreadable check fails closed
+  if ((pol.count ?? 0) > 0) return fallback("policy")
+  if ((open.count ?? 0) > 0) return fallback("busy")
 
   // 7. Record the call FIRST, then count including it: parallel requests cannot all pass a stale count.
   // A refused mint keeps its row (it counts toward the caps); a cap_exceeded row does not.
@@ -150,7 +173,6 @@ export async function POST(req: NextRequest) {
   }
 
   // 9. Mint
-  const assistant = resolveAssistantSettings(cfg)
   const minted = await mintNuanceToken({
     systemPrompt: buildPersonaPrompt({ assistantName: assistant.name, context: ctx, tone: assistant.tone }),
     personaId: voice.personaId,

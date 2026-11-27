@@ -60,6 +60,12 @@ export function useVoiceCall(opts: UseVoiceCallOptions) {
 
   // Leaving the page ends the call.
   useEffect(() => () => controller.dispose(), [controller])
+  // Closing the tab or navigating away never runs an unmount: hang up on pagehide so the call row closes.
+  useEffect(() => {
+    const onHide = () => controller.pageHide()
+    window.addEventListener("pagehide", onHide)
+    return () => window.removeEventListener("pagehide", onHide)
+  }, [controller])
 
   const start = useCallback((m: CallMode) => controller.start(m), [controller])
   const hangUp = useCallback(() => controller.hangUp(), [controller])
@@ -68,7 +74,7 @@ export function useVoiceCall(opts: UseVoiceCallOptions) {
     const s = controller.getSnapshot().state
     return s === "starting" || s === "live"
   }, [controller])
-  const toggleMute =useCallback(() => void controller.toggleMute(), [controller])
+  const toggleMute = useCallback(() => void controller.toggleMute(), [controller])
   const cardOutcome = useCallback(
     (id: string, o: "confirmed" | "cancelled" | "failed") => controller.cardOutcome(id, o),
     [controller],
