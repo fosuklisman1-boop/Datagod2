@@ -6,7 +6,7 @@ import {
   bundleMenuText, confirmMenuText, shopHeader, shopNetworkLabel, shopNetworkMenuText,
 } from "../menus"
 import { blockedRecipientScreen, enterRecipientStep, recipientStep, whoForScreen } from "../recipient-step"
-import { finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable } from "../flow-kit"
+import { finish, goto, noticeScreen, replaySubmittedOrder, say, stockNoticeFor, submitOrder, type FlowCtx, type StepTable } from "../flow-kit"
 import { shopMenuReply } from "./shop"
 import { backFromInternetType } from "./internet-bundles"
 import { confirmNote, recipientBlockedAtPay, RECIPIENT_BLOCKED_NOTE } from "../confirm-note"
@@ -49,7 +49,13 @@ async function selectNetwork(ctx: FlowCtx): Promise<HubtelReply> {
   if (!network) return say(ctx, networkScreen(session), "SHOP_DATA_NETWORK", NETWORK)
   const { bundles, total } = await pageOf(ctx, network, 0)
   if (bundles.length === 0) {
-    return say(ctx, `No ${shopNetworkLabel(network)} packages available.\n` + networkScreen(session), "SHOP_DATA_NETWORK", NETWORK)
+    // Admin marked the network out of stock: their reason replaces the plain "none available" line.
+    // Checked only when nothing is on sale, so bundles re-enabled during an outage still list.
+    const notice = await stockNoticeFor(deps, network)
+    const screen = notice
+      ? noticeScreen(notice, networkScreen(session))
+      : `No ${shopNetworkLabel(network)} packages available.\n` + networkScreen(session)
+    return say(ctx, screen, "SHOP_DATA_NETWORK", NETWORK)
   }
   return goto(ctx, { step: "SHOP_DATA_BUNDLE", network, bundlePage: 0 }, bundleMenuText(bundles, 0, total, deps.pageSize), PACKAGE)
 }

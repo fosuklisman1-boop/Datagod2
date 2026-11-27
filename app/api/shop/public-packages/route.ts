@@ -4,6 +4,7 @@ import { shopHandleOrFilter } from "@/lib/shop-handle"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
 import { loadPublicShopPackages } from "@/lib/shop-commerce/public-packages"
+import { loadShopStockNotices } from "@/lib/shop-commerce/stock-notices"
 
 // Force dynamic rendering
 export const dynamic = "force-dynamic"
@@ -124,8 +125,12 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Admin out-of-stock reasons for networks this shop sells (name + text only; {} on any failure).
+    const stockNotices = await loadShopStockNotices(supabase, shop.id, shop.parent_shop_id)
+
     return NextResponse.json({
       packages,
+      stock_notices: stockNotices,
       is_sub_agent: !!shop.parent_shop_id,
       ordering_enabled: orderingEnabled,
       announcement: activeAnnouncement,
