@@ -134,13 +134,23 @@ export async function getCanonicalShopName(
 // presentation concern for the caller (see lib/ussd-shop/menus.ts /
 // lib/whatsapp-bot/shop-menus.ts), matching how resolveShopCode above also just
 // resolves facts without deciding how they're shown.
+//
+// opts.includeUnavailable: also list networks whose packages the ADMIN disabled
+// (packages.is_available=false — e.g. a network-wide out-of-stock), so callers
+// can keep showing the network with the admin's reason. The shop's own
+// toggles (shop_packages.is_available / sub-agent is_active) still apply.
 export async function fetchShopNetworks(
   shopId: string,
   parentShopId?: string | null,
-  client: SupabaseClientLike = supabase
+  client: SupabaseClientLike = supabase,
+  opts: { includeUnavailable?: boolean } = {}
 ): Promise<string[]> {
   const networks: string[] = []
   const seen = new Set<string>()
+  const packagesQuery = (ids: string[]) => {
+    const q = client.from("packages").select("network").in("id", ids)
+    return opts.includeUnavailable ? q : q.eq("is_available", true)
+  }
 
   if (parentShopId) {
     // New model: sub-agent's own package list
@@ -160,11 +170,7 @@ export async function fetchShopNetworks(
           .then((r: any) => r.data?.map((row: any) => row.package_id) ?? [])
 
     if (packageIds.length) {
-      const { data: pkgRows } = await client
-        .from("packages")
-        .select("network")
-        .in("id", packageIds)
-        .eq("is_available", true)
+      const { data: pkgRows } = await packagesQuery(packageIds)
 
       for (const pkg of pkgRows ?? []) {
         if (pkg.network && !seen.has(pkg.network)) { seen.add(pkg.network); networks.push(pkg.network) }
@@ -180,11 +186,7 @@ export async function fetchShopNetworks(
     .eq("is_available", true)
 
   if (spRows?.length) {
-    const { data: pkgRows } = await client
-      .from("packages")
-      .select("network")
-      .in("id", spRows.map((r: any) => r.package_id))
-      .eq("is_available", true)
+    const { data: pkgRows } = await packagesQuery(spRows.map((r: any) => r.package_id))
 
     for (const pkg of pkgRows ?? []) {
       if (pkg.network && !seen.has(pkg.network)) { seen.add(pkg.network); networks.push(pkg.network) }

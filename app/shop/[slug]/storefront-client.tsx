@@ -50,8 +50,10 @@ import {
   ChevronUp,
   Smartphone,
   UserPlus,
-  Receipt
+  Receipt,
+  PackageX
 } from "lucide-react"
+import { noticeFor, type StockNotices } from "@/lib/network-stock-notice"
 import { AirtimeStorefrontForm } from "@/components/shop/AirtimeStorefrontForm"
 import { ResultsCheckerStorefrontForm } from "@/components/shop/ResultsCheckerStorefrontForm"
 import { ResultsCheckServiceForm } from "@/components/shop/ResultsCheckServiceForm"
@@ -142,6 +144,9 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName, server
 
   const [shop, setShop] = useState<any>(null)
   const [packages, setPackages] = useState<any[]>([])
+  // Admin out-of-stock networks this shop sells -> reason. Those networks stay in the
+  // picker; choosing one shows the reason instead of bundles. {} = nothing changes.
+  const [stockNotices, setStockNotices] = useState<StockNotices>({})
   const [loading, setLoading] = useState(true)
   const [selectedPackage, setSelectedPackage] = useState<any>(null)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
@@ -476,6 +481,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName, server
         } else {
           setPackages([])
         }
+        setStockNotices(data.stock_notices && typeof data.stock_notices === "object" ? data.stock_notices : {})
 
         // Handle Announcement Logic
         if (data.announcement) {
@@ -1427,7 +1433,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName, server
                   /* Data Packages Section */
                   <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <div>
-                      {packages.length === 0 ? (
+                      {packages.length === 0 && Object.keys(stockNotices).length === 0 ? (
                         <Card className="bg-card/50 border-2 border-dashed border-border backdrop-blur-sm">
                           <CardContent className="pt-12 pb-12 text-center">
                             <Store className="w-12 h-12 mx-auto text-gray-300 mb-3" />
@@ -1437,9 +1443,10 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName, server
                       ) : (
                         <>
                           <div className="grid grid-cols-4 gap-2 sm:gap-4 mb-10">
-                            {Array.from(new Set(packages.map(p => p.packages.network))).map((network) => {
+                            {Array.from(new Set([...packages.map(p => p.packages.network), ...Object.keys(stockNotices)])).map((network) => {
                               const networkPackages = packages.filter(p => p.packages.network === network)
                               const availableCount = networkPackages.filter(p => p.is_available).length
+                              const isOutOfStock = noticeFor(stockNotices, network as string) !== null
                               const netColor = networkColorFor(network as string)
                               const isSelected = selectedNetwork === network
 
@@ -1468,7 +1475,9 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName, server
                                     </span>
                                   )}
                                   <p className="text-xs sm:text-sm font-bold text-foreground">{network}</p>
-                                  {availableCount > 0 ? (
+                                  {isOutOfStock ? (
+                                    <p className="flex items-center gap-1 text-[10px] sm:text-xs font-semibold text-destructive"><span className="h-1.5 w-1.5 rounded-full bg-destructive" /> Out of stock</p>
+                                  ) : availableCount > 0 ? (
                                     <p className="flex items-center gap-1 text-[10px] sm:text-xs font-semibold text-success"><span className="h-1.5 w-1.5 rounded-full bg-success" /> Live</p>
                                   ) : (
                                     <p className="text-[10px] sm:text-xs text-muted-foreground">No plans yet</p>
@@ -1533,8 +1542,23 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName, server
                             </div>
                           )}
 
+                          {/* Admin marked the selected network out of stock: the reason replaces the grid */}
+                          {selectedNetwork && noticeFor(stockNotices, selectedNetwork) && (
+                            <div ref={packagesRef} className="py-10 border-t border-border animate-in fade-in slide-in-from-bottom-8 duration-700">
+                              <div className="flex items-start gap-4 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-5 lg:p-8 clay">
+                                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[var(--shop-accent)] text-white">
+                                  <PackageX className="h-5 w-5" />
+                                </span>
+                                <div className="min-w-0">
+                                  <h2 className="text-lg lg:text-xl font-black text-foreground">{selectedNetwork} is out of stock</h2>
+                                  <p className="mt-1 break-words text-sm lg:text-base text-muted-foreground">{noticeFor(stockNotices, selectedNetwork)}</p>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
                           {/* Packages Grid */}
-                          {selectedNetwork && (
+                          {selectedNetwork && !noticeFor(stockNotices, selectedNetwork) && (
                             <div ref={packagesRef} className="py-10 border-t border-border animate-in fade-in slide-in-from-bottom-8 duration-700">
                               <div className="flex items-center gap-4 mb-8">
                                 <div className="p-3 bg-[var(--shop-accent)] rounded-2xl">
