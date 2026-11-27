@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest"
-import { resolveShopCode, getCanonicalShopName, toHelplineNumber } from "./shop-code"
+import { resolveShopCode, getCanonicalShopName, toHelplineNumber, fetchShopNetworks } from "./shop-code"
 
 // Fake Supabase client injected directly into resolveShopCode (no @supabase/supabase-js
 // mocking needed — the function accepts an optional client param for exactly this reason).
@@ -266,5 +266,51 @@ describe("getCanonicalShopName", () => {
 
     const result = await getCanonicalShopName("missing", client)
     expect(result).toBe("Shop")
+  })
+})
+
+// Filtering fake: applies eq/in to rows so the packages.is_available filter is observable.
+function filteringClient(tables: Record<string, Record<string, unknown>[]>) {
+  return {
+    from: (table: string) => {
+      let rows = [...(tables[table] ?? [])]
+      const chain: any = {
+        select: () => chain,
+        eq: (col: string, val: unknown) => { rows = rows.filter(r => r[col] === val); return chain },
+        in: (col: string, vals: unknown[]) => { rows = rows.filter(r => vals.includes(r[col])); return chain },
+        then: (resolve: any, reject: any) => Promise.resolve({ data: rows, error: null }).then(resolve, reject),
+      }
+      return chain
+    },
+  } as any
+}
+
+describe("fetchShopNetworks includeUnavailable", () => {
+  const tables = {
+    shop_packages: [
+      { shop_id: "s1", package_id: "p-mtn", is_available: true },
+      { shop_id: "s1", package_id: "p-tel", is_available: true },
+      { shop_id: "s1", package_id: "p-at", is_available: false }, // shop owner turned this off
+    ],
+    packages: [
+      { id: "p-mtn", network: "MTN", is_available: false }, // admin out of stock
+      { id: "p-tel", network: "Telecel", is_available: true },
+      { id: "p-at", network: "AT - iShare", is_available: true },
+    ],
+  }
+
+  it("by default lists only networks with admin-available packages", async () => {
+    expect(await fetchShopNetworks("s1", null, filteringClient(tables))).toEqual(["Telecel"])
+  })
+  it("with includeUnavailable also lists admin-disabled networks, but still respects the shop's own toggle", async () => {
+    expect(await fetchShopNetworks("s1", null, filteringClient(tables), { includeUnavailable: true })).toEqual(["MTN", "Telecel"])
+  })
+  it("sub-agent shops: includeUnavailable lists admin-disabled networks from the sub-agent package list", async () => {
+    const sub = {
+      sub_agent_shop_packages: [{ shop_id: "s2", package_id: "p-mtn", is_active: true }],
+      packages: tables.packages,
+    }
+    expect(await fetchShopNetworks("s2", "parent", filteringClient(sub))).toEqual([])
+    expect(await fetchShopNetworks("s2", "parent", filteringClient(sub), { includeUnavailable: true })).toEqual(["MTN"])
   })
 })

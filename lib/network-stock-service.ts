@@ -19,6 +19,7 @@
 // mocking required.
 
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { buildStockNotices, normalizeStockReason, type StockNotices } from "./network-stock-notice"
 
 export const STOCK_TRACKED_NETWORKS = ["MTN", "Telecel", "AT - iShare", "AT - BigTime"] as const
 export type TrackedNetwork = (typeof STOCK_TRACKED_NETWORKS)[number]
@@ -28,6 +29,7 @@ export const NETWORK_STOCK_KEY = "network_stock_status"
 export interface NetworkStockEntry {
   outOfStock: boolean
   restoreIds?: string[] // package ids to re-enable on restock; only meaningful when outOfStock is true
+  reason?: string // admin-written text customers see while out of stock (normalised, ≤100 chars)
 }
 export type NetworkStockMap = Record<string, NetworkStockEntry>
 
@@ -70,14 +72,24 @@ async function writeNetworkStockMap(supabase: SupabaseClient, map: NetworkStockM
  * request) would overwrite the original restoreIds snapshot with an empty
  * one (since by the second call every package is already disabled),
  * permanently losing which packages should be restored on restock.
+ *
+ * `reason` (optional): text customers see. While already out of stock, a
+ * call with `reason !== undefined` rewrites ONLY the reason (null/blank
+ * clears it) and leaves restoreIds exactly as they were.
  */
 export async function setNetworkOutOfStock(
   supabase: SupabaseClient,
-  network: string
-): Promise<{ affected: number; alreadyOutOfStock: boolean }> {
+  network: string,
+  reason?: string | null
+): Promise<{ affected: number; alreadyOutOfStock: boolean; reasonUpdated: boolean }> {
   const map = await getNetworkStockMap(supabase)
+  const cleanReason = normalizeStockReason(reason)
   if (map[network]?.outOfStock === true) {
-    return { affected: 0, alreadyOutOfStock: true }
+    if (reason === undefined) return { affected: 0, alreadyOutOfStock: true, reasonUpdated: false }
+    const { reason: _old, ...rest } = map[network]
+    map[network] = cleanReason ? { ...rest, reason: cleanReason } : rest
+    await writeNetworkStockMap(supabase, map)
+    return { affected: 0, alreadyOutOfStock: true, reasonUpdated: true }
   }
 
   const { data: rows, error: fetchError } = await supabase
@@ -103,10 +115,24 @@ export async function setNetworkOutOfStock(
     if (updateError) throw updateError
   }
 
-  map[network] = { outOfStock: true, restoreIds }
+  map[network] = cleanReason ? { outOfStock: true, restoreIds, reason: cleanReason } : { outOfStock: true, restoreIds }
   await writeNetworkStockMap(supabase, map)
 
-  return { affected: restoreIds.length, alreadyOutOfStock: false }
+  return { affected: restoreIds.length, alreadyOutOfStock: false, reasonUpdated: false }
+}
+
+/**
+ * Customer notices for every out-of-stock network. Fails open: any read
+ * error returns {} so callers behave exactly as they did before reasons
+ * existed. Logs no payload.
+ */
+export async function getStockNotices(supabase: SupabaseClient): Promise<StockNotices> {
+  try {
+    return buildStockNotices(await getNetworkStockMap(supabase))
+  } catch {
+    console.error("[NETWORK-STOCK] notices read failed")
+    return {}
+  }
 }
 
 /**
@@ -140,4 +166,24 @@ export async function restockNetwork(
   await writeNetworkStockMap(supabase, map)
 
   return { affected: restoreIds.length, alreadyInStock: false }
+}
+
+/**
+ * "Save reason": change only the customer text of a network that is CURRENTLY out of stock.
+ * Never touches packages. Returns { updated: false } (and writes nothing) when the network is
+ * not out of stock — e.g. another admin restocked it after this admin's page loaded — so a stale
+ * edit can never switch a restocked network off again. null/blank clears the reason.
+ */
+export async function updateNetworkStockReason(
+  supabase: SupabaseClient,
+  network: string,
+  reason: string | null | undefined
+): Promise<{ updated: boolean }> {
+  const map = await getNetworkStockMap(supabase)
+  if (map[network]?.outOfStock !== true) return { updated: false }
+  const { reason: _old, ...rest } = map[network]
+  const cleanReason = normalizeStockReason(reason)
+  map[network] = cleanReason ? { ...rest, reason: cleanReason } : rest
+  await writeNetworkStockMap(supabase, map)
+  return { updated: true }
 }

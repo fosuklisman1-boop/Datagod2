@@ -1,5 +1,51 @@
 import { describe, it, expect } from "vitest"
-import { deleteOldConversations, RETENTION_DAYS } from "./retention"
+import { deleteOldConversations, deleteOldVoiceCalls, RETENTION_DAYS } from "./retention"
+
+function fakeVoiceDb(rows: Array<{ id: string; created_at: string }>, fail = false) {
+  const seen = { cutoff: "" }
+  return {
+    rows,
+    seen,
+    from() {
+      let cutoff = ""
+      let del = false
+      const q: any = {
+        delete: () => { del = true; return q },
+        lt: (_c: string, v: string) => { cutoff = v; return q },
+        then: (res: any, rej: any) => {
+          let out: any
+          if (fail) out = { data: null, count: null, error: { message: "db down" } }
+          else if (del) {
+            seen.cutoff = cutoff
+            const before = rows.length
+            for (let i = rows.length - 1; i >= 0; i--) if (rows[i].created_at < cutoff) rows.splice(i, 1)
+            out = { data: null, count: before - rows.length, error: null }
+          } else out = { data: null, count: null, error: null }
+          return Promise.resolve(out).then(res, rej)
+        },
+      }
+      return q
+    },
+  }
+}
+
+describe("voice call retention", () => {
+  it("deletes ai_voice_calls older than 30 days and keeps newer ones", async () => {
+    const NOW2 = new Date("2026-12-31T00:00:00Z")
+    const db = fakeVoiceDb([
+      { id: "old1", created_at: "2026-11-01T00:00:00Z" },
+      { id: "old2", created_at: "2026-11-20T00:00:00Z" },
+      { id: "recent1", created_at: "2026-12-05T00:00:00Z" },
+    ])
+    const n = await deleteOldVoiceCalls(db as any, NOW2)
+    expect(n).toBe(2)
+    expect(db.rows.map((r) => r.id)).toEqual(["recent1"])
+    expect(new Date(db.seen.cutoff).getTime()).toBe(NOW2.getTime() - RETENTION_DAYS * 24 * 60 * 60 * 1000)
+  })
+  it("throws when the delete fails", async () => {
+    await expect(deleteOldVoiceCalls(fakeVoiceDb([], true) as any, NOW)).rejects.toThrow()
+  })
+})
 
 const NOW = new Date("2026-12-31T00:00:00Z")
 function fakeDb(rows: Array<{ id: string; last_at: string }>) {

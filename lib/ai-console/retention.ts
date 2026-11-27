@@ -21,3 +21,11 @@ export async function deleteOldConversations(db: SupabaseClient, now: Date = new
   }
   return deleted
 }
+
+/** Deletes ai_voice_calls rows created before the retention window; returns how many were deleted. */
+export async function deleteOldVoiceCalls(db: SupabaseClient, now: Date = new Date()): Promise<number> {
+  const cutoff = new Date(now.getTime() - RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString()
+  const { count, error } = await db.from("ai_voice_calls").delete({ count: "exact" }).lt("created_at", cutoff)
+  if (error) throw new Error("retention voice delete failed")
+  return count ?? 0
+}

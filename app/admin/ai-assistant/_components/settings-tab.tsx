@@ -10,6 +10,8 @@ import { MIN_TOOL_STEPS, MAX_TOOL_STEPS } from "@/lib/ai-console/settings"
 import { PROVIDERS, changedSettings, hasEmptyModel, type ConsoleForm } from "@/lib/ai-console/engine"
 import { EngineCard, isNameValid } from "./engine-card"
 import { AudienceCard } from "./audience-card"
+import { VoiceCard, toVoiceDraft, voiceErrors, voiceFromDraft, type VoiceDraft } from "./voice-card"
+import { resolveVoiceSettings, type VoiceSettings } from "@/lib/ai-voice/settings"
 
 type KeyInfo = Record<ProviderName, { set: boolean; masked: string }>
 
@@ -50,6 +52,8 @@ export function SettingsTab() {
   const [form, setForm] = useState<ConsoleForm | null>(null)
   const [keyInfo, setKeyInfo] = useState<KeyInfo | null>(null)
   const [stepsText, setStepsText] = useState("")
+  const [voiceOriginal, setVoiceOriginal] = useState<VoiceSettings | null>(null)
+  const [voiceDraft, setVoiceDraft] = useState<VoiceDraft | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -57,10 +61,14 @@ export function SettingsTab() {
       const { data: { session } } = await supabase.auth.getSession()
       const res = await fetch("/api/admin/ai-config", { headers: { Authorization: `Bearer ${session?.access_token}` } })
       if (!res.ok) throw new Error("load")
-      const parsed = toForm(await res.json())
+      const data = await res.json()
+      const parsed = toForm(data)
       setOriginal(parsed.form)
       setForm(parsed.form)
       setKeyInfo(parsed.keyInfo)
+      const v = resolveVoiceSettings({ voice: data.voice })
+      setVoiceOriginal(v)
+      setVoiceDraft(toVoiceDraft(v))
       setStepsText(parsed.form.max_tool_steps === null ? "" : String(parsed.form.max_tool_steps))
     } catch {
       toast.error("Failed to load AI settings")
@@ -76,7 +84,11 @@ export function SettingsTab() {
   const nameError = form && !isNameValid(form.assistant_name) ? "Name must be 2 to 24 letters, numbers, spaces or hyphens." : null
   const diff = original && edited ? changedSettings(original, edited) : {}
   const dirty = Object.keys(diff).length > 0
-  const canSave = dirty && !nameError && !steps.error && !saving && !(form && hasEmptyModel(form))
+  const vErrors = voiceDraft ? voiceErrors(voiceDraft) : {}
+  const voiceInvalid = Object.keys(vErrors).length > 0
+  const voiceNext = voiceDraft && !voiceInvalid ? voiceFromDraft(voiceDraft) : null
+  const voiceDirty = !!(voiceNext && voiceOriginal && JSON.stringify(voiceNext) !== JSON.stringify(voiceOriginal))
+  const canSave = (dirty || voiceDirty) && !voiceInvalid && !nameError && !steps.error && !saving && !(form && hasEmptyModel(form))
 
   async function save() {
     if (!canSave) return
@@ -86,7 +98,7 @@ export function SettingsTab() {
       const res = await fetch("/api/admin/ai-config", {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
-        body: JSON.stringify(diff),
+        body: JSON.stringify(voiceDirty ? { ...diff, voice: voiceNext } : diff),
       })
       if (!res.ok) throw new Error("save")
       toast.success("Saved. Changes apply within about 90 seconds.")
@@ -99,7 +111,7 @@ export function SettingsTab() {
   }
 
   if (loading && !form) return <div className="py-12 text-center text-sm text-muted-foreground">Loading...</div>
-  if (!form || !keyInfo) {
+  if (!form || !keyInfo || !voiceDraft) {
     return (
       <div className="py-12 text-center text-sm text-muted-foreground">
         Settings could not be loaded.{" "}
@@ -126,6 +138,7 @@ export function SettingsTab() {
           />
         </div>
       </div>
+      <VoiceCard draft={voiceDraft} onChange={setVoiceDraft} />
       <div className="sticky bottom-0 z-10 -mx-1 flex items-center justify-between gap-3 rounded-xl border border-border bg-card/95 p-3 backdrop-blur">
         <p className="text-xs text-muted-foreground">Changes apply within about 90 seconds.</p>
         <Button onClick={save} disabled={!canSave} className="gap-2">

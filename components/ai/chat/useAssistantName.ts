@@ -3,15 +3,26 @@
 import { useEffect, useState } from "react"
 import { DEFAULT_ASSISTANT_NAME, normaliseAssistantName } from "@/lib/ai-chat-ui/assistant-name"
 import type { Audiences } from "@/lib/ai-console/settings"
+import type { VoiceAudience } from "@/lib/ai-voice/settings"
 
 export interface AssistantProfile {
   name: string
   /** null until the profile has loaded (or if it could not be read): widgets stay visible, as before. */
   audiences: Audiences | null
+  /** Which audiences can start a voice/video call. All false until the profile loads (call buttons stay hidden). */
+  voice: Record<VoiceAudience, boolean>
   loaded: boolean
 }
 
-const FALLBACK: AssistantProfile = { name: DEFAULT_ASSISTANT_NAME, audiences: null, loaded: false }
+const NO_VOICE: Record<VoiceAudience, boolean> = { public: false, storefront: false, dashboard: false, admin: false }
+
+function parseVoice(v: unknown): Record<VoiceAudience, boolean> {
+  if (!v || typeof v !== "object") return NO_VOICE
+  const o = v as Record<string, unknown>
+  return { public: o.public === true, storefront: o.storefront === true, dashboard: o.dashboard === true, admin: o.admin === true }
+}
+
+const FALLBACK: AssistantProfile = { name: DEFAULT_ASSISTANT_NAME, audiences: null, voice: NO_VOICE, loaded: false }
 
 let cached: AssistantProfile | null = null
 let inflight: Promise<AssistantProfile> | null = null
@@ -27,8 +38,8 @@ function load(): Promise<AssistantProfile> {
   if (cached) return Promise.resolve(cached)
   inflight ??= fetch("/api/ai/assistant-profile")
     .then((r) => (r.ok ? r.json() : null))
-    .then((j): AssistantProfile => ({ name: normaliseAssistantName(j?.name), audiences: parseAudiences(j?.audiences), loaded: true }))
-    .catch((): AssistantProfile => ({ name: DEFAULT_ASSISTANT_NAME, audiences: null, loaded: true }))
+    .then((j): AssistantProfile => ({ name: normaliseAssistantName(j?.name), audiences: parseAudiences(j?.audiences), voice: parseVoice(j?.voice), loaded: true }))
+    .catch((): AssistantProfile => ({ name: DEFAULT_ASSISTANT_NAME, audiences: null, voice: NO_VOICE, loaded: true }))
     .then((p) => (cached = p))
   return inflight
 }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyCronAuth } from "@/lib/cron-auth"
-import { deleteOldConversations } from "@/lib/ai-console/retention"
+import { deleteOldConversations, deleteOldVoiceCalls } from "@/lib/ai-console/retention"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 120
@@ -11,12 +11,25 @@ const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env
 export async function GET(request: NextRequest) {
   const { authorized, errorResponse } = verifyCronAuth(request)
   if (!authorized) return errorResponse!
+  // Each job runs independently: a failure in one must not stop the other.
+  let failed = false
+  let deleted = 0
+  let voiceCallsDeleted = 0
   try {
-    const deleted = await deleteOldConversations(supabase)
-    console.log("[AI-CONVERSATIONS-RETENTION] done", { deleted })
-    return NextResponse.json({ success: true, data: { deleted } })
+    deleted = await deleteOldConversations(supabase)
   } catch {
-    console.error("[AI-CONVERSATIONS-RETENTION] failed")
+    failed = true
+    console.error("[AI-CONVERSATIONS-RETENTION] conversations failed")
+  }
+  try {
+    voiceCallsDeleted = await deleteOldVoiceCalls(supabase)
+  } catch {
+    failed = true
+    console.error("[AI-CONVERSATIONS-RETENTION] voice calls failed")
+  }
+  if (failed) {
     return NextResponse.json({ success: false, error: "Internal server error" }, { status: 500 })
   }
+  console.log("[AI-CONVERSATIONS-RETENTION] done", { deleted, voiceCallsDeleted })
+  return NextResponse.json({ success: true, data: { deleted, voiceCallsDeleted } })
 }

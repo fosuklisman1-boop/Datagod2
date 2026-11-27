@@ -8,7 +8,8 @@ import {
 } from "../menus"
 import { release, respond, toE164 } from "../protocol"
 import { safeDbError } from "../log-safe"
-import { finish, goto, say, type FlowCtx, type RouterDeps, type StepTable } from "../flow-kit"
+import { finish, goto, say, stockNoticesOf, type FlowCtx, type RouterDeps, type StepTable } from "../flow-kit"
+import { mergeStockedOutNetworks } from "@/lib/shop-stock-networks"
 import type { ResolvedShopCode } from "../shop-services"
 import type { HubtelReply, HubtelRequest, HubtelSession } from "../types"
 
@@ -155,11 +156,20 @@ async function enterShop(ctx: FlowCtx, shop: ResolvedShopCode): Promise<HubtelRe
   // A shop may sell only airtime / vouchers: an empty network list does not block entry (Uzo).
   // A lookup failure must not fail the request: continue with no networks (the data flow then
   // says there is nothing to buy) and log ids only.
-  const rawNetworks = await deps.shop.networks(shop.shopId, shop.parentShopId ?? undefined).catch((e: unknown) => {
-    console.error("[HUBTEL-SHOP] networks lookup failed after code acceptance for shop", shop.shopId, safeDbError(e))
-    return [] as string[]
-  })
-  const networks = sortShopNetworks(rawNetworks)
+  const parent = shop.parentShopId ?? undefined
+  const [rawNetworks, notices] = await Promise.all([
+    deps.shop.networks(shop.shopId, parent).catch((e: unknown) => {
+      console.error("[HUBTEL-SHOP] networks lookup failed after code acceptance for shop", shop.shopId, safeDbError(e))
+      return [] as string[]
+    }),
+    stockNoticesOf(deps),
+  ])
+  // Admin out-of-stock networks the shop sells stay listed (picking one shows the reason). The extra
+  // lookup runs only while some network is out of stock; any failure keeps today's list.
+  const sold = Object.keys(notices).length && deps.shop.soldNetworks
+    ? await deps.shop.soldNetworks(shop.shopId, parent).catch(() => [] as string[])
+    : []
+  const networks = sortShopNetworks(mergeStockedOutNetworks(rawNetworks, sold, notices))
   return goto(ctx, {
     step: "SHOP_PRODUCT",
     shopCodeAttempts: undefined,

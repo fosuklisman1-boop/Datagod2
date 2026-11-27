@@ -49,6 +49,32 @@ describe("ai_config_put_validates_and_masks", () => {
     expect(h.upserted).toBeNull()
   })
 
+  it("saves a valid voice block merged over the stored one, leaving other fields alone", async () => {
+    h.stored = { anthropic_api_key: "sk-ant-secret-key-1234567890", voice: { enabled: true, personaId: "mira", audiences: { admin: true } } }
+    const res = await put({ voice: { audiences: { dashboard: true }, maxCallSeconds: 600 } })
+    expect(res.status).toBe(200)
+    const v = (h.upserted as any).voice
+    expect(v).toMatchObject({ enabled: true, personaId: "mira", maxCallSeconds: 600 })
+    expect(v.audiences).toEqual({ public: false, storefront: false, dashboard: true, admin: true })
+    expect((h.upserted as any).anthropic_api_key).toBe("sk-ant-secret-key-1234567890")
+    h.stored = h.upserted!
+    const got = await getJson()
+    expect(got.voice.maxCallSeconds).toBe(600)
+  })
+
+  it("rejects an invalid voice block with 400 and writes nothing", async () => {
+    expect((await put({ voice: { maxCallSeconds: 5 } })).status).toBe(400)
+    expect((await put({ voice: { personaId: "emma" } })).status).toBe(400)
+    expect(h.upserted).toBeNull()
+  })
+
+  it("a save without voice leaves the stored voice block untouched", async () => {
+    const stored = { enabled: true, personaId: "sonia" }
+    h.stored = { voice: stored }
+    await put({ tone: "fun" })
+    expect((h.upserted as any).voice).toEqual(stored)
+  })
+
   const PROVIDERS = ["anthropic", "openai", "gemini", "deepseek", "groq"] as const
   const getJson = async () => (await GET(new NextRequest("http://localhost/api/admin/ai-config"))).json()
 

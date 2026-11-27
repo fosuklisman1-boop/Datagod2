@@ -9,6 +9,7 @@ export const EXCLUDED: ExcludedRoute[] = [
   { path: "/api/admin/afa-fulfillment", method: "POST", reason: "long-running (up to 300 s; fulfill-pending sends every unfulfilled AFA order to the supplier in a loop); use the page" },
   { path: "/api/admin/afa-registrations", method: "GET", reason: "fans out one auth lookup per row (up to 10000); use the page" },
   { path: "/api/admin/ai-config", method: "GET", reason: "AI configuration endpoint, the assistant must not read or change its own settings" },
+  { path: "/api/admin/ai-voice/usage", method: "GET", reason: "voice call usage and credit figures for the AI console card; the assistant must not read its own call accounting, use the page" },
   { path: "/api/admin/airtime/download", method: "POST", reason: "file download (CSV/XLSX/binary) response, not JSON" },
   { path: "/api/admin/api-v2/developers/:userId/spend-cap", method: "PUT", reason: "fraud control (a developer's Datagod daily spending limit): a prompt-injected chat must not be able to raise or remove it; change it on the page" },
   { path: "/api/admin/api-v2/webhook-settings", method: "PUT", reason: "go-live switch for API webhooks (starts outbound requests to developer URLs): the owner turns it on after the live check; change it on the page" },

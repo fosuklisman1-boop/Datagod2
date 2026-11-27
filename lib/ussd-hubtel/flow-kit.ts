@@ -13,11 +13,12 @@ import type { CallerContext } from "./catalog"
 import type { BlockContext } from "@/lib/blocked-numbers/types"
 import { resolveMainMenu, mainMenuText } from "./menus"
 import { cartItemNameFor, failOrderGuarded, isHubtelOrderTable, type HubtelOrderTable } from "./order-tables"
-import { addToCart, release, respond } from "./protocol"
+import { addToCart, release, respond, USSD_SCREEN_LIMIT } from "./protocol"
 import { safeDbError } from "./log-safe"
 import { findWalletPaymentBySession, type WalletPayDeps } from "./wallet-pay"
 import { isMissingTable } from "@/lib/refunds/hubtel-wallet"
 import type { DeliveryChannel } from "@/lib/delivery-estimate/query"
+import { noticeFor, type StockNotices } from "@/lib/network-stock-notice"
 import type { HubtelFieldType, HubtelPlatform, HubtelReply, HubtelRequest, HubtelSession, HubtelStep } from "./types"
 
 export interface RouterDeps {
@@ -46,6 +47,11 @@ export interface RouterDeps {
    * and must be fast (cached); a purchase never waits on it or fails because of it.
    */
   deliveryEstimate?(channel: DeliveryChannel): Promise<string | null>
+  /**
+   * Admin network-wide out-of-stock notices: DB network name -> text the customer sees in place of bundles.
+   * Optional; must fail open to {} (read it through stockNoticeFor, which also absorbs a throw).
+   */
+  stockNotices?(): Promise<StockNotices>
   /**
    * Live customer-facing number verification (same check as the storefront / data packages page). Optional;
    * false = not yet verified (warn, still sellable); "blocked" = rejected while the admin blocking toggle is on
@@ -312,4 +318,29 @@ export async function submitOrder(ctx: FlowCtx, args: SubmitNewOrder | SubmitCre
 
   await deps.sessions.del(sid)
   return addToCart(sid, { itemName: cartItemNameFor(order.id), price: args.price, message: CART_MESSAGE, platform })
+}
+
+/** Every admin out-of-stock notice, or {} when the dep is absent or fails (fail open: today's behaviour). */
+export async function stockNoticesOf(deps: RouterDeps): Promise<StockNotices> {
+  try {
+    return (await deps.stockNotices?.()) ?? {}
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * `notice` above `screen`, the notice trimmed (ASCII "...") so the whole reply fits one USSD screen and the
+ * menu below it — including "0. Back" — is never cut. A screen with no room left shows just the menu.
+ */
+export function noticeScreen(notice: string, screen: string, limit = USSD_SCREEN_LIMIT): string {
+  const room = limit - screen.length - 1
+  if (notice.length <= room) return `${notice}\n${screen}`
+  if (room < 8) return screen
+  return `${notice.slice(0, room - 3).trimEnd()}...\n${screen}`
+}
+
+/** The admin's out-of-stock text for `network` (any spelling), or null to carry on as normal. */
+export async function stockNoticeFor(deps: RouterDeps, network: string): Promise<string | null> {
+  return noticeFor(await stockNoticesOf(deps), network)
 }

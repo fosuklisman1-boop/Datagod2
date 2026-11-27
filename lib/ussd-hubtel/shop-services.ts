@@ -34,6 +34,11 @@ export interface ShopServices {
   resolveById(shopCodeId: string): Promise<ResolvedShopCode | null>
   /** Distinct packages.network values the shop's data catalog offers (unsorted). */
   networks(shopId: string, parentShopId?: string): Promise<string[]>
+  /**
+   * Every network the shop sells, including ones whose packages the admin disabled (network out of stock).
+   * Optional: absent = nothing extra is shown. May reject: callers treat that as [].
+   */
+  soldNetworks?(shopId: string, parentShopId?: string): Promise<string[]>
   /** Every bundle of `network` at the shop's price, smallest first. */
   bundles(shopId: string, network: string, parentShopId?: string): Promise<BundleOption[]>
   /** Shop price + profit snapshot straight from the DB; null when no longer sold. */
@@ -87,6 +92,7 @@ export function defaultShopServices(supabase: SupabaseClient): ShopServices {
     remember: (phone, shopCodeId) => rememberCustomerShop(supabase, phone, shopCodeId, "ussd_hubtel"),
     resolveById: shopCodeId => resolveShopCodeById(supabase, shopCodeId),
     networks: (shopId, parentShopId) => fetchShopNetworks(shopId, parentShopId ?? null),
+    soldNetworks: (shopId, parentShopId) => fetchShopNetworks(shopId, parentShopId ?? null, undefined, { includeUnavailable: true }),
     bundles: (shopId, network, parentShopId) => fetchShopBundles(shopId, network, parentShopId),
     verifyBundlePrice: (shopId, bundleId, parentShopId) => verifyBundlePrice(shopId, bundleId, parentShopId),
     orderContext: (shopId, dialingPhone) => shopOrderContext(supabase, shopId, dialingPhone),
