@@ -59,9 +59,12 @@ export async function POST(req: NextRequest) {
   const deviceHash = deviceId ? deviceHashFor(deviceId) : null
 
   // 1. Rate limit
-  const rlKey = userId ?? deviceHash ?? getRequestIp(req.headers) ?? "unknown"
-  const rl = await applyRateLimit(req, "ai_voice_token", 10, 60_000, rlKey)
+  // Visitors are keyed by IP: a cookieless request gets a fresh device id, so the device is no bucket at all.
+  const rlKey = userId ?? getRequestIp(req.headers) ?? deviceHash ?? "unknown"
+  const rl = await applyRateLimit(req, "ai_voice_token", 10, 60_000, rlKey, { pgFallback: true })
   if (!rl.allowed) return respond({ error: "Too many requests. Please wait a moment." }, 429)
+  // This path spends paid credits: a limiter that could not count fails closed.
+  if (rl.degraded) return fallback("unavailable")
 
   // 2. Config + availability
   const cfg = await loadAIConfig(supabaseAdmin)
@@ -102,25 +105,8 @@ export async function POST(req: NextRequest) {
     if (!t.valid) return fallback("bot")
   }
 
-  // 7. Counts (today = UTC midnight) and caps
-  const midnight = new Date()
-  midnight.setUTCHours(0, 0, 0, 0)
-  const since = midnight.toISOString()
-  let mineToday = 0
-  let visitorsToday = 0
-  if (audience !== "admin") {
-    let mine = supabaseAdmin.from("ai_voice_calls").select("id", { count: "exact", head: true }).gte("created_at", since).eq("context", ctx)
-    mine = userId ? mine.eq("user_id", userId) : mine.eq("device_hash", deviceHash!)
-    const visitors = supabaseAdmin.from("ai_voice_calls").select("id", { count: "exact", head: true }).gte("created_at", since).in("context", ["home", "storefront"])
-    const [m, v] = await Promise.all([mine, visitors])
-    if (m.error || v.error) return fallback("unavailable")
-    mineToday = m.count ?? 0
-    visitorsToday = v.count ?? 0
-  }
-  const caps = checkCallCaps(audience, voice, { mineToday, visitorsToday })
-  if (!caps.ok) return fallback(caps.reason)
-
-  // 8. Record the call BEFORE minting; a refused mint keeps the row (it counts toward the caps).
+  // 7. Record the call FIRST, then count including it: parallel requests cannot all pass a stale count.
+  // A refused mint keeps its row (it counts toward the caps); a cap_exceeded row does not.
   const row: Record<string, unknown> = {
     context: ctx, mode, persona_id: voice.personaId, max_seconds: voice.maxCallSeconds,
     ...(userId ? { user_id: userId } : { device_hash: deviceHash }),
@@ -133,6 +119,36 @@ export async function POST(req: NextRequest) {
     return fallback("unavailable")
   }
 
+  // 8. Counts (today = UTC midnight), including the row just inserted, then caps.
+  const endRow = (reason: string) =>
+    supabaseAdmin.from("ai_voice_calls").update({ ended_at: new Date().toISOString(), end_reason: reason }).eq("id", callId)
+      .then((r: { error?: unknown }) => { if (r?.error) console.error("[voice] call row update failed") })
+  if (audience !== "admin") {
+    const midnight = new Date()
+    midnight.setUTCHours(0, 0, 0, 0)
+    const since = midnight.toISOString()
+    const counted = () => supabaseAdmin.from("ai_voice_calls").select("id", { count: "exact", head: true })
+      .gte("created_at", since).or("end_reason.is.null,end_reason.neq.cap_exceeded")
+    let mine = counted().eq("context", ctx)
+    mine = userId ? mine.eq("user_id", userId) : mine.eq("device_hash", deviceHash!)
+    // Signed-in users are never blocked by the visitor total: it counts anonymous rows only and is skipped for them.
+    const visitors = userId ? null : counted().in("context", ["home", "storefront"]).is("user_id", null)
+    const [m, v] = await Promise.all([mine, visitors])
+    if (m.error || v?.error) {
+      await endRow("count_failed")
+      return fallback("unavailable")
+    }
+    // Both counts include this call's own row.
+    const caps = checkCallCaps(audience, voice, {
+      mineToday: Math.max(0, (m.count ?? 0) - 1),
+      visitorsToday: userId ? 0 : Math.max(0, (v?.count ?? 0) - 1),
+    })
+    if (!caps.ok) {
+      await endRow("cap_exceeded")
+      return fallback(caps.reason)
+    }
+  }
+
   // 9. Mint
   const assistant = resolveAssistantSettings(cfg)
   const minted = await mintNuanceToken({
@@ -143,7 +159,7 @@ export async function POST(req: NextRequest) {
     camera: mode === "video",
   })
   if (!minted.ok) {
-    await supabaseAdmin.from("ai_voice_calls").update({ ended_at: new Date().toISOString(), end_reason: `mint_${minted.reason}` }).eq("id", callId)
+    await endRow(`mint_${minted.reason}`)
     return fallback(minted.reason)
   }
   return respond({ token: minted.token, callId, maxSeconds: voice.maxCallSeconds })

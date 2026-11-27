@@ -15,8 +15,12 @@ const h = vi.hoisted(() => ({
   turnstileEnabled: false,
   turnstileValid: true,
   rateAllowed: true,
+  rateDegraded: false,
+  rateCalls: [] as unknown[][],
   mint: { ok: true, token: "tok_abc", warnings: [] } as Record<string, unknown>,
   mintCalls: [] as Record<string, unknown>[],
+  countOps: [] as unknown[][],
+  updateError: false,
 }))
 
 vi.mock("@supabase/supabase-js", () => ({
@@ -25,10 +29,11 @@ vi.mock("@supabase/supabase-js", () => ({
     from: (table: string) => {
       const ops: Op[] = []
       const b: any = {}
+      let idx = -1
       for (const m of ["select", "eq", "in", "gte", "or", "is", "update", "insert"]) {
         b[m] = (...args: unknown[]) => {
           ops.push({ method: m, args })
-          if (m === "insert") h.inserted.push(args[0] as Record<string, unknown>)
+          if (m === "insert") { idx = h.inserted.length; h.inserted.push({ ...(args[0] as Record<string, unknown>) }) }
           if (m === "update") h.updates.push(args[0] as Record<string, unknown>)
           return b
         }
@@ -38,12 +43,23 @@ vi.mock("@supabase/supabase-js", () => ({
           const sel = ops.find((o) => o.method === "select")
           if (sel && (sel.args[1] as any)?.head) {
             const isVisitor = ops.some((o) => o.method === "in")
-            return { count: isVisitor ? h.counts.visitors : h.counts.mine, error: null }
+            h.countOps.push(ops.map((o) => [o.method, ...o.args]))
+            const own = h.inserted.filter((r) => r.end_reason !== "cap_exceeded")
+            return isVisitor
+              ? { count: h.counts.visitors + own.filter((r) => !r.user_id).length, error: null }
+              : { count: h.counts.mine + own.length, error: null }
           }
+        }
+        if (ops.some((o) => o.method === "update")) {
+          const patch = ops.find((o) => o.method === "update")!.args[0] as Record<string, unknown>
+          const idEq = ops.find((o) => o.method === "eq" && o.args[0] === "id")
+          const m = /^call-(\d+)$/.exec(String(idEq?.args[1]))
+          if (m && h.inserted[Number(m[1])]) Object.assign(h.inserted[Number(m[1])], patch)
+          return { data: null, error: h.updateError ? { message: "x" } : null }
         }
         return { data: null, error: null }
       }
-      b.single = async () => (table === "ai_voice_calls" ? (h.insertError ? { data: null, error: { message: "x" } } : { data: { id: "call-1" }, error: null }) : { data: null, error: null })
+      b.single = async () => (table === "ai_voice_calls" ? (h.insertError ? { data: null, error: { message: "x" } } : { data: { id: `call-${idx}` }, error: null }) : { data: null, error: null })
       b.maybeSingle = async () => {
         if (table === "users") {
           const sel = ops.find((o) => o.method === "select")
@@ -64,7 +80,7 @@ vi.mock("@/lib/turnstile", () => ({
   verifyTurnstileToken: async () => ({ valid: h.turnstileValid }),
   getRequestIp: () => "1.2.3.4",
 }))
-vi.mock("@/lib/rate-limiter", () => ({ applyRateLimit: async () => ({ allowed: h.rateAllowed, remaining: 1, resetAt: 0 }) }))
+vi.mock("@/lib/rate-limiter", () => ({ applyRateLimit: async (...a: unknown[]) => { h.rateCalls.push(a.slice(1)); return { allowed: h.rateAllowed, remaining: 1, resetAt: 0, degraded: h.rateDegraded } } }))
 vi.mock("@/lib/ai-voice/nuance", () => ({
   mintNuanceToken: async (i: Record<string, unknown>) => { h.mintCalls.push(i); return h.mint },
 }))
@@ -83,7 +99,7 @@ beforeEach(() => {
   resetAIConfigCache()
   Object.assign(h, {
     config: ON(), user: null, role: "user", suspension: "active", shop: null, counts: { mine: 0, visitors: 0 },
-    inserted: [], updates: [], insertError: false, turnstileEnabled: false, turnstileValid: true, rateAllowed: true,
+    inserted: [], updates: [], insertError: false, turnstileEnabled: false, turnstileValid: true, rateAllowed: true, rateDegraded: false, rateCalls: [], countOps: [], updateError: false,
     mint: { ok: true, token: "tok_abc", warnings: [] }, mintCalls: [],
   })
   process.env.NUANCE_DEVICE_SALT = "salt"
@@ -150,7 +166,8 @@ describe("POST /api/ai/voice/token", () => {
     h.user = { id: "u1" }
     h.counts.mine = 5
     expect(await (await POST(req({ context: "dashboard", mode: "voice" }, authed))).json()).toEqual({ fallback: "text", reason: "daily_cap" })
-    expect(h.inserted).toHaveLength(0)
+    expect(h.mintCalls).toHaveLength(0)
+    expect(h.inserted[0].end_reason).toBe("cap_exceeded")
   })
 
   it("visitor total reached: home -> visitor_cap, dashboard user still gets a token", async () => {
@@ -165,7 +182,7 @@ describe("POST /api/ai/voice/token", () => {
     h.user = { id: "u1" }
     const res = await POST(req({ context: "dashboard", mode: "video" }, authed))
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ token: "tok_abc", callId: "call-1", maxSeconds: 240 })
+    expect(await res.json()).toEqual({ token: "tok_abc", callId: "call-0", maxSeconds: 240 })
     expect(h.inserted).toHaveLength(1)
     expect(h.inserted[0]).toMatchObject({ user_id: "u1", context: "dashboard", mode: "video", persona_id: "sam", max_seconds: 240 })
     expect(h.inserted[0].device_hash).toBeUndefined()
@@ -179,6 +196,7 @@ describe("POST /api/ai/voice/token", () => {
     expect(await res.json()).toEqual({ fallback: "text", reason: "credits" })
     expect(h.inserted).toHaveLength(1)
     expect(h.updates[0]).toMatchObject({ end_reason: "mint_credits" })
+    expect(h.inserted[0].end_reason).toBe("mint_credits")
   })
 
   it("first home call sets dg_vdid and stores the device hash", async () => {
@@ -203,5 +221,69 @@ describe("POST /api/ai/voice/token", () => {
     h.shop = { id: "s1", is_active: true, is_blocked: false }
     await POST(req({ context: "storefront", mode: "voice", shopSlug: "good" }))
     expect(h.inserted[0]).toMatchObject({ context: "storefront", shop_id: "s1" })
+  })
+})
+
+describe("fix round 1: paid-call protection", () => {
+  it("cookieless visitors from one IP share one rate-limit bucket, with pgFallback", async () => {
+    await POST(req({ context: "home", mode: "voice" }))
+    await POST(req({ context: "home", mode: "voice" }))
+    expect(h.rateCalls).toHaveLength(2)
+    expect(h.rateCalls[0][3]).toBe("1.2.3.4")
+    expect(h.rateCalls[1][3]).toBe("1.2.3.4")
+    expect(h.rateCalls[0][4]).toEqual({ pgFallback: true })
+  })
+
+  it("signed-in users are keyed by user id", async () => {
+    h.user = { id: "u1" }
+    await POST(req({ context: "dashboard", mode: "voice" }, authed))
+    expect(h.rateCalls[0][3]).toBe("u1")
+  })
+
+  it("degraded rate limiter -> unavailable, nothing minted or inserted", async () => {
+    h.rateDegraded = true
+    expect(await (await POST(req({ context: "home", mode: "voice" }))).json()).toEqual({ fallback: "text", reason: "unavailable" })
+    expect(h.mintCalls).toHaveLength(0)
+    expect(h.inserted).toHaveLength(0)
+  })
+
+  it("parallel requests at 29/30 visitors: at most one mints", async () => {
+    h.counts.visitors = 29
+    const ids = ["c".repeat(32), "d".repeat(32), "e".repeat(32)]
+    const res = await Promise.all(ids.map((id) => POST(req({ context: "home", mode: "voice" }, { cookie: `dg_vdid=${id}` }))))
+    const bodies = await Promise.all(res.map((r) => r.json()))
+    expect(h.mintCalls.length).toBeLessThanOrEqual(1)
+    expect(bodies.filter((b) => b.token).length).toBeLessThanOrEqual(1)
+    expect(h.inserted.filter((r) => r.end_reason === "cap_exceeded").length).toBeGreaterThanOrEqual(2)
+  })
+
+  it("the cap counts exclude cap_exceeded rows", async () => {
+    h.user = { id: "u1" }
+    await POST(req({ context: "dashboard", mode: "voice" }, authed))
+    const ops = h.countOps[0].map((o) => JSON.stringify(o))
+    expect(ops.join("|")).toContain("cap_exceeded")
+  })
+
+  it("signed-in user on home with 30 visitor rows still gets a token; visitor count skipped", async () => {
+    h.user = { id: "u1" }
+    h.counts.visitors = 30
+    const body = await (await POST(req({ context: "home", mode: "voice" }, authed))).json()
+    expect(body.token).toBe("tok_abc")
+  })
+
+  it("visitor total counts only anonymous rows", async () => {
+    await POST(req({ context: "home", mode: "voice" }))
+    const visitorOp = h.countOps.find((ops) => ops.some((o) => (o as unknown[])[0] === "in"))!
+    expect(visitorOp.some((o) => (o as unknown[])[0] === "is" && (o as unknown[])[1] === "user_id" && (o as unknown[])[2] === null)).toBe(true)
+  })
+
+  it("a failed mint-failure update is logged without details", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    h.user = { id: "u1" }
+    h.updateError = true
+    h.mint = { ok: false, reason: "busy", status: 409 }
+    await POST(req({ context: "dashboard", mode: "voice" }, authed))
+    expect(err).toHaveBeenCalledWith("[voice] call row update failed")
+    err.mockRestore()
   })
 })
