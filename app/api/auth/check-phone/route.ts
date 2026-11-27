@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
+import { phoneKey } from "@/lib/phone-login/core"
 export async function POST(request: NextRequest) {
   try {
     const { phoneNumber, excludeUserId } = await request.json()
@@ -33,23 +34,26 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check if phone number already exists (optionally excluding a specific user)
-    let query = supabaseServiceRole
-      .from("users")
-      .select("id")
-      .eq("phone_number", phoneNumber)
-    
-    // Exclude the current user if updating their own phone
-    if (excludeUserId) {
-      query = query.neq("id", excludeUserId)
+    // Normalised match (0241234567 == +233241234567 == 233241234567) on the 9 significant digits.
+    const key = phoneKey(phoneNumber)
+    if (!key) {
+      return NextResponse.json(
+        { error: "Phone number must be 9 or 10 digits" },
+        { status: 400 }
+      )
     }
-    
-    const { data: existingUser, error: checkError } = await query.maybeSingle()
+
+    // Taken when any account holds the number, other than the excluded user (updating their own phone).
+    const { data, error: checkError } = await supabaseServiceRole.rpc("phone_login_find_account", { p_sig: key.sig })
+    if (checkError) throw checkError
+    const found = (Array.isArray(data) ? data[0] : data) as { match_count: number; user_id: string | null } | null
+    const count = found?.match_count ?? 0
+    const taken = count > 1 || (count === 1 && (!excludeUserId || found?.user_id !== excludeUserId))
 
     // Always return HTTP 200 regardless of availability.
     // A 400 vs 200 difference was leaking registration status to unauthenticated
     // callers, enabling bulk phone-number enumeration of the user base.
-    if (existingUser) {
+    if (taken) {
       return NextResponse.json(
         { available: false, error: "This phone number is already registered" },
         { status: 200 }
