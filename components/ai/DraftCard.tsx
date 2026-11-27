@@ -24,6 +24,8 @@ export interface DraftCardProps {
   getToken: () => Promise<string>
   /** Sends a chat message through the widget's own send function. Never calls an API itself. */
   onPrepareAgain?: () => void
+  /** Fires once when a live card moves from pending/executing to a final state (used to tell a voice call what happened). */
+  onOutcome?: (outcome: "confirmed" | "cancelled" | "failed") => void
 }
 
 const POLL_EVERY_MS = 2000
@@ -56,7 +58,7 @@ const HTTP_MESSAGES: Record<number, string> = {
   503: "This feature is switched off right now.",
 }
 
-export function DraftCard({ draftId, initial, getToken, onPrepareAgain }: DraftCardProps) {
+export function DraftCard({ draftId, initial, getToken, onPrepareAgain, onOutcome }: DraftCardProps) {
   const [state, setState] = useState<CardViewState>({
     status: initial.status ?? "pending",
     outcome: initial.outcome ?? null,
@@ -179,6 +181,15 @@ export function DraftCard({ draftId, initial, getToken, onPrepareAgain }: DraftC
 
   const view = draftCardView(loaded ? state : { ...state, loadError: loadError ?? undefined }, now)
   const loading = !loaded && !loadError
+  const lastVariant = useRef<string | null>(null)
+  useEffect(() => {
+    const prev = lastVariant.current
+    lastVariant.current = view.variant
+    if (!onOutcome || (prev !== "pending" && prev !== "executing")) return
+    if (view.variant === "succeeded") onOutcome("confirmed")
+    else if (view.variant === "cancelled") onOutcome("cancelled")
+    else if (view.variant === "failed" || view.variant === "partial") onOutcome("failed")
+  }, [view.variant, onOutcome])
   const disabled = busy || !loaded
   const confirmBlocked = disabled || !secretsReady(view.secretFields, secrets)
   const tone =
