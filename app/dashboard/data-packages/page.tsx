@@ -12,7 +12,7 @@ import { Switch } from "@/components/ui/switch"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
-import { Grid3x3, List, Search, Loader2, ShieldCheck, ExternalLink, RefreshCw, ShoppingCart, CheckCircle2, XCircle, Package } from "lucide-react"
+import { Grid3x3, List, Search, Loader2, ShieldCheck, ExternalLink, RefreshCw, ShoppingCart, CheckCircle2, XCircle, Package, PackageX } from "lucide-react"
 import { PurchaseSheet, type PurchaseSheetModal } from "@/components/dashboard/PurchaseSheet"
 import { BulkOrdersForm } from "@/components/bulk-orders-form"
 import { networkLogoService } from "@/lib/shop-service"
@@ -22,6 +22,7 @@ import { applyAdjustmentsExceptCustom } from "@/lib/pricing/adjust-except-custom
 import { fetchUserPackagePrices, MSG_STANDARD_PRICES_FALLBACK, resolveDisplayPrices, STANDARD_PRICES_TOAST_ID } from "@/lib/pricing/user-package-prices"
 import { validatePhoneNumber } from "@/lib/phone-validation"
 import { DEFAULT_NETWORK_PREFIXES, type NetworkPrefixMap } from "@/lib/phone-format"
+import { noticeFor, type StockNotices } from "@/lib/network-stock-notice"
 import { toast } from "sonner"
 
 interface Package {
@@ -83,6 +84,9 @@ function DataPackagesPageInner() {
   // Live network->prefix map (admin-editable) for pre-submit validation;
   // falls back to the hardcoded default if the fetch fails.
   const [prefixMap, setPrefixMap] = useState<NetworkPrefixMap>(DEFAULT_NETWORK_PREFIXES)
+  // Admin network-wide out-of-stock: network -> text customers see. Empty on
+  // fetch failure, which leaves the page exactly as it was before reasons.
+  const [stockNotices, setStockNotices] = useState<StockNotices>({})
 
   // Auth protection
   useEffect(() => {
@@ -99,6 +103,10 @@ function DataPackagesPageInner() {
       .then(r => (r.ok ? r.json() : null))
       .then(d => { if (d?.map) setPrefixMap(d.map) })
       .catch(() => {}) // fall back to defaults silently
+    fetch("/api/public/network-stock")
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d?.notices && typeof d.notices === "object") setStockNotices(d.notices) })
+      .catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -405,6 +413,7 @@ function DataPackagesPageInner() {
   }, [packagesForSelectedNetwork, searchTerm])
 
   const meta = NETWORK_META[selectedNetwork]
+  const selectedNotice = noticeFor(stockNotices, selectedNetwork)
 
   return (
     <DashboardLayout>
@@ -424,6 +433,7 @@ function DataPackagesPageInner() {
             const m = NETWORK_META[net]
             const isSelected = selectedNetwork === net
             const isLive = packages.some((p) => p.network === net)
+            const isOutOfStock = noticeFor(stockNotices, net) !== null
             const logo = getNetworkLogo(net)
             return (
               <button
@@ -456,9 +466,15 @@ function DataPackagesPageInner() {
                   </span>
                 )}
                 <span className="text-xs sm:text-sm font-bold text-foreground">{m.label}</span>
-                <span className="flex items-center gap-1 text-[10px] sm:text-xs font-semibold text-success">
-                  <span className="h-1.5 w-1.5 rounded-full bg-success" /> {isLive ? "Live" : "No Packages"}
-                </span>
+                {isOutOfStock ? (
+                  <span className="flex items-center gap-1 text-[10px] sm:text-xs font-semibold text-destructive">
+                    <span className="h-1.5 w-1.5 rounded-full bg-destructive" /> Out of stock
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1 text-[10px] sm:text-xs font-semibold text-success">
+                    <span className="h-1.5 w-1.5 rounded-full bg-success" /> {isLive ? "Live" : "No Packages"}
+                  </span>
+                )}
               </button>
             )
           })}
@@ -540,7 +556,17 @@ function DataPackagesPageInner() {
             </div>
 
             {/* Packages */}
-            {loading ? (
+            {selectedNotice ? (
+              <div className="flex items-start gap-3 rounded-2xl border border-destructive/30 bg-destructive/10 p-5 lg:p-6 clay">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-destructive/15 text-destructive">
+                  <PackageX className="h-5 w-5" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-foreground">{meta.label} is out of stock</p>
+                  <p className="mt-1 break-words text-sm text-muted-foreground lg:text-base">{selectedNotice}</p>
+                </div>
+              </div>
+            ) : loading ? (
               <div className="flex justify-center py-12">
                 <Loader2 className="h-6 w-6 animate-spin text-[#1b388b]" />
               </div>
