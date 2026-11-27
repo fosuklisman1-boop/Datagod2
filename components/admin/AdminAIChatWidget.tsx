@@ -9,6 +9,7 @@ import { DraftCard } from "@/components/ai/DraftCard"
 import { parseDraftParam } from "@/lib/ai-drafts/deep-link"
 import { ChatWelcome, ChatInput, SuggestionChips, TypingIndicator, useAssistantProfile, VoiceCallButtons, CallPanel, useVoiceCall } from "@/components/ai/chat"
 import { callToMessages } from "@/lib/ai-voice/call-messages"
+import { closeWidgetDuringCall, type CloseSource } from "@/lib/ai-voice/close-widget"
 import { AssistantMarkdown } from "@/components/ai/chat/AssistantMarkdown"
 import { createIdleTimeout } from "@/lib/ai-chat-ui/idle-timeout"
 import { widgetVisible, isAssistantOffResponse, assistantOffMessage, showTryAgain } from "@/lib/ai-chat-ui/widget-visibility"
@@ -117,6 +118,10 @@ export function AdminAIChatWidget() {
     onCallEnded: (turns, cards) => setMessages(prev => [...prev, ...callToMessages(turns, cards, Date.now())]),
   })
   const callOpen = call.state === "starting" || call.state === "live"
+  // Every close path hangs up a live call first (mic + slot), and a backdrop tap never drops one.
+  function closeChat(source: CloseSource) {
+    closeWidgetDuringCall({ callActive: call.isActive(), source, hangUp: call.hangUp, close: () => setIsOpen(false) })
+  }
   const [showScrollBtn, setShowScrollBtn] = useState(false)
   const { position: fabPosition, containerRef: fabContainerRef, onPointerDown: onFabPointerDown, onClickCapture: onFabClickCapture } =
     useDraggableFloatingPosition("datagod_ai_widget_position")
@@ -155,7 +160,7 @@ export function AdminAIChatWidget() {
 
   useEffect(() => {
     if (!isOpen) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setIsOpen(false) }
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeChat("escape") }
     window.addEventListener("keydown", onKey)
     const prevOverflow = document.body.style.overflow
     document.body.style.overflow = "hidden"
@@ -323,7 +328,7 @@ export function AdminAIChatWidget() {
   return (
     <>
       {isOpen && (
-        <div className="fixed inset-0 z-[60] flex bg-black/50 backdrop-blur-sm sm:items-center sm:justify-center sm:p-4" onClick={() => setIsOpen(false)}>
+        <div className="fixed inset-0 z-[60] flex bg-black/50 backdrop-blur-sm sm:items-center sm:justify-center sm:p-4" onClick={() => closeChat("backdrop")}>
           <div className={`w-full h-full sm:h-[85vh] sm:max-h-[700px] sm:w-[460px] sm:max-w-[calc(100vw-2rem)] bg-card sm:rounded-2xl border border-border shadow-[0_32px_64px_rgba(0,0,0,0.35)] flex flex-col overflow-hidden ${callOpen ? "lg:w-[880px]" : ""}`} onClick={(e) => e.stopPropagation()}>
           <div className="bg-primary text-primary-foreground px-4 py-3 flex items-center justify-between flex-shrink-0 border-b border-border">
             <div>
@@ -335,7 +340,7 @@ export function AdminAIChatWidget() {
               {messages.length > 0 && (
                 <button onClick={newChat} disabled={isStreaming} className="text-xs font-medium text-primary-foreground underline-offset-2 hover:text-primary-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground disabled:opacity-50">New chat</button>
               )}
-              <button onClick={() => setIsOpen(false)} aria-label="Close chat" className="text-primary-foreground hover:opacity-80 transition-colors">
+              <button onClick={() => closeChat("button")} aria-label="Close chat" className="text-primary-foreground hover:opacity-80 transition-colors">
                 <X size={18} />
               </button>
             </div>
@@ -484,7 +489,7 @@ export function AdminAIChatWidget() {
           <span className="absolute inset-0 rounded-full bg-primary animate-ping opacity-15 pointer-events-none" />
         )}
         <button
-          onClick={() => setIsOpen(o => !o)}
+          onClick={() => (isOpen ? closeChat("button") : setIsOpen(true))}
           className="relative flex items-center gap-2 bg-primary border border-primary/60 text-primary-foreground rounded-full px-5 py-2.5 shadow-lg shadow-primary/30 hover:shadow-primary/50 hover:bg-primary/90 hover:border-border transition-all duration-300 hover:scale-105 active:scale-95"
           aria-label="Open admin AI assistant"
         >
