@@ -11,29 +11,35 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 )
 
-const ROW_LIMIT = 20000
-
 export async function GET(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse!
 
   const midnight = new Date()
   midnight.setUTCHours(0, 0, 0, 0)
+  const since = midnight.toISOString()
 
-  const { data, error } = await supabase
-    .from("ai_voice_calls")
-    .select("context,user_id")
-    .gte("created_at", midnight.toISOString())
-    .or("end_reason.is.null,end_reason.neq.cap_exceeded")
-    .limit(ROW_LIMIT)
-  if (error) return NextResponse.json({ error: "Could not load usage" }, { status: 500 })
-
-  const rows = (data ?? []) as Array<{ context: string; user_id: string | null }>
+  // Head counts: the database counts, no rows come back, so PostgREST's max-rows cap cannot truncate a figure.
+  const counted = () =>
+    supabase
+      .from("ai_voice_calls")
+      .select("id", { count: "exact", head: true })
+      .gte("created_at", since)
+      .or("end_reason.is.null,end_reason.neq.cap_exceeded")
+  const [total, visitors, dashboard, admin] = await Promise.all([
+    counted(),
+    counted().is("user_id", null),
+    counted().eq("context", "dashboard"),
+    counted().eq("context", "admin"),
+  ])
+  if (total.error || visitors.error || dashboard.error || admin.error) {
+    return NextResponse.json({ error: "Could not load usage" }, { status: 500 })
+  }
   const callsToday = {
-    total: rows.length,
-    visitors: rows.filter((r) => r.user_id === null).length,
-    dashboard: rows.filter((r) => r.context === "dashboard").length,
-    admin: rows.filter((r) => r.context === "admin").length,
+    total: total.count ?? 0,
+    visitors: visitors.count ?? 0,
+    dashboard: dashboard.count ?? 0,
+    admin: admin.count ?? 0,
   }
 
   const usage = await getNuanceUsage().catch(() => null)
