@@ -18,6 +18,7 @@ import { isPageHidden } from "@/lib/custom-domains"
 import { safeRedirectPath, authUrl } from "@/lib/post-auth-redirect"
 import { MessageCircle, Mail, Lock, Eye, EyeOff, Check } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
+import PhoneLoginTabs from "./phone-login-panel"
 
 export default function LoginForm() {
   const router = useRouter()
@@ -149,6 +150,7 @@ export default function LoginForm() {
             </div>
           </div>
 
+          <PhoneLoginTabs redirectTo={redirectTo}>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
@@ -201,6 +203,7 @@ export default function LoginForm() {
               {isLoading ? "Signing in..." : "Sign in"}
             </Button>
           </form>
+          </PhoneLoginTabs>
 
           <p className="mt-6 text-center text-sm text-muted-foreground">
             Don&apos;t have an account?{" "}
