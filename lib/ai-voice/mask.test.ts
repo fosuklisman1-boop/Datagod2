@@ -77,6 +77,37 @@ describe("maskForVoice fix round 1", () => {
   })
 })
 
+describe("maskForVoice final review: spaced separators", () => {
+  it.each(["024 / 123 / 4567", "024, 123, 4567", "024 | 123 | 4567", "024 : 123 : 4567", "024 ,123 ,4567"])(
+    "masks a phone written as %s",
+    (p) => {
+      expect(maskForVoice(`call ${p} now`)).toBe("call number ending 567 now")
+    },
+  )
+  it("masks an international phone written with spaced commas", () => {
+    expect(maskForVoice("233, 241, 234, 567")).toBe("number ending 567")
+  })
+  it("masks any 7+ digit stream of groups of 3+ digits", () => {
+    expect(maskForVoice("code 1234, 5678, 9012")).toBe("code [number]")
+    expect(maskForVoice("ids 123 / 456 / 789")).toBe("ids [number]")
+  })
+  it("keeps short lists and small groups", () => {
+    expect(maskForVoice("pick 1, 2, 5, 10")).toBe("pick 1, 2, 5, 10")
+    expect(maskForVoice("items 12, 13, 14, 15")).toBe("items 12, 13, 14, 15")
+    expect(maskForVoice("page 1 / 12, 3 / 4")).toBe("page 1 / 12, 3 / 4")
+  })
+  it("keeps a short group list (under 7 digits) and amounts", () => {
+    expect(maskForVoice("100, 200")).toBe("100, 200")
+    expect(maskForVoice("GHS 1,250,000 and 250,000,000")).toBe("GHS 1,250,000 and 250,000,000")
+  })
+  it("keeps dates and times next to such streams", () => {
+    expect(maskForVoice("on 2026-11-27 at 10:30, 11:30")).toBe("on 2026-11-27 at 10:30, 11:30")
+  })
+  it("a masked phone with spaced separators never leaves digits in the clamp", () => {
+    expect(clampForAppend("call 024 / 123 / 4567")).toBe("call number ending 567")
+  })
+})
+
 describe("clampForAppend", () => {
   it("clamps to the max length", () => {
     expect(clampForAppend("a ".repeat(1500)).length).toBeLessThanOrEqual(2000)
