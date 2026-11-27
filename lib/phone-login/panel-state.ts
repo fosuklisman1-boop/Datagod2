@@ -21,12 +21,17 @@ export type PanelState = {
   focusEmail: boolean
   session: unknown | null
   busy: boolean
+  /** Id of the request currently allowed to apply its response. */
+  reqId: number
 }
 
 export type PanelEvent =
   | { type: "availability"; enabled: boolean | null }
   | { type: "edit"; field: "phone" | "password" | "code"; value: string }
-  | { type: "submitting" }
+  | { type: "submitting"; reqId: number }
+  /** A network response tagged with the request that produced it; dropped unless it is the current one. */
+  | { type: "response"; reqId: number; event: PanelEvent }
+  | { type: "session_failed" }
   | { type: "challenge"; id: string; maskedPhone: string }
   | { type: "session"; session: unknown }
   | { type: "failed"; message: string }
@@ -54,6 +59,7 @@ export function initialPanelState(): PanelState {
     focusEmail: false,
     session: null,
     busy: false,
+    reqId: 0,
   }
 }
 
@@ -70,7 +76,15 @@ export function panelReducer(s: PanelState, e: PanelEvent): PanelState {
       return { ...s, [e.field]: e.value }
     }
     case "submitting":
-      return { ...s, busy: true, focusEmail: false }
+      if (s.busy) return s
+      return { ...s, busy: true, focusEmail: false, reqId: e.reqId }
+    case "response":
+      return e.reqId === s.reqId ? panelReducer(s, e.event) : s
+    case "session_failed":
+      return notice(
+        { ...s, busy: false, phase: "form", session: null, password: "", code: "", challenge: null, reqId: s.reqId + 1 },
+        GENERIC_ERROR,
+      )
     case "challenge":
       return {
         ...s,
@@ -83,7 +97,8 @@ export function panelReducer(s: PanelState, e: PanelEvent): PanelState {
         message: null,
       }
     case "session":
-      return { ...s, busy: false, phase: "signedIn", session: e.session, password: "", code: "" }
+      // Stay busy: the component is installing the session and navigating.
+      return { ...s, busy: true, phase: "signedIn", session: e.session, password: "", code: "" }
     case "failed":
       return notice({ ...s, busy: false }, e.message)
     case "unavailable":
@@ -111,6 +126,7 @@ export function panelReducer(s: PanelState, e: PanelEvent): PanelState {
         attemptsLeft: null,
         resendSeconds: 0,
         busy: false,
+        reqId: s.reqId + 1,
       }
     case "network_error":
       return notice({ ...s, busy: false }, GENERIC_ERROR)

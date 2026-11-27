@@ -111,6 +111,52 @@ describe("phone login panel state", () => {
     expect(s.message).toBe("Something went wrong. Please try again.")
   })
 
+  it("stays busy in signedIn so no form can be resubmitted while setSession runs", () => {
+    const s = run(onCodeScreen(), eventFromVerifyResponse(200, { session: { access_token: "a", refresh_token: "b" } }))
+    expect(s.phase).toBe("signedIn")
+    expect(s.busy).toBe(true)
+    expect(run(s, { type: "submitting", reqId: s.reqId + 1 })).toBe(s)
+  })
+
+  it("a setSession failure returns to the form with the generic message", () => {
+    const signedIn = run(onCodeScreen(), eventFromVerifyResponse(200, { session: { access_token: "a", refresh_token: "b" } }))
+    const s = run(signedIn, { type: "session_failed" })
+    expect(s.phase).toBe("form")
+    expect(s.busy).toBe(false)
+    expect(s.session).toBeNull()
+    expect(s.password).toBe("")
+    expect(s.message).toBe("Something went wrong. Please try again.")
+  })
+
+  it("a stale response after 'Use a different number' leaves state unchanged", () => {
+    let s = onCodeScreen()
+    s = run(s, { type: "submitting", reqId: s.reqId + 1 })
+    const inflight = s.reqId
+    s = run(s, { type: "back" })
+    expect(run(s, { type: "response", reqId: inflight, event: eventFromVerifyResponse(410, { error: "x" }) })).toBe(s)
+    expect(run(s, { type: "response", reqId: inflight, event: { type: "challenge", id: "old", maskedPhone: "x" } })).toBe(s)
+  })
+
+  it("a stale challenge does not replace a newer one", () => {
+    let s = run(initialPanelState(), { type: "submitting", reqId: 1 })
+    s = run(s, { type: "response", reqId: 1, event: { type: "challenge", id: "first", maskedPhone: "a" } })
+    s = run(s, { type: "back" })
+    s = run(s, { type: "submitting", reqId: s.reqId + 1 })
+    s = run(s, { type: "response", reqId: s.reqId, event: { type: "challenge", id: "second", maskedPhone: "b" } })
+    const late = run(s, { type: "response", reqId: 1, event: { type: "challenge", id: "first", maskedPhone: "a" } })
+    expect(late.challenge?.id).toBe("second")
+  })
+
+  it("a submit while busy is a no-op", () => {
+    const s = run(initialPanelState(), { type: "submitting", reqId: 1 })
+    expect(run(s, { type: "submitting", reqId: 2 })).toBe(s)
+  })
+
+  it("the current response is applied", () => {
+    const s = run(initialPanelState(), { type: "submitting", reqId: 1 })
+    expect(run(s, { type: "response", reqId: 1, event: { type: "challenge", id: "c", maskedPhone: "m" } }).phase).toBe("code")
+  })
+
   it("code input keeps digits only, max 6", () => {
     const s = run(onCodeScreen(), { type: "edit", field: "code", value: "12a3-456789" })
     expect(s.code).toBe("123456")

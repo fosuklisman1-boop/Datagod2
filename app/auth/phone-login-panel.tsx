@@ -10,7 +10,6 @@ import { Label } from "@/components/ui/label"
 import { supabase } from "@/lib/supabase"
 import { Eye, EyeOff, Lock, Phone, ShieldCheck } from "lucide-react"
 import {
-  GENERIC_ERROR,
   eventFromResendResponse,
   eventFromStartResponse,
   eventFromVerifyResponse,
@@ -94,10 +93,7 @@ export default function PhoneLoginTabs({ redirectTo, children }: { redirectTo: s
   useEffect(() => {
     if (state.phase !== "signedIn" || !state.session) return
     const s = state.session as { access_token?: string; refresh_token?: string }
-    const fail = () => {
-      dispatch({ type: "failed", message: GENERIC_ERROR })
-      dispatch({ type: "back" })
-    }
+    const fail = () => dispatch({ type: "session_failed" })
     if (!s.access_token || !s.refresh_token) {
       fail()
       return
@@ -121,17 +117,20 @@ export default function PhoneLoginTabs({ redirectTo, children }: { redirectTo: s
     request: () => Promise<{ status: number; body: unknown }>,
     map: (status: number, body: unknown) => PanelEvent,
   ) {
-    dispatch({ type: "submitting" })
+    if (state.busy) return
+    const reqId = state.reqId + 1
+    dispatch({ type: "submitting", reqId })
     try {
       const r = await request()
-      dispatch(map(r.status, r.body))
+      dispatch({ type: "response", reqId, event: map(r.status, r.body) })
     } catch {
-      dispatch({ type: "network_error" })
+      dispatch({ type: "response", reqId, event: { type: "network_error" } })
     }
   }
 
   const submitStart = (e: React.FormEvent) => {
     e.preventDefault()
+    if (state.busy) return
     if (!state.phone.trim() || !state.password) {
       toast.error("Please fill in all fields")
       return
@@ -141,7 +140,7 @@ export default function PhoneLoginTabs({ redirectTo, children }: { redirectTo: s
 
   const submitCode = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!state.challenge) return
+    if (!state.challenge || state.busy) return
     if (state.code.length !== 6) {
       toast.error("Enter the 6-digit code")
       return
@@ -176,6 +175,10 @@ export default function PhoneLoginTabs({ redirectTo, children }: { redirectTo: s
 
       {tab === "email" || !state.visible ? (
         children
+      ) : state.phase === "signedIn" ? (
+        <p role="status" className="py-6 text-center text-sm text-muted-foreground">
+          Signing you in…
+        </p>
       ) : state.phase === "code" && state.challenge ? (
         <form onSubmit={submitCode} className="space-y-4">
           <div className="flex items-start gap-3 rounded-lg border border-border bg-card p-3">
