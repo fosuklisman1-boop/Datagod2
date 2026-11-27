@@ -322,6 +322,8 @@ export function createCallController(deps: CallControllerDeps) {
     const dropStale = () => {
       if (myConv && myConv !== conv) void myConv.disconnect().catch(() => {})
       if (myCallId) void postEnd(myCallId, "user", false)
+      // Hung up after the line admitted us: give the place back (a no-op on the server once the ticket is used).
+      if (admittedTicket) void postLeave(admittedTicket)
     }
 
     try {
@@ -329,7 +331,7 @@ export function createCallController(deps: CallControllerDeps) {
       cachedAuth = auth
       const isVisitor = deps.context === "home" || deps.context === "storefront"
       const turnstileToken = isVisitor ? await deps.getTurnstileToken?.() : undefined
-      if (stale()) return
+      if (stale()) return dropStale()
 
       const res = await doFetch("/api/ai/voice/token", {
         method: "POST",

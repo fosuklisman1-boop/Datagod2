@@ -4,15 +4,20 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { ADMIT_HOLD_MS, QUEUE_STALE_MS, type LiveTicket } from "./queue"
 
-/** Waiting tickets with no check-in for QUEUE_STALE_MS, and admitted tickets unused for ADMIT_HOLD_MS, become expired. */
-export async function expireStaleTickets(db: SupabaseClient, nowMs: number = Date.now()): Promise<boolean> {
+/**
+ * Waiting tickets with no check-in for QUEUE_STALE_MS, waiting tickets older than the longest allowed wait (so polling
+ * cannot hold a place forever), and admitted tickets unused for ADMIT_HOLD_MS, become expired.
+ */
+export async function expireStaleTickets(db: SupabaseClient, maxWaitMs: number, nowMs: number = Date.now()): Promise<boolean> {
   const waitingCutoff = new Date(nowMs - QUEUE_STALE_MS).toISOString()
+  const ageCutoff = new Date(nowMs - maxWaitMs).toISOString()
   const admittedCutoff = new Date(nowMs - ADMIT_HOLD_MS).toISOString()
-  const [w, a] = await Promise.all([
+  const [w, old, a] = await Promise.all([
     db.from("ai_voice_queue").update({ status: "expired" }).eq("status", "waiting").lt("last_seen_at", waitingCutoff),
+    db.from("ai_voice_queue").update({ status: "expired" }).eq("status", "waiting").lt("created_at", ageCutoff),
     db.from("ai_voice_queue").update({ status: "expired" }).eq("status", "admitted").lt("admitted_at", admittedCutoff),
   ])
-  return !w.error && !a.error
+  return !w.error && !old.error && !a.error
 }
 
 /** Every waiting or admitted ticket, oldest first. null when the read fails. */
@@ -25,7 +30,10 @@ export async function readLiveTickets(db: SupabaseClient): Promise<LiveTicket[] 
   return ((data ?? []) as LiveTicket[]).map((t) => ({ ...t, user_id: t.user_id ?? null, device_hash: t.device_hash ?? null }))
 }
 
-/** Sets a ticket's status. `from` makes it a compare-and-set (a racing request cannot undo the other's change). */
+/**
+ * Sets a ticket's status. With `from` it is a real compare-and-set: true only when exactly one row moved from `from`,
+ * so of two racing requests exactly one wins (the other sees false).
+ */
 export async function setTicketStatus(
   db: SupabaseClient,
   id: string,
@@ -35,6 +43,7 @@ export async function setTicketStatus(
 ): Promise<boolean> {
   let q = db.from("ai_voice_queue").update({ status, ...extra }).eq("id", id)
   if (from) q = q.eq("status", from)
-  const { error } = await q
-  return !error
+  const { data, error } = await q.select("id")
+  if (error) return false
+  return !from || (Array.isArray(data) && data.length === 1)
 }

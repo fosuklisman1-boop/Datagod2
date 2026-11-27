@@ -59,7 +59,14 @@ export async function POST(req: NextRequest) {
     if (newDevice && deviceId) setDeviceCookie(res, deviceId)
     return res
   }
-  const fallback = (reason: FallbackReason) => respond({ fallback: "text", reason })
+  // A waiting-line ticket this caller was admitted on stays "admitted" (holding its slot) until the call is about to
+  // mint; any refusal after admission releases it so the slot is not held for the full 30 s.
+  let admittedTicket: string | null = null
+  let ticketConsumed = false
+  const fallback = async (reason: FallbackReason) => {
+    if (admittedTicket && !ticketConsumed) await setTicketStatus(supabaseAdmin, admittedTicket, "used")
+    return respond({ fallback: "text", reason })
+  }
 
   // Identity (same bearer-JWT lookup as /api/ai/chat).
   let userId: string | undefined
@@ -153,14 +160,15 @@ export async function POST(req: NextRequest) {
   if (voice.queueEnabled) {
     // A line that cannot move (no usable Nuance key) is never offered.
     if ((voice.multiAccount ? keys : keys.filter((k) => k.index === 1)).length === 0) return fallback("unavailable")
-    if (!(await expireStaleTickets(supabaseAdmin))) return fallback("unavailable")
-    const live = await readLiveTickets(supabaseAdmin)
+    if (!(await expireStaleTickets(supabaseAdmin, voice.queueMaxWaitMinutes * 60_000))) return fallback("unavailable")
+    let live = await readLiveTickets(supabaseAdmin)
     if (!live) return fallback("unavailable")
     const who = { userId, deviceHash }
-    const admitted = ticketId ? live.find((t) => t.id === ticketId && t.status === "admitted" && ownsTicket(t, who)) : undefined
+    // This caller's own admitted ticket (with or without the ticketId in the body): their turn.
+    const admitted = live.find((t) => t.status === "admitted" && ownsTicket(t, who) && (!ticketId || t.id === ticketId))
     if (admitted) {
-      // This caller's turn: the ticket is spent, then the normal flow (row, caps, claim, mint) runs.
-      if (!(await setTicketStatus(supabaseAdmin, admitted.id, "used", "admitted"))) return fallback("unavailable")
+      // The ticket keeps holding its slot until just before the mint (consumed there with a compare-and-set).
+      admittedTicket = admitted.id
     } else {
       const ownWaiting = live.find((t) => t.status === "waiting" && ownsTicket(t, who))
       const someoneElseLive = live.some((t) => !ownsTicket(t, who))
@@ -174,11 +182,18 @@ export async function POST(req: NextRequest) {
           const { data: made, error: madeErr } = await supabaseAdmin.from("ai_voice_queue")
             .insert({ context: ctx, mode, ...(userId ? { user_id: userId } : { device_hash: deviceHash }) }).select("id").single()
           id = (made as { id?: string } | null)?.id
-          if (madeErr || !id) {
+          position = waitingNow + 1
+          if ((madeErr as { code?: string } | null)?.code === "23505") {
+            // A parallel request from this identity created the ticket first (one live ticket per identity): reuse it.
+            live = await readLiveTickets(supabaseAdmin)
+            const mine = live?.find((t) => t.status === "waiting" && ownsTicket(t, who))
+            if (!live || !mine) return fallback("unavailable")
+            id = mine.id
+            position = waitingPosition(live, mine.id)
+          } else if (madeErr || !id) {
             console.error("[voice] queue ticket insert failed")
             return fallback("unavailable")
           }
-          position = waitingNow + 1
         }
         const totalSlots = (voice.multiAccount ? keys.length : 1) * voice.callsPerKey
         const eta = etaSeconds(position, totalSlots, voice.maxCallSeconds)
@@ -264,6 +279,15 @@ export async function POST(req: NextRequest) {
         .eq("nuance_key", account.index).is("ended_at", null).gt("created_at", openCutoff)
       if (recountErr) { await endRow("count_failed"); return fallback("unavailable") }
       if ((count ?? 0) > voice.callsPerKey) { last = { reason: "busy", key: account.index }; continue }
+    }
+    if (admittedTicket && !ticketConsumed) {
+      // Spend the waiting-line ticket exactly once: of two parallel requests on one ticket, only one gets here.
+      if (!(await setTicketStatus(supabaseAdmin, admittedTicket, "used", "admitted"))) {
+        ticketConsumed = true
+        await endRow("ticket_lost")
+        return fallback("busy")
+      }
+      ticketConsumed = true
     }
     attempts++
     const minted = await mintNuanceToken({ ...mintInput, apiKey: account.key })

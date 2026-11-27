@@ -230,7 +230,7 @@ describe("call controller", () => {
 
 describe("waiting line", () => {
   type Reply = Record<string, unknown>
-  function setupQ(opts: { tokens: Reply[]; polls?: Reply[]; pollStatus?: number; pollGate?: ReturnType<typeof deferred<void>> }) {
+  function setupQ(opts: { tokens: Reply[]; polls?: Reply[]; pollStatus?: number; pollGate?: ReturnType<typeof deferred<void>>; secondTokenGate?: ReturnType<typeof deferred<void>> }) {
     const convs: any[] = []
     const tokenBodies: any[] = []
     const queueCalls: Array<{ body: any; headers: any; keepalive?: boolean }> = []
@@ -240,6 +240,7 @@ describe("waiting line", () => {
     const fetchImpl = vi.fn(async (url: string, init: any) => {
       if (url === "/api/ai/voice/token") {
         tokenBodies.push(JSON.parse(init.body))
+        if (tokenN >= 1 && opts.secondTokenGate) await opts.secondTokenGate.promise
         return new Response(JSON.stringify(opts.tokens[Math.min(tokenN++, opts.tokens.length - 1)]), { status: 200 })
       }
       if (url === "/api/ai/voice/queue") {
@@ -362,6 +363,19 @@ describe("waiting line", () => {
     expect(tokenBodies).toHaveLength(1)
     expect(convs).toHaveLength(0)
     expect(ctrl.getSnapshot().state).toBe("idle")
+  })
+
+  it("review fix 6: hang up after admission while the token request is in flight gives the admitted place back (once)", async () => {
+    const gate = deferred<void>()
+    const { ctrl, convs, queueCalls, poll } = setupQ({ tokens: [QUEUED, GRANTED], polls: [{ status: "admitted" }], secondTokenGate: gate })
+    await ctrl.start("voice")
+    await poll() // admitted -> second token request now waiting
+    ctrl.hangUp()
+    gate.resolve()
+    await flush()
+    await flush()
+    expect(queueCalls.filter((c) => c.body.action === "leave" && c.body.ticketId === "t-1")).toHaveLength(1)
+    expect(convs).toHaveLength(0)
   })
 
   it("page hide while queued leaves the line at once with the cached auth header", async () => {

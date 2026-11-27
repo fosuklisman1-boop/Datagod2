@@ -13,6 +13,7 @@ const h = vi.hoisted(() => ({
   rateDegraded: false,
   rateCalls: [] as unknown[][],
   updates: [] as Record<string, unknown>[],
+  casLose: false,
 }))
 
 vi.mock("@supabase/supabase-js", () => ({
@@ -51,7 +52,12 @@ vi.mock("@supabase/supabase-js", () => ({
           if (h.queueError) out = { data: null, error: { message: "x" } }
           else {
             const upd = ops.find((o) => o.method === "update")
-            if (upd) for (const r of h.queue) { if (match(r)) Object.assign(r, upd.args[0]) }
+            if (upd) {
+              // Compare-and-set: report the rows that matched (and changed), like PostgREST's update().select().
+              const hit = h.casLose ? [] : h.queue.filter(match)
+              for (const r of hit) Object.assign(r, upd.args[0])
+              out = { data: hit.map((r) => ({ id: r.id })), error: null }
+            }
             else out = { data: h.queue.filter(match).sort((a, c) => a.created_at.localeCompare(c.created_at)).map((r) => ({ ...r })), error: null }
           }
         } else if (table === "ai_voice_calls") {
@@ -84,12 +90,30 @@ const FULL = [{ nuance_key: 1 }, { nuance_key: 2 }, { nuance_key: 3 }]
 
 beforeEach(() => {
   resetAIConfigCache()
-  Object.assign(h, { config: ON(), user: { id: "u1" }, queue: [], queueError: false, openKeyRows: [], openKeyError: false, rateAllowed: true, rateDegraded: false, rateCalls: [], updates: [] })
+  Object.assign(h, { config: ON(), user: { id: "u1" }, queue: [], queueError: false, openKeyRows: [], openKeyError: false, rateAllowed: true, rateDegraded: false, rateCalls: [], updates: [], casLose: false })
   process.env.NUANCE_DEVICE_SALT = "salt"
   process.env.NUANCE_API_KEY = "nk_one"
   process.env.NUANCE_API_KEY_2 = "nk_two"
   process.env.NUANCE_API_KEY_3 = "nk_three"
   for (let i = 4; i <= 9; i++) delete process.env[`NUANCE_API_KEY_${i}`]
+})
+
+describe("review fixes", () => {
+  it("a waiting ticket older than the longest allowed wait expires even though it keeps checking in", async () => {
+    h.config = ON({ queueMaxWaitMinutes: 10 })
+    h.queue = [ticket({ created_at: ago(11 * 60_000), last_seen_at: ago(1_000) })]
+    const res = await POST(req({ ticketId: UUID }, authed))
+    expect(await res.json()).toEqual({ status: "expired" })
+    expect(h.queue[0].status).toBe("expired")
+  })
+
+  it("admission lost to a racing request reports the ticket's current state instead of failing", async () => {
+    h.queue = [ticket({})]
+    h.casLose = true
+    const res = await POST(req({ ticketId: UUID }, authed))
+    expect(res.status).toBe(200)
+    expect((await res.json()).status).toBe("waiting")
+  })
 })
 
 describe("POST /api/ai/voice/queue", () => {

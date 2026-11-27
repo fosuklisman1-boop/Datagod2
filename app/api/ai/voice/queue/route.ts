@@ -49,7 +49,9 @@ export async function POST(req: NextRequest) {
   // Admitting hands out a paid slot: a limiter that could not count fails closed.
   if (rl.degraded) return unavailable()
 
-  if (!(await expireStaleTickets(supabaseAdmin))) return unavailable()
+  const cfg = await loadAIConfig(supabaseAdmin)
+  const voice = resolveVoiceSettings(cfg)
+  if (!(await expireStaleTickets(supabaseAdmin, voice.queueMaxWaitMinutes * 60_000))) return unavailable()
 
   // The ticket must be this caller's own; anything else is "not found" (no probing other people's tickets).
   let q = supabaseAdmin.from("ai_voice_queue").select("id, status").eq("id", ticketId)
@@ -67,8 +69,6 @@ export async function POST(req: NextRequest) {
     return new NextResponse(null, { status: 204 })
   }
 
-  const cfg = await loadAIConfig(supabaseAdmin)
-  const voice = resolveVoiceSettings(cfg)
   if (!voice.enabled || !voice.queueEnabled) {
     // The line was switched off while this caller waited.
     await setTicketStatus(supabaseAdmin, ticketId, "expired")
@@ -97,7 +97,12 @@ export async function POST(req: NextRequest) {
   if (position === 1 && free > 0) {
     // Compare-and-set: only a ticket that is still waiting can be admitted.
     const ok = await setTicketStatus(supabaseAdmin, ticketId, "admitted", "waiting", { admitted_at: new Date().toISOString() })
-    if (!ok) return unavailable()
+    if (!ok) {
+      // Someone else changed it first (a parallel check-in admitted it, or it left/expired): report what it is now.
+      const { data: now } = await supabaseAdmin.from("ai_voice_queue").select("status").eq("id", ticketId).maybeSingle()
+      const st = (now as { status?: string } | null)?.status
+      return NextResponse.json(st === "admitted" ? { status: "admitted", position: 0, etaSeconds: 0 } : { status: st ?? "expired" })
+    }
     return NextResponse.json({ status: "admitted", position: 0, etaSeconds: 0 })
   }
 

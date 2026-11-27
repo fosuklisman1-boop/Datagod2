@@ -27,6 +27,12 @@ CREATE TABLE IF NOT EXISTS public.ai_voice_queue (
 CREATE INDEX IF NOT EXISTS ai_voice_queue_status_created_idx
   ON public.ai_voice_queue (status, created_at);
 
+-- One live place per identity: parallel requests (two tabs) cannot create two tickets for the same user or device.
+CREATE UNIQUE INDEX IF NOT EXISTS ai_voice_queue_one_live_user_idx
+  ON public.ai_voice_queue (user_id) WHERE status IN ('waiting', 'admitted') AND user_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ai_voice_queue_one_live_device_idx
+  ON public.ai_voice_queue (device_hash) WHERE status IN ('waiting', 'admitted') AND user_id IS NULL;
+
 ALTER TABLE public.ai_voice_queue ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.ai_voice_queue FROM PUBLIC, anon, authenticated;
 GRANT ALL ON TABLE public.ai_voice_queue TO service_role;

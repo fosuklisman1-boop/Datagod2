@@ -32,6 +32,9 @@ const h = vi.hoisted(() => ({
   queue: [] as Record<string, any>[],
   queueError: false,
   openKeyError: false,
+  queueCasLose: false,
+  queueInsertDup: false,
+  ticketAtInsert: null as string | null,
 }))
 
 vi.mock("@supabase/supabase-js", () => ({
@@ -41,17 +44,20 @@ vi.mock("@supabase/supabase-js", () => ({
       const ops: Op[] = []
       const b: any = {}
       let idx = -1
+      let dupInsert = false
       for (const m of ["select", "eq", "in", "gt", "gte", "lt", "order", "or", "is", "update", "insert"]) {
         b[m] = (...args: unknown[]) => {
           ops.push({ method: m, args })
           if (table === "ai_voice_queue") {
             if (m === "insert") {
               idx = h.queue.length
-              h.queue.push({ id: `ticket-${idx}`, status: "waiting", user_id: null, device_hash: null, created_at: new Date(Date.now() + idx).toISOString(), last_seen_at: new Date().toISOString(), admitted_at: null, ...(args[0] as Record<string, unknown>) })
+              // A parallel request from the same identity won the unique index: its ticket exists, this insert fails.
+              if (h.queueInsertDup) { dupInsert = true; h.queue.push({ id: "parallel", status: "waiting", user_id: null, device_hash: null, created_at: new Date().toISOString(), last_seen_at: new Date().toISOString(), admitted_at: null, ...(args[0] as Record<string, unknown>) }) }
+              else h.queue.push({ id: `ticket-${idx}`, status: "waiting", user_id: null, device_hash: null, created_at: new Date(Date.now() + idx).toISOString(), last_seen_at: new Date().toISOString(), admitted_at: null, ...(args[0] as Record<string, unknown>) })
             }
             return b
           }
-          if (m === "insert") { idx = h.inserted.length; h.inserted.push({ ...(args[0] as Record<string, unknown>) }) }
+          if (m === "insert") { idx = h.inserted.length; h.inserted.push({ ...(args[0] as Record<string, unknown>) }); h.ticketAtInsert = h.queue[0]?.status ?? null }
           if (m === "update") h.updates.push(args[0] as Record<string, unknown>)
           return b
         }
@@ -68,8 +74,11 @@ vi.mock("@supabase/supabase-js", () => ({
             ins.every((o) => (o.args[1] as unknown[]).includes(r[String(o.args[0])]))
           const upd = ops.find((o) => o.method === "update")
           if (upd) {
-            for (const r of h.queue) if (match(r)) Object.assign(r, upd.args[0])
-            return { data: null, error: null }
+            // Compare-and-set like PostgREST's update().select(): the rows that matched (and changed).
+            const losing = h.queueCasLose && (upd.args[0] as Record<string, unknown>).status === "used" && ops.some((o) => o.method === "eq" && o.args[0] === "status")
+            const hit = losing ? [] : h.queue.filter(match)
+            for (const r of hit) Object.assign(r, upd.args[0])
+            return { data: hit.map((r) => ({ id: r.id })), error: null }
           }
           if (ops.some((o) => o.method === "select")) {
             return { data: h.queue.filter(match).sort((a, c) => a.created_at.localeCompare(c.created_at)).map((r) => ({ ...r })), error: null }
@@ -105,7 +114,7 @@ vi.mock("@supabase/supabase-js", () => ({
         }
         return { data: null, error: null }
       }
-      b.single = async () => table === "ai_voice_queue" ? (h.queueError ? { data: null, error: { message: "x" } } : { data: { id: `ticket-${idx}` }, error: null }) : (table === "ai_voice_calls" ? (h.insertError ? { data: null, error: { message: "x" } } : { data: { id: `call-${idx}` }, error: null }) : { data: null, error: null })
+      b.single = async () => table === "ai_voice_queue" ? (dupInsert ? { data: null, error: { code: "23505", message: "dup" } } : h.queueError ? { data: null, error: { message: "x" } } : { data: { id: `ticket-${idx}` }, error: null }) : (table === "ai_voice_calls" ? (h.insertError ? { data: null, error: { message: "x" } } : { data: { id: `call-${idx}` }, error: null }) : { data: null, error: null })
       b.maybeSingle = async () => {
         if (table === "users") {
           const sel = ops.find((o) => o.method === "select")
@@ -148,7 +157,7 @@ beforeEach(() => {
     inserted: [], updates: [], insertError: false, turnstileEnabled: false, turnstileValid: true, rateAllowed: true, rateDegraded: false, rateCalls: [], countOps: [], updateError: false,
     policyRows: 0, openRows: 0, policyOps: [], openOps: [],
     mint: { ok: true, token: "tok_abc", warnings: [] }, mintCalls: [], openKeyRows: [], mintByKey: {}, keyCount: {}, claimError: false,
-    queue: [], queueError: false, openKeyError: false,
+    queue: [], queueError: false, openKeyError: false, queueCasLose: false, queueInsertDup: false, ticketAtInsert: null,
   })
   for (let i = 4; i <= 9; i++) delete process.env[`NUANCE_API_KEY_${i}`]
   process.env.NUANCE_DEVICE_SALT = "salt"
@@ -576,6 +585,49 @@ describe("waiting line", () => {
     const body = await (await dash()).json()
     expect(body).toMatchObject({ queued: true, ticketId: "mine", position: 2 })
     expect(h.queue).toHaveLength(2)
+  })
+
+  it("review fix 1: two requests on one admitted ticket — the one that loses the compare-and-set gets busy and no mint", async () => {
+    h.config = LINE()
+    h.queue = [ticket({ id: UUID, user_id: "u1", status: "admitted", admitted_at: ago(3_000) })]
+    h.queueCasLose = true
+    const res = await dash({ ticketId: UUID })
+    expect(await res.json()).toEqual({ fallback: "text", reason: "busy" })
+    expect(h.mintCalls).toHaveLength(0)
+    expect(h.inserted[0]).toMatchObject({ end_reason: "ticket_lost" })
+  })
+
+  it("review fix 2: the ticket keeps holding its slot (still admitted) while the call row is created", async () => {
+    h.config = LINE()
+    h.queue = [ticket({ id: UUID, user_id: "u1", status: "admitted", admitted_at: ago(3_000) })]
+    await dash({ ticketId: UUID })
+    expect(h.ticketAtInsert).toBe("admitted")
+    expect(h.queue[0].status).toBe("used")
+  })
+
+  it("review fix 2: a refusal after admission (daily cap) releases the ticket", async () => {
+    h.config = LINE()
+    h.counts = { mine: 5, visitors: 0 }
+    h.queue = [ticket({ id: UUID, user_id: "u1", status: "admitted", admitted_at: ago(3_000) })]
+    const res = await dash({ ticketId: UUID })
+    expect(await res.json()).toEqual({ fallback: "text", reason: "daily_cap" })
+    expect(h.queue[0].status).toBe("used")
+  })
+
+  it("review fix 3: a parallel request from the same identity already made the ticket -> reuse it, no second place", async () => {
+    h.config = LINE()
+    h.openKeyRows = FULL
+    h.queueInsertDup = true
+    const body = await (await dash()).json()
+    expect(body).toMatchObject({ queued: true, ticketId: "parallel", position: 1 })
+  })
+
+  it("review fix 5: the caller's own admitted ticket is used even without the ticketId in the body", async () => {
+    h.config = LINE()
+    h.queue = [ticket({ id: UUID, user_id: "u1", status: "admitted", admitted_at: ago(3_000) })]
+    const body = await (await dash()).json()
+    expect(body.token).toBe("tok_abc")
+    expect(h.queue[0].status).toBe("used")
   })
 
   it("this caller's admitted ticket: marked used, then a normal call", async () => {

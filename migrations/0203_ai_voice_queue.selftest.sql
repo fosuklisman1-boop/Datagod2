@@ -12,6 +12,16 @@ BEGIN
     RAISE EXCEPTION 'FAIL index';
   END IF;
 
+  -- One live place per identity (read from the catalog; no failing inserts needed).
+  IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND tablename='ai_voice_queue'
+                 AND indexname='ai_voice_queue_one_live_user_idx' AND indexdef LIKE 'CREATE UNIQUE INDEX%' AND indexdef LIKE '%waiting%admitted%') THEN
+    RAISE EXCEPTION 'FAIL unique live user index';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND tablename='ai_voice_queue'
+                 AND indexname='ai_voice_queue_one_live_device_idx' AND indexdef LIKE 'CREATE UNIQUE INDEX%' AND indexdef LIKE '%waiting%admitted%') THEN
+    RAISE EXCEPTION 'FAIL unique live device index';
+  END IF;
+
   -- A device ticket defaults to waiting.
   INSERT INTO public.ai_voice_queue (device_hash, context, mode) VALUES ('selftest0203', 'home', 'voice');
   SELECT status INTO v_status FROM public.ai_voice_queue WHERE device_hash = 'selftest0203';
