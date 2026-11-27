@@ -120,7 +120,7 @@ BEGIN
   -- else the single row if only one account has the number (the app refuses it when unverified); else NULL.
   IF v_ver = 1 OR (v_count = 1 AND v_ver = 0) THEN
     RETURN QUERY
-      SELECT v_count, v_ver, u.id, au.email::text, u.phone_number, u.phone_verified, u.is_suspended
+      SELECT v_count, v_ver, u.id, au.email::text, u.phone_number::text, u.phone_verified, u.is_suspended
         FROM public.users u
         LEFT JOIN auth.users au ON au.id = u.id
        WHERE public.ghana_phone_sig(u.phone_number) = p_sig

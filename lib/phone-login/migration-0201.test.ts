@@ -73,9 +73,9 @@ const U3 = "00000000-0000-4000-8000-000000000003" // unique phone
 // Prod-shaped stubs. Phone formats are mixed on purpose, as in prod.
 const STUBS = `
   CREATE SCHEMA auth;
-  CREATE TABLE auth.users (id uuid PRIMARY KEY, email text, encrypted_password text, banned_until timestamptz);
+  CREATE TABLE auth.users (id uuid PRIMARY KEY, email varchar, encrypted_password varchar, banned_until timestamptz);
   CREATE TABLE public.users (
-    id uuid PRIMARY KEY, email text NOT NULL, phone_number text,
+    id uuid PRIMARY KEY, email varchar NOT NULL, phone_number varchar(20),
     phone_verified boolean NOT NULL DEFAULT false, is_suspended boolean
   );
   CREATE TABLE public.admin_settings (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), key varchar(100) UNIQUE NOT NULL, value jsonb NOT NULL);
