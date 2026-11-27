@@ -136,4 +136,68 @@ describe("call controller", () => {
     await p
     expect(endCalls).toHaveLength(1)
   })
+
+  it("end reasons are always ones /voice/end accepts (an unknown SDK reason becomes 'ended')", async () => {
+    const { ctrl, convs, endCalls } = setup()
+    const p = ctrl.start("voice")
+    await flush()
+    convs[0].emit({ type: "avatar-presented" })
+    convs[0].emit({ type: "session-ended", reason: "some-new-sdk-reason" })
+    await flush()
+    expect(endCalls[0].reason).toBe("ended")
+    convs[0].resolveConnect()
+    await p
+  })
+
+  it("M1: the end post carries the time the persona was presented, and no startedAt when it never was", async () => {
+    const { ctrl, convs, endCalls } = setup()
+    const p = ctrl.start("voice")
+    await flush()
+    convs[0].emit({ type: "avatar-presented" })
+    ctrl.hangUp()
+    await flush()
+    expect(endCalls[0].started).toBe(true)
+    expect(Number.isFinite(Date.parse(endCalls[0].startedAt))).toBe(true)
+    convs[0].resolveConnect()
+    await p
+    const second = setup()
+    const p2 = second.ctrl.start("voice")
+    await flush()
+    second.ctrl.hangUp()
+    await flush()
+    expect(second.endCalls[0].started).toBe(false)
+    expect(second.endCalls[0].startedAt).toBeUndefined()
+    second.convs[0].resolveConnect()
+    await p2
+  })
+
+  it("I4: pageHide hangs up at once, posting the end with the auth header cached at start", async () => {
+    const convs: any[] = []
+    const ends: Array<{ body: any; headers: any }> = []
+    const fetchImpl = vi.fn(async (url: string, init: any) => {
+      if (url === "/api/ai/voice/token") return new Response(JSON.stringify({ token: "t", callId: "call-1", maxSeconds: 300 }), { status: 200 })
+      ends.push({ body: JSON.parse(init.body), headers: init.headers })
+      return new Response(null, { status: 204 })
+    })
+    const ctrl = createCallController({
+      context: "dashboard",
+      assistantName: () => "Clings",
+      authHeader: async () => "Bearer jwt",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      loadSdk: async () => ({ createNuanceConversation: () => { const c = fakeConv("c1"); convs.push(c); return c } }) as any,
+      setInterval: () => 1,
+      clearInterval: () => {},
+    })
+    const p = ctrl.start("voice")
+    await flush()
+    convs[0].emit({ type: "avatar-presented" })
+    ctrl.pageHide()
+    // synchronous: no await needed for the end request to have been issued
+    expect(ends).toHaveLength(1)
+    expect(ends[0].body).toMatchObject({ callId: "call-1", reason: "page_left", started: true })
+    expect(ends[0].headers.Authorization).toBe("Bearer jwt")
+    expect(ctrl.getSnapshot().state).toBe("ended")
+    convs[0].resolveConnect()
+    await p
+  })
 })

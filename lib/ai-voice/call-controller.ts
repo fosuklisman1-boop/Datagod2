@@ -7,6 +7,7 @@ import { createCallSession } from "./call-session"
 import { createChatRelay, type RelayCard } from "./chat-relay"
 import { clampForAppend, toVoiceText } from "./mask"
 import { connectErrorMessage } from "./connect-errors"
+import { toClientEndReason } from "./end-reasons"
 import type { FallbackReason } from "./nuance"
 
 export type CallState = "idle" | "starting" | "live" | "ended"
@@ -94,6 +95,10 @@ export function createCallController(deps: CallControllerDeps) {
   let conv: Conversation | null = null
   let callId: string | null = null
   let started = false
+  let startedAt: string | null = null
+  // Last auth header seen at start: a page-hide hang-up has no time to await a fresh one.
+  let cachedAuth: string | undefined
+  let hiding = false
   let finished = true
   let transcript = new CallTranscript()
   let cards: RelayCard[] = []
@@ -104,19 +109,28 @@ export function createCallController(deps: CallControllerDeps) {
   let audio: HTMLAudioElement | null = null
   const ended = new Set<string>()
 
-  async function postEnd(id: string, reason: string, wasStarted: boolean, conversationId?: string) {
+  async function postEnd(id: string, reason: string, wasStarted: boolean, conversationId?: string, presentedAt?: string | null) {
     if (ended.has(id)) return
     ended.add(id)
     try {
-      const auth = await deps.authHeader?.()
+      // While the page is hiding the cached header is used: no await before the request, so it goes out
+      // synchronously. Otherwise ask for a fresh one (a long call can outlive the session token).
+      const auth = hiding ? cachedAuth : await deps.authHeader?.()
       await doFetch("/api/ai/voice/end", {
         method: "POST",
         keepalive: true,
         headers: { "Content-Type": "application/json", ...(auth ? { Authorization: auth } : {}) },
-        body: JSON.stringify({ callId: id, reason, started: wasStarted, ...(conversationId ? { conversationId } : {}) }),
+        body: JSON.stringify({
+          callId: id,
+          reason: toClientEndReason(reason),
+          started: wasStarted,
+          ...(wasStarted && presentedAt ? { startedAt: presentedAt } : {}),
+          ...(conversationId ? { conversationId } : {}),
+        }),
       })
     } catch {
-      // Best effort: the row also closes by itself.
+      // Best effort. A row that never gets its end stays open and blocks this identity's next call until
+      // max_seconds + 60 s have passed (the token route's concurrency check), so a lost end is not permanent.
     }
   }
 
@@ -161,7 +175,7 @@ export function createCallController(deps: CallControllerDeps) {
     if (finished) return
     gen++ // any start still waiting is now stale
     const { id, conversationId } = teardown()
-    if (id) void postEnd(id, reason, started, conversationId)
+    if (id) void postEnd(id, reason, started, conversationId, startedAt)
     const turns = transcript.captions()
     const got = cards
     patch({ muted: false, speaking: { user: false, avatar: false }, secondsLeft: null, slow: false, endMessage: message, state: "ended" })
@@ -182,6 +196,7 @@ export function createCallController(deps: CallControllerDeps) {
     transcript = new CallTranscript()
     cards = []
     started = false
+    startedAt = null
     finished = false
     patch({ ...INITIAL, state: "starting", mode, endMessage: undefined })
 
@@ -195,6 +210,7 @@ export function createCallController(deps: CallControllerDeps) {
 
     try {
       const auth = await deps.authHeader?.()
+      cachedAuth = auth
       const isVisitor = deps.context === "home" || deps.context === "storefront"
       const turnstileToken = isVisitor ? await deps.getTurnstileToken?.() : undefined
       if (stale()) return
@@ -278,6 +294,7 @@ export function createCallController(deps: CallControllerDeps) {
             case "avatar-presented": {
               if (finished) break
               started = true
+              startedAt = new Date().toISOString()
               patch({ state: "live" })
               syncMedia()
               // The persona never speaks first. Plain ASCII, masked, like every other line sent to Nuance.
@@ -379,7 +396,22 @@ export function createCallController(deps: CallControllerDeps) {
       if (finished) return
       gen++
       const { id, conversationId } = teardown()
-      if (id) void postEnd(id, "page_left", started, conversationId)
+      hiding = true // unmount: same synchronous send as a page hide
+      try {
+        if (id) void postEnd(id, "page_left", started, conversationId, startedAt)
+      } finally {
+        hiding = false
+      }
+    },
+    /** The page is being hidden or closed: hang up now (the request goes out synchronously, keepalive). */
+    pageHide() {
+      if (snap.state !== "starting" && snap.state !== "live") return
+      hiding = true
+      try {
+        finish("page_left")
+      } finally {
+        hiding = false
+      }
     },
   }
 }
