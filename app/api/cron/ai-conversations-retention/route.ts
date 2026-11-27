@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyCronAuth } from "@/lib/cron-auth"
-import { deleteOldConversations, deleteOldVoiceCalls } from "@/lib/ai-console/retention"
+import { deleteOldConversations, deleteOldVoiceCalls, deleteOldVoiceQueue } from "@/lib/ai-console/retention"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 120
@@ -15,6 +15,7 @@ export async function GET(request: NextRequest) {
   let failed = false
   let deleted = 0
   let voiceCallsDeleted = 0
+  let voiceQueueDeleted = 0
   try {
     deleted = await deleteOldConversations(supabase)
   } catch {
@@ -27,9 +28,15 @@ export async function GET(request: NextRequest) {
     failed = true
     console.error("[AI-CONVERSATIONS-RETENTION] voice calls failed")
   }
+  try {
+    voiceQueueDeleted = await deleteOldVoiceQueue(supabase)
+  } catch {
+    failed = true
+    console.error("[AI-CONVERSATIONS-RETENTION] voice queue failed")
+  }
   if (failed) {
     return NextResponse.json({ success: false, error: "Internal server error" }, { status: 500 })
   }
-  console.log("[AI-CONVERSATIONS-RETENTION] done", { deleted, voiceCallsDeleted })
-  return NextResponse.json({ success: true, data: { deleted, voiceCallsDeleted } })
+  console.log("[AI-CONVERSATIONS-RETENTION] done", { deleted, voiceCallsDeleted, voiceQueueDeleted })
+  return NextResponse.json({ success: true, data: { deleted, voiceCallsDeleted, voiceQueueDeleted } })
 }

@@ -22,6 +22,14 @@ export async function deleteOldConversations(db: SupabaseClient, now: Date = new
   return deleted
 }
 
+/** Deletes waiting-line tickets (ai_voice_queue) created more than a day ago; returns how many were deleted. */
+export async function deleteOldVoiceQueue(db: SupabaseClient, now: Date = new Date()): Promise<number> {
+  const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString()
+  const { count, error } = await db.from("ai_voice_queue").delete({ count: "exact" }).lt("created_at", cutoff)
+  if (error) throw new Error("retention voice queue delete failed")
+  return count ?? 0
+}
+
 /** Deletes ai_voice_calls rows created before the retention window; returns how many were deleted. */
 export async function deleteOldVoiceCalls(db: SupabaseClient, now: Date = new Date()): Promise<number> {
   const cutoff = new Date(now.getTime() - RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString()

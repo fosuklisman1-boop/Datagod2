@@ -1,5 +1,45 @@
 import { describe, it, expect } from "vitest"
-import { deleteOldConversations, deleteOldVoiceCalls, RETENTION_DAYS } from "./retention"
+import { deleteOldConversations, deleteOldVoiceCalls, deleteOldVoiceQueue, RETENTION_DAYS } from "./retention"
+
+describe("voice waiting-line retention", () => {
+  function fakeQueueDb(rows: Array<{ id: string; created_at: string }>, fail = false) {
+    const seen = { table: "", cutoff: "", column: "" }
+    return {
+      rows,
+      seen,
+      from(t: string) {
+        seen.table = t
+        let cutoff = ""
+        const q: any = {
+          delete: () => q,
+          lt: (c: string, v: string) => { seen.column = c; cutoff = v; return q },
+          then: (res: any, rej: any) => {
+            if (fail) return Promise.resolve({ count: null, error: { message: "db down" } }).then(res, rej)
+            seen.cutoff = cutoff
+            const before = rows.length
+            for (let i = rows.length - 1; i >= 0; i--) if (rows[i].created_at < cutoff) rows.splice(i, 1)
+            return Promise.resolve({ count: before - rows.length, error: null }).then(res, rej)
+          },
+        }
+        return q
+      },
+    }
+  }
+  const NOW3 = new Date("2026-12-31T12:00:00Z")
+  it("deletes ai_voice_queue rows older than 1 day and keeps newer ones", async () => {
+    const db = fakeQueueDb([
+      { id: "old", created_at: "2026-12-30T11:00:00Z" },
+      { id: "recent", created_at: "2026-12-31T00:00:00Z" },
+    ])
+    expect(await deleteOldVoiceQueue(db as any, NOW3)).toBe(1)
+    expect(db.rows.map((r) => r.id)).toEqual(["recent"])
+    expect(db.seen).toMatchObject({ table: "ai_voice_queue", column: "created_at" })
+    expect(new Date(db.seen.cutoff).getTime()).toBe(NOW3.getTime() - 24 * 60 * 60 * 1000)
+  })
+  it("throws when the delete fails", async () => {
+    await expect(deleteOldVoiceQueue(fakeQueueDb([], true) as any, NOW3)).rejects.toThrow()
+  })
+})
 
 function fakeVoiceDb(rows: Array<{ id: string; created_at: string }>, fail = false) {
   const seen = { cutoff: "" }
