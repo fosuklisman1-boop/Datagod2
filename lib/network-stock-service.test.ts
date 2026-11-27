@@ -3,6 +3,7 @@ import {
   getNetworkStockMap,
   setNetworkOutOfStock,
   restockNetwork,
+  getStockNotices,
   NETWORK_STOCK_KEY,
   type NetworkStockMap,
 } from "./network-stock-service"
@@ -95,7 +96,7 @@ describe("setNetworkOutOfStock", () => {
 
     const result = await setNetworkOutOfStock(createFakeSupabase(state), "MTN")
 
-    expect(result).toEqual({ affected: 2, alreadyOutOfStock: false })
+    expect(result).toEqual({ affected: 2, alreadyOutOfStock: false, reasonUpdated: false })
     expect(state.updateCalls).toHaveLength(1)
     expect(new Set(state.updateCalls[0].ids)).toEqual(new Set(["p1", "p2"]))
     expect(state.updateCalls[0].patch).toEqual({ is_available: false })
@@ -140,7 +141,7 @@ describe("setNetworkOutOfStock", () => {
     // which packages should be restored later.
     const second = await setNetworkOutOfStock(createFakeSupabase(state), "MTN")
 
-    expect(second).toEqual({ affected: 0, alreadyOutOfStock: true })
+    expect(second).toEqual({ affected: 0, alreadyOutOfStock: true, reasonUpdated: false })
     expect(state.updateCalls).toHaveLength(1) // no additional .update() call
     expect(state.upsertCalls).toHaveLength(1) // no additional .upsert() call
     expect(state.stockMap!.MTN!.restoreIds).toEqual(snapshotAfterFirst)
@@ -151,7 +152,7 @@ describe("setNetworkOutOfStock", () => {
 
     const result = await setNetworkOutOfStock(createFakeSupabase(state), "MTN")
 
-    expect(result).toEqual({ affected: 0, alreadyOutOfStock: false })
+    expect(result).toEqual({ affected: 0, alreadyOutOfStock: false, reasonUpdated: false })
     expect(state.updateCalls).toHaveLength(0) // never call .in("id", [])
     const map = await getNetworkStockMap(createFakeSupabase(state))
     expect(map.MTN).toEqual({ outOfStock: true, restoreIds: [] })
@@ -162,7 +163,7 @@ describe("setNetworkOutOfStock", () => {
 
     const result = await setNetworkOutOfStock(createFakeSupabase(state), "AT - BigTime")
 
-    expect(result).toEqual({ affected: 0, alreadyOutOfStock: false })
+    expect(result).toEqual({ affected: 0, alreadyOutOfStock: false, reasonUpdated: false })
     expect(state.updateCalls).toHaveLength(0)
   })
 })
@@ -225,5 +226,65 @@ describe("restockNetwork", () => {
 
     expect(result.affected).toBe(2) // affected reflects the snapshot size, not actual DB rows touched
     expect(state.packages.find((p) => p.id === "p1")!.is_available).toBe(true)
+  })
+})
+
+describe("out-of-stock reason", () => {
+  it("stores a normalised reason alongside the restoreIds snapshot", async () => {
+    state.packages = [{ id: "p1", network: "MTN", is_available: true }]
+
+    await setNetworkOutOfStock(createFakeSupabase(state), "MTN", "  Back\nsoon ")
+
+    expect(state.stockMap!.MTN).toEqual({ outOfStock: true, restoreIds: ["p1"], reason: "Back soon" })
+  })
+
+  it("updates only the reason on a second call, keeping restoreIds and not re-querying packages", async () => {
+    state.packages = [
+      { id: "p1", network: "MTN", is_available: true },
+      { id: "p2", network: "MTN", is_available: null },
+    ]
+    await setNetworkOutOfStock(createFakeSupabase(state), "MTN", "Back soon")
+    const snapshot = [...state.stockMap!.MTN!.restoreIds!]
+
+    const second = await setNetworkOutOfStock(createFakeSupabase(state), "MTN", "Back tomorrow")
+
+    expect(second).toEqual({ affected: 0, alreadyOutOfStock: true, reasonUpdated: true })
+    expect(state.updateCalls).toHaveLength(1)
+    expect(state.stockMap!.MTN).toEqual({ outOfStock: true, restoreIds: snapshot, reason: "Back tomorrow" })
+  })
+
+  it("clears the reason when a blank or null reason is sent while out of stock", async () => {
+    state.stockMap = { MTN: { outOfStock: true, restoreIds: ["p1"], reason: "Old" } }
+
+    const result = await setNetworkOutOfStock(createFakeSupabase(state), "MTN", null)
+
+    expect(result.reasonUpdated).toBe(true)
+    expect(state.stockMap!.MTN).toEqual({ outOfStock: true, restoreIds: ["p1"] })
+  })
+
+  it("restock drops the reason", async () => {
+    state.stockMap = { MTN: { outOfStock: true, restoreIds: [], reason: "Back soon" } }
+
+    await restockNetwork(createFakeSupabase(state), "MTN")
+
+    expect(state.stockMap!.MTN).toEqual({ outOfStock: false })
+  })
+})
+
+describe("getStockNotices", () => {
+  it("returns customer notices for out-of-stock networks", async () => {
+    state.stockMap = { MTN: { outOfStock: true, restoreIds: [], reason: "Back at 6pm" }, Telecel: { outOfStock: false } }
+
+    expect(await getStockNotices(createFakeSupabase(state))).toEqual({ MTN: "Back at 6pm" })
+  })
+
+  it("fails open to {} when the settings read errors", async () => {
+    const broken = {
+      from: () => ({
+        select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: { message: "boom" } }) }) }),
+      }),
+    } as any
+
+    expect(await getStockNotices(broken)).toEqual({})
   })
 })
