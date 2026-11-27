@@ -54,6 +54,14 @@ export function buildStockNotices(map: NetworkStockMap): StockNotices {
   return notices
 }
 
+/**
+ * The notice to show for `network` given how many of its bundles are on sale: only when none are, so
+ * bundles an admin re-enables while the network is still flagged stay buyable everywhere.
+ */
+export function noticeWhenEmpty(notices: StockNotices, network: string, availableCount: number): string | null {
+  return availableCount > 0 ? null : noticeFor(notices, network)
+}
+
 export function noticeFor(notices: StockNotices, network: string): string | null {
   const key = stockNetworkKey(network)
   for (const [name, text] of Object.entries(notices ?? {})) {

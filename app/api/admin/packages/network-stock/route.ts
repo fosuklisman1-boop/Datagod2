@@ -6,6 +6,7 @@ import {
   getNetworkStockMap,
   setNetworkOutOfStock,
   restockNetwork,
+  updateNetworkStockReason,
 } from "@/lib/network-stock-service"
 import { parseNetworkStockBody } from "@/lib/network-stock-request"
 import { normalizeStockReason } from "@/lib/network-stock-notice"
@@ -43,13 +44,36 @@ export async function POST(request: NextRequest) {
 
   const parsed = parseNetworkStockBody(body)
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
-  const { network, outOfStock, reason } = parsed
+  const { network, outOfStock, reason, reasonOnly } = parsed
 
   const adminClient = createClient(supabaseUrl, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   })
 
   try {
+    // "Save reason": text only, never packages. 409 if the network was restocked meanwhile, so a
+    // stale edit cannot switch it off again.
+    if (reasonOnly) {
+      const { updated } = await updateNetworkStockReason(adminClient, network, reason)
+      if (!updated) {
+        return NextResponse.json({ error: `${network} is no longer out of stock — refresh the page` }, { status: 409 })
+      }
+      adminClient
+        .from("admin_audit_log")
+        .insert([{
+          admin_id: userId,
+          action: "network_stock_reason",
+          target_user_id: null,
+          old_value: { network },
+          new_value: { reason: normalizeStockReason(reason) },
+          created_at: new Date().toISOString(),
+        }])
+        .then(({ error }: { error: any }) => {
+          if (error) console.warn("[ADMIN-AUDIT] network_stock_reason log insert failed:", error.message)
+        })
+      return NextResponse.json({ success: true, network, outOfStock: true, affected: 0, reasonUpdated: true })
+    }
+
     const result = outOfStock
       ? await setNetworkOutOfStock(adminClient, network, reason)
       : { ...(await restockNetwork(adminClient, network)), reasonUpdated: false }

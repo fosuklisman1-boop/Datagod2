@@ -22,7 +22,7 @@ import { applyAdjustmentsExceptCustom } from "@/lib/pricing/adjust-except-custom
 import { fetchUserPackagePrices, MSG_STANDARD_PRICES_FALLBACK, resolveDisplayPrices, STANDARD_PRICES_TOAST_ID } from "@/lib/pricing/user-package-prices"
 import { validatePhoneNumber } from "@/lib/phone-validation"
 import { DEFAULT_NETWORK_PREFIXES, type NetworkPrefixMap } from "@/lib/phone-format"
-import { noticeFor, type StockNotices } from "@/lib/network-stock-notice"
+import { noticeWhenEmpty, type StockNotices } from "@/lib/network-stock-notice"
 import { toast } from "sonner"
 
 interface Package {
@@ -413,7 +413,8 @@ function DataPackagesPageInner() {
   }, [packagesForSelectedNetwork, searchTerm])
 
   const meta = NETWORK_META[selectedNetwork]
-  const selectedNotice = noticeFor(stockNotices, selectedNetwork)
+  // Only when nothing is on sale: bundles re-enabled during an outage stay buyable.
+  const selectedNotice = noticeWhenEmpty(stockNotices, selectedNetwork, packagesForSelectedNetwork.length)
 
   return (
     <DashboardLayout>
@@ -433,7 +434,7 @@ function DataPackagesPageInner() {
             const m = NETWORK_META[net]
             const isSelected = selectedNetwork === net
             const isLive = packages.some((p) => p.network === net)
-            const isOutOfStock = noticeFor(stockNotices, net) !== null
+            const isOutOfStock = noticeWhenEmpty(stockNotices, net, isLive ? 1 : 0) !== null
             const logo = getNetworkLogo(net)
             return (
               <button

@@ -167,3 +167,23 @@ export async function restockNetwork(
 
   return { affected: restoreIds.length, alreadyInStock: false }
 }
+
+/**
+ * "Save reason": change only the customer text of a network that is CURRENTLY out of stock.
+ * Never touches packages. Returns { updated: false } (and writes nothing) when the network is
+ * not out of stock — e.g. another admin restocked it after this admin's page loaded — so a stale
+ * edit can never switch a restocked network off again. null/blank clears the reason.
+ */
+export async function updateNetworkStockReason(
+  supabase: SupabaseClient,
+  network: string,
+  reason: string | null | undefined
+): Promise<{ updated: boolean }> {
+  const map = await getNetworkStockMap(supabase)
+  if (map[network]?.outOfStock !== true) return { updated: false }
+  const { reason: _old, ...rest } = map[network]
+  const cleanReason = normalizeStockReason(reason)
+  map[network] = cleanReason ? { ...rest, reason: cleanReason } : rest
+  await writeNetworkStockMap(supabase, map)
+  return { updated: true }
+}

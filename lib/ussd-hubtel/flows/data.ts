@@ -9,7 +9,7 @@ import { priceForTier } from "../catalog"
 import { HUBTEL_NETWORKS, networkMenuText, bundleMenuText, confirmMenuText } from "../menus"
 import { blockedRecipientScreen, enterRecipientStep, recipientStep, whoForScreen } from "../recipient-step"
 import { backFromInternetType } from "./internet-bundles"
-import { finish, goto, replaySubmittedOrder, say, stockNoticeFor, type FlowCtx, type StepTable } from "../flow-kit"
+import { finish, goto, noticeScreen, replaySubmittedOrder, say, stockNoticeFor, type FlowCtx, type StepTable } from "../flow-kit"
 import { checkoutOrChoose, type Prepare, type PreparedOrder } from "./pay-choice"
 import type { HubtelReply, HubtelSession, PayKind } from "../types"
 import { confirmNote, recipientBlockedAtPay, RECIPIENT_BLOCKED_NOTE } from "../confirm-note"
@@ -33,13 +33,15 @@ async function selectNetwork(ctx: FlowCtx): Promise<HubtelReply> {
   const net = HUBTEL_NETWORKS.find(n => n.digit === input)
   if (!net) return say(ctx, networkMenuText(), "SELECT_NETWORK", NETWORK)
 
-  // Admin marked the network out of stock: show the reason, stay on the network menu.
-  const notice = await stockNoticeFor(deps, net.dbName)
-  if (notice) return say(ctx, `${notice}\n` + networkMenuText(), "SELECT_NETWORK", NETWORK)
-
   const caller = await deps.resolveCaller(session.dialingPhone)
   const { bundles, total } = await deps.fetchBundles(net.dbName, 0, caller.effectivePriceTier, caller.subAgentParentShopId, caller.userId, caller.priceRole)
-  if (bundles.length === 0) return say(ctx, `No ${net.label} packages available.\n` + networkMenuText(), "SELECT_NETWORK", NETWORK)
+  if (bundles.length === 0) {
+    // Admin marked the network out of stock: their reason replaces the plain "none available" line.
+    // Checked only when nothing is on sale, so bundles re-enabled during an outage still list.
+    const notice = await stockNoticeFor(deps, net.dbName)
+    const screen = notice ? noticeScreen(notice, networkMenuText()) : `No ${net.label} packages available.\n` + networkMenuText()
+    return say(ctx, screen, "SELECT_NETWORK", NETWORK)
+  }
   return goto(ctx, {
     step: "SELECT_BUNDLE", network: net.dbName, bundlePage: 0,
     effectivePriceTier: caller.effectivePriceTier, priceRole: caller.priceRole, subAgentParentShopId: caller.subAgentParentShopId, userId: caller.userId,

@@ -13,7 +13,7 @@ import type { CallerContext } from "./catalog"
 import type { BlockContext } from "@/lib/blocked-numbers/types"
 import { resolveMainMenu, mainMenuText } from "./menus"
 import { cartItemNameFor, failOrderGuarded, isHubtelOrderTable, type HubtelOrderTable } from "./order-tables"
-import { addToCart, release, respond } from "./protocol"
+import { addToCart, release, respond, USSD_SCREEN_LIMIT } from "./protocol"
 import { safeDbError } from "./log-safe"
 import { findWalletPaymentBySession, type WalletPayDeps } from "./wallet-pay"
 import { isMissingTable } from "@/lib/refunds/hubtel-wallet"
@@ -327,6 +327,17 @@ export async function stockNoticesOf(deps: RouterDeps): Promise<StockNotices> {
   } catch {
     return {}
   }
+}
+
+/**
+ * `notice` above `screen`, the notice trimmed (ASCII "...") so the whole reply fits one USSD screen and the
+ * menu below it — including "0. Back" — is never cut. A screen with no room left shows just the menu.
+ */
+export function noticeScreen(notice: string, screen: string, limit = USSD_SCREEN_LIMIT): string {
+  const room = limit - screen.length - 1
+  if (notice.length <= room) return `${notice}\n${screen}`
+  if (room < 8) return screen
+  return `${notice.slice(0, room - 3).trimEnd()}...\n${screen}`
 }
 
 /** The admin's out-of-stock text for `network` (any spelling), or null to carry on as normal. */

@@ -53,7 +53,7 @@ import {
   Receipt,
   PackageX
 } from "lucide-react"
-import { noticeFor, type StockNotices } from "@/lib/network-stock-notice"
+import { noticeWhenEmpty, type StockNotices } from "@/lib/network-stock-notice"
 import { AirtimeStorefrontForm } from "@/components/shop/AirtimeStorefrontForm"
 import { ResultsCheckerStorefrontForm } from "@/components/shop/ResultsCheckerStorefrontForm"
 import { ResultsCheckServiceForm } from "@/components/shop/ResultsCheckServiceForm"
@@ -151,6 +151,14 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName, server
   const [selectedPackage, setSelectedPackage] = useState<any>(null)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null)
+  // Admin reason for the selected network, only while none of its bundles are on sale here.
+  const selectedNotice = selectedNetwork
+    ? noticeWhenEmpty(
+        stockNotices,
+        selectedNetwork,
+        packages.filter(p => p.packages?.network === selectedNetwork && p.is_available).length
+      )
+    : null
   const [networkLogos, setNetworkLogos] = useState<Record<string, string>>({})
 
   const domainBranding = useDomainBranding()
@@ -1446,7 +1454,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName, server
                             {Array.from(new Set([...packages.map(p => p.packages.network), ...Object.keys(stockNotices)])).map((network) => {
                               const networkPackages = packages.filter(p => p.packages.network === network)
                               const availableCount = networkPackages.filter(p => p.is_available).length
-                              const isOutOfStock = noticeFor(stockNotices, network as string) !== null
+                              const isOutOfStock = noticeWhenEmpty(stockNotices, network as string, availableCount) !== null
                               const netColor = networkColorFor(network as string)
                               const isSelected = selectedNetwork === network
 
@@ -1543,7 +1551,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName, server
                           )}
 
                           {/* Admin marked the selected network out of stock: the reason replaces the grid */}
-                          {selectedNetwork && noticeFor(stockNotices, selectedNetwork) && (
+                          {selectedNetwork && selectedNotice && (
                             <div ref={packagesRef} className="py-10 border-t border-border animate-in fade-in slide-in-from-bottom-8 duration-700">
                               <div className="flex items-start gap-4 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-5 lg:p-8 clay">
                                 <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[var(--shop-accent)] text-white">
@@ -1551,14 +1559,14 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName, server
                                 </span>
                                 <div className="min-w-0">
                                   <h2 className="text-lg lg:text-xl font-black text-foreground">{selectedNetwork} is out of stock</h2>
-                                  <p className="mt-1 break-words text-sm lg:text-base text-muted-foreground">{noticeFor(stockNotices, selectedNetwork)}</p>
+                                  <p className="mt-1 break-words text-sm lg:text-base text-muted-foreground">{selectedNotice}</p>
                                 </div>
                               </div>
                             </div>
                           )}
 
                           {/* Packages Grid */}
-                          {selectedNetwork && !noticeFor(stockNotices, selectedNetwork) && (
+                          {selectedNetwork && !selectedNotice && (
                             <div ref={packagesRef} className="py-10 border-t border-border animate-in fade-in slide-in-from-bottom-8 duration-700">
                               <div className="flex items-center gap-4 mb-8">
                                 <div className="p-3 bg-[var(--shop-accent)] rounded-2xl">

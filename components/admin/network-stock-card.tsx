@@ -50,10 +50,10 @@ export function NetworkStockCard({ onChanged }: NetworkStockCardProps) {
     fetchStock()
   }, [])
 
-  const applyToggle = async (network: string, outOfStock: boolean, reason?: string | null) => {
+  const applyToggle = async (network: string, outOfStock: boolean, reason?: string | null, reasonOnly = false) => {
     setUpdatingNetwork(network)
     try {
-      const result = await adminPackageService.setNetworkStock(network, outOfStock, reason)
+      const result = await adminPackageService.setNetworkStock(network, outOfStock, reason, reasonOnly)
       setStock((prev) => ({
         ...prev,
         [network]: outOfStock ? { ...prev[network], outOfStock: true } : { outOfStock: false },
@@ -74,6 +74,8 @@ export function NetworkStockCard({ onChanged }: NetworkStockCardProps) {
       }
     } catch (error: any) {
       toast.error(error?.message || `Failed to update ${network} stock status`)
+      // e.g. 409: another admin restocked it — show the real state instead of the stale one.
+      if (reasonOnly) fetchStock()
     } finally {
       setUpdatingNetwork(null)
     }
@@ -98,11 +100,12 @@ export function NetworkStockCard({ onChanged }: NetworkStockCardProps) {
 
   const confirmDialog = () => {
     if (!dialog) return
-    const { network } = dialog
+    const { network, mode } = dialog
     // Blank = no reason: customers see the default message.
     const reason = reasonDraft.trim() === "" ? null : reasonDraft
     setDialog(null)
-    applyToggle(network, true, reason)
+    // "edit" only changes the text and can never switch a restocked network off again.
+    applyToggle(network, true, reason, mode === "edit")
   }
 
   return (

@@ -35,3 +35,17 @@ describe("parseNetworkStockBody", () => {
     expect(parseNetworkStockBody(null).ok).toBe(false)
   })
 })
+
+describe("parseNetworkStockBody reasonOnly", () => {
+  it("accepts a reason-only edit", () => {
+    expect(parseNetworkStockBody({ network: "MTN", outOfStock: true, reasonOnly: true, reason: "x" })).toEqual({
+      ok: true, network: "MTN", outOfStock: true, reason: "x", reasonOnly: true,
+    })
+  })
+  it("rejects a non-boolean reasonOnly", () => {
+    expect(parseNetworkStockBody({ network: "MTN", outOfStock: true, reasonOnly: "yes" })).toEqual({ ok: false, error: "reasonOnly must be a boolean" })
+  })
+  it("rejects reasonOnly on a restock", () => {
+    expect(parseNetworkStockBody({ network: "MTN", outOfStock: false, reasonOnly: true })).toEqual({ ok: false, error: "reasonOnly needs outOfStock: true" })
+  })
+})

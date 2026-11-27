@@ -4,6 +4,7 @@ import {
   setNetworkOutOfStock,
   restockNetwork,
   getStockNotices,
+  updateNetworkStockReason,
   NETWORK_STOCK_KEY,
   type NetworkStockMap,
 } from "./network-stock-service"
@@ -286,5 +287,29 @@ describe("getStockNotices", () => {
     } as any
 
     expect(await getStockNotices(broken)).toEqual({})
+  })
+})
+
+describe("updateNetworkStockReason (Save reason)", () => {
+  it("changes only the reason of an out-of-stock network", async () => {
+    state.stockMap = { MTN: { outOfStock: true, restoreIds: ["p1"], reason: "Old" } }
+
+    const result = await updateNetworkStockReason(createFakeSupabase(state), "MTN", " New\nreason ")
+
+    expect(result).toEqual({ updated: true })
+    expect(state.stockMap!.MTN).toEqual({ outOfStock: true, restoreIds: ["p1"], reason: "New reason" })
+    expect(state.updateCalls).toHaveLength(0)
+  })
+
+  it("refuses when the network was restocked meanwhile: no package change, no write", async () => {
+    state.packages = [{ id: "p1", network: "MTN", is_available: true }]
+    state.stockMap = { MTN: { outOfStock: false } }
+
+    const result = await updateNetworkStockReason(createFakeSupabase(state), "MTN", "New")
+
+    expect(result).toEqual({ updated: false })
+    expect(state.updateCalls).toHaveLength(0)
+    expect(state.upsertCalls).toHaveLength(0)
+    expect(state.packages[0].is_available).toBe(true)
   })
 })

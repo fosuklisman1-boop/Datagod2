@@ -6,6 +6,7 @@ import {
   stockNetworkLabel,
   buildStockNotices,
   noticeFor,
+  noticeWhenEmpty,
 } from "./network-stock-notice"
 
 describe("normalizeStockReason", () => {
@@ -55,6 +56,12 @@ describe("buildStockNotices / noticeFor", () => {
     expect(notices).toEqual({ "AT - iShare": "Back at 6pm" })
     expect(noticeFor(notices, "AT-iShare")).toBe("Back at 6pm")
     expect(noticeFor(notices, "MTN")).toBeNull()
+  })
+  it("noticeWhenEmpty shows the reason only when nothing is on sale", () => {
+    const notices = { MTN: "Back soon" }
+    expect(noticeWhenEmpty(notices, "MTN", 0)).toBe("Back soon")
+    expect(noticeWhenEmpty(notices, "MTN", 2)).toBeNull()
+    expect(noticeWhenEmpty(notices, "Telecel", 0)).toBeNull()
   })
   it("treats a malformed map as empty", () => {
     expect(buildStockNotices(null as any)).toEqual({})

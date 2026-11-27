@@ -209,7 +209,9 @@ export const adminPackageService = {
   // disabled by the last out-of-stock toggle)
   // reason: text customers see while out of stock; sent only when defined
   // (undefined while already out of stock = leave the reason as it is).
-  async setNetworkStock(network: string, outOfStock: boolean, reason?: string | null): Promise<{ success: boolean; affected: number; reasonUpdated?: boolean }> {
+  // reasonOnly: "Save reason" — change the text only; the server refuses (409) if the
+  // network is no longer out of stock, and never disables packages.
+  async setNetworkStock(network: string, outOfStock: boolean, reason?: string | null, reasonOnly = false): Promise<{ success: boolean; affected: number; reasonUpdated?: boolean }> {
     try {
       const { data: { session } } = await supabase.auth.getSession()
 
@@ -223,7 +225,12 @@ export const adminPackageService = {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify(reason === undefined ? { network, outOfStock } : { network, outOfStock, reason }),
+        body: JSON.stringify({
+          network,
+          outOfStock,
+          ...(reason === undefined ? {} : { reason }),
+          ...(reasonOnly ? { reasonOnly: true } : {}),
+        }),
       })
 
       const data = await response.json()
