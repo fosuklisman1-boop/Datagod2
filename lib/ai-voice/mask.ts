@@ -3,11 +3,34 @@
 
 const DATE_PREFIX = /^\d{4}-\d{2}-\d{2}(?!\d)/
 // A digit run with phone separators (space . - parentheses), optional leading +.
-const DIGIT_RUN = /\+?[\d(][\d\s.()-]*/g
-const SPELLED_RUN =
-  /\b(?:zero|one|two|three|four|five|six|seven|eight|nine)(?:[\s,.-]+(?:zero|one|two|three|four|five|six|seven|eight|nine)\b){6,}/gi
+// , : / _ only count as separators when sandwiched between digits, so list
+// commas ("12, 13") and sentence punctuation do not join items.
+const DIGIT_RUN = /\+?[\d(](?:[\d\s.()-]|(?<=\d)[,:/_](?=\d))*/g
+// Thousands-style amounts ("1,250,000.50") are not phone numbers.
+const AMOUNT = /^[1-9]\d{0,2}(?:,\d{3})+(?:\.\d+)?$/
+
+// Digit tokens and spoken digit words are counted together as one stream.
+const WORD = "(?:zero|oh|o|one|two|three|four|five|six|seven|eight|nine|double|triple)"
+const TOKEN = `(?:\\d+|${WORD})`
+const MIXED_STREAM = new RegExp(`(?<!\\w)${TOKEN}(?:[\\s,.-]+${TOKEN})*(?!\\w)`, "gi")
+
+function maskMixedStream(match: string): string {
+  const tokens = match.split(/[\s,.-]+/)
+  let hasWord = false
+  let count = 0
+  for (const t of tokens) {
+    if (/^\d+$/.test(t)) count += t.length
+    else {
+      hasWord = true
+      count += 1
+    }
+  }
+  // Pure-digit runs were already handled (and dates must be left alone).
+  return hasWord && count >= 7 ? "[number]" : match
+}
 
 function maskDigits(run: string): string {
+  if (AMOUNT.test(run)) return run
   const digits = run.replace(/\D/g, "")
   if (digits.length < 7) return run
   const phoneShaped =
@@ -31,7 +54,7 @@ function maskRun(run: string): string {
 
 export function maskForVoice(text: string): string {
   const normalised = text.normalize("NFKC").replace(/[‐-―−]/g, "-")
-  return normalised.replace(DIGIT_RUN, maskRun).replace(SPELLED_RUN, "[number]")
+  return normalised.replace(DIGIT_RUN, maskRun).replace(MIXED_STREAM, maskMixedStream)
 }
 
 export function clampForAppend(text: string, max = 2000): string {

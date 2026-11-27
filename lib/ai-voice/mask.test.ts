@@ -34,6 +34,34 @@ describe("maskForVoice", () => {
   })
 })
 
+describe("maskForVoice fix round 1", () => {
+  it.each(["024,123,4567", "024/123/4567", "024_123_4567", "024:123:4567"])(
+    "masks phone written as %s",
+    (p) => {
+      expect(maskForVoice(p)).toBe("number ending 567")
+    },
+  )
+  it("keeps thousands-style amounts and times", () => {
+    expect(maskForVoice("GHS 1,250,000 and 1,250,000.50 at 10:30")).toBe(
+      "GHS 1,250,000 and 1,250,000.50 at 10:30",
+    )
+  })
+  it("does not join comma-separated list items", () => {
+    expect(maskForVoice("items 12, 13, 14, 15")).toBe("items 12, 13, 14, 15")
+  })
+  it("counts digits and digit words together", () => {
+    const out = maskForVoice("0 2 4 one two three four five six")
+    expect(out).not.toMatch(/\d{3}/)
+    expect(out).toContain("[number]")
+  })
+  it("counts oh and double as digit words", () => {
+    expect(maskForVoice("oh two four double one two three four")).toBe("[number]")
+  })
+  it("keeps short mixed runs", () => {
+    expect(maskForVoice("pick 2 or three of 4")).toBe("pick 2 or three of 4")
+  })
+})
+
 describe("clampForAppend", () => {
   it("clamps to the max length", () => {
     expect(clampForAppend("a ".repeat(1500)).length).toBeLessThanOrEqual(2000)
