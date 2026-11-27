@@ -75,6 +75,30 @@ describe("mintNuanceToken", () => {
     expect(await mintNuanceToken(INPUT, f as unknown as typeof fetch)).toMatchObject({ ok: false, reason: "unavailable" })
   })
 
+  it("missing NUANCE_API_KEY -> unavailable without fetching", async () => {
+    delete process.env.NUANCE_API_KEY
+    const f = vi.fn(async () => json(200, { token: "tok" }))
+    expect(await mintNuanceToken(INPUT, f as unknown as typeof fetch)).toEqual({ ok: false, reason: "unavailable", status: 0 })
+    expect(f).not.toHaveBeenCalled()
+  })
+
+  it("passes an 8 s abort signal; an abort -> unavailable", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const f = vi.fn(async (_u: string, init: RequestInit) => {
+      expect(init.signal).toBeInstanceOf(AbortSignal)
+      throw new DOMException("timed out", "TimeoutError")
+    })
+    expect(await mintNuanceToken(INPUT, f as unknown as typeof fetch)).toMatchObject({ ok: false, reason: "unavailable", status: 0 })
+    expect(f).toHaveBeenCalledTimes(1)
+  })
+
+  it("returned code is the sanitised value, not the raw remote string", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const f = vi.fn(async () => json(400, { code: "bad code <script> nk_testkey123" }))
+    const r = await mintNuanceToken(INPUT, f as unknown as typeof fetch)
+    expect(r).toMatchObject({ ok: false, code: "unknown" })
+  })
+
   it("200 without a token -> unavailable", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {})
     const f = vi.fn(async () => json(200, {}))
@@ -99,6 +123,17 @@ describe("getNuanceUsage", () => {
   it("odd fields -> nulls", async () => {
     const f = vi.fn(async () => json(200, { credits_left: "lots" }))
     expect(await getNuanceUsage(f as unknown as typeof fetch)).toEqual({ creditsLeft: null, renewsAt: null })
+  })
+  it("missing key -> null without fetching; passes an abort signal", async () => {
+    delete process.env.NUANCE_API_KEY
+    const f = vi.fn(async () => json(200, { credits_left: 1 }))
+    expect(await getNuanceUsage(f as unknown as typeof fetch)).toBeNull()
+    expect(f).not.toHaveBeenCalled()
+    process.env.NUANCE_API_KEY = "nk_testkey123"
+    __resetNuanceUsageCache()
+    const g = vi.fn(async (_u: string, init: RequestInit) => { expect(init.signal).toBeInstanceOf(AbortSignal); return json(200, {}) })
+    await getNuanceUsage(g as unknown as typeof fetch)
+    expect(g).toHaveBeenCalledTimes(1)
   })
   it("non-200 or throw -> null", async () => {
     expect(await getNuanceUsage((async () => json(500, {})) as unknown as typeof fetch)).toBeNull()

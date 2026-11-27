@@ -5,6 +5,7 @@ export type FallbackReason =
   | "disabled" | "daily_cap" | "visitor_cap" | "bot" | "suspended" | "shop_unavailable"
   | "credits" | "busy" | "policy" | "review_pending" | "unavailable"
 
+const FETCH_TIMEOUT_MS = 8000
 const baseUrl = () => process.env.NUANCE_API_URL ?? "https://api.nuancelabs.ai"
 
 export function mapNuanceError(status: number, code?: string, errorCode?: string): FallbackReason {
@@ -26,11 +27,17 @@ export async function mintNuanceToken(
   input: { systemPrompt: string; personaId: string; expressiveness: number; endUserId: string; camera: boolean },
   fetchImpl: typeof fetch = fetch,
 ): Promise<{ ok: true; token: string; warnings: string[] } | { ok: false; reason: FallbackReason; status: number; code?: string }> {
+  const apiKey = process.env.NUANCE_API_KEY
+  if (!apiKey) {
+    console.error("[voice] mint failed no_key")
+    return { ok: false, reason: "unavailable", status: 0 }
+  }
   try {
     const res = await fetchImpl(`${baseUrl()}/session-tokens`, {
       method: "POST",
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       headers: {
-        Authorization: `Bearer ${process.env.NUANCE_API_KEY}`,
+        Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -61,7 +68,7 @@ export async function mintNuanceToken(
     const code = topCode ?? errCode
     const safe = code && /^[a-z0-9_]{1,64}$/i.test(code) ? code : "unknown"
     console.error(`[voice] mint refused ${res.status} ${safe}`)
-    return { ok: false, reason: mapNuanceError(res.status, topCode, errCode), status: res.status, code }
+    return { ok: false, reason: mapNuanceError(res.status, topCode, errCode), status: res.status, code: safe }
   } catch {
     console.error("[voice] mint failed network")
     return { ok: false, reason: "unavailable", status: 0 }
@@ -78,11 +85,14 @@ const num = (v: unknown): number | null => (typeof v === "number" && Number.isFi
 
 export async function getNuanceUsage(fetchImpl: typeof fetch = fetch): Promise<Usage | null> {
   if (usageCache && Date.now() - usageCache.at < USAGE_TTL_MS) return usageCache.value
+  const apiKey = process.env.NUANCE_API_KEY
+  if (!apiKey) return null
   let value: Usage | null = null
   try {
     // TODO(verify): path + field names unconfirmed — check against live API before relying on it
     const res = await fetchImpl(`${baseUrl()}/usage`, {
-      headers: { Authorization: `Bearer ${process.env.NUANCE_API_KEY}` },
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     })
     if (res.status === 200) {
       const b = ((await res.json().catch(() => null)) ?? {}) as Record<string, unknown>
