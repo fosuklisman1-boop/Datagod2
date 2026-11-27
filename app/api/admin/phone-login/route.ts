@@ -11,9 +11,18 @@ const DAY_MS = 86_400_000
 
 const db = () => createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
+const json = (body: unknown, status = 200) =>
+  NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } })
+
+function denied(errorResponse: NextResponse | undefined): NextResponse {
+  const res = errorResponse ?? NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  res.headers.set("Cache-Control", "no-store")
+  return res
+}
+
 export async function GET(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
-  if (!isAdmin) return errorResponse!
+  if (!isAdmin) return denied(errorResponse)
   try {
     const client = db()
     const settings = await getPhoneLoginSettingsStrict(client)
@@ -23,15 +32,15 @@ export async function GET(request: NextRequest) {
       countEvents(client, "challenge_passed", DAY_MS),
       countEvents(client, "lockout", DAY_MS),
     ])
-    return NextResponse.json({ settings, last24h: { login_ok, challenge_sent, challenge_passed, lockout } })
+    return json({ settings, last24h: { login_ok, challenge_sent, challenge_passed, lockout } })
   } catch {
-    return NextResponse.json({ error: "Could not load phone login settings" }, { status: 500 })
+    return json({ error: "Could not load phone login settings" }, 500)
   }
 }
 
 export async function POST(request: NextRequest) {
   const { isAdmin, userId, errorResponse } = await verifyAdminAccess(request)
-  if (!isAdmin) return errorResponse!
+  if (!isAdmin) return denied(errorResponse)
 
   let body: { enabled?: unknown; newDeviceCode?: unknown } | null = null
   try {
@@ -40,7 +49,7 @@ export async function POST(request: NextRequest) {
     body = null
   }
   if (!body || typeof body.enabled !== "boolean" || typeof body.newDeviceCode !== "boolean") {
-    return NextResponse.json({ error: "enabled and newDeviceCode must be booleans" }, { status: 400 })
+    return json({ error: "enabled and newDeviceCode must be booleans" }, 400)
   }
   const next = { enabled: body.enabled, newDeviceCode: body.newDeviceCode }
 
@@ -60,8 +69,8 @@ export async function POST(request: NextRequest) {
         detail: { by: userId },
       })
     }
-    return NextResponse.json({ settings: next })
+    return json({ settings: next })
   } catch {
-    return NextResponse.json({ error: "Could not save phone login settings" }, { status: 500 })
+    return json({ error: "Could not save phone login settings" }, 500)
   }
 }

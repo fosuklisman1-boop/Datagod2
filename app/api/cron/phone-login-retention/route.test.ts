@@ -75,6 +75,18 @@ describe("GET /api/cron/phone-login-retention", () => {
     expect(td[1]).toContain(`expires_at.lt.${cutoff}`)
   })
 
+  it("sets Cache-Control: no-store on 200, 500 and unauthorised responses", async () => {
+    const ok = await GET(new NextRequest("http://localhost/x"))
+    expect(ok.headers.get("Cache-Control")).toBe("no-store")
+    h.fail = true
+    const bad = await GET(new NextRequest("http://localhost/x"))
+    expect(bad.headers.get("Cache-Control")).toBe("no-store")
+    h.fail = false
+    h.authorized = false
+    const un = await GET(new NextRequest("http://localhost/x"))
+    expect(un.headers.get("Cache-Control")).toBe("no-store")
+  })
+
   it("returns a generic 500 on a database error", async () => {
     h.fail = true
     const r = await GET(new NextRequest("http://localhost/x"))

@@ -69,6 +69,22 @@ describe("GET /api/admin/phone-login", () => {
   })
 })
 
+describe("Cache-Control: no-store", () => {
+  const nostore = (r: Response) => expect(r.headers.get("Cache-Control")).toBe("no-store")
+  it("is set on GET 200, POST 200, 400, 500 and unauthorised responses", async () => {
+    nostore(await GET(new NextRequest("http://localhost/x")))
+    nostore(await POST(post({ enabled: true, newDeviceCode: true })))
+    nostore(await POST(post({ enabled: "x", newDeviceCode: true })))
+    h.strictThrows = true
+    nostore(await GET(new NextRequest("http://localhost/x")))
+    nostore(await POST(post({ enabled: true, newDeviceCode: true })))
+    h.strictThrows = false
+    h.admin = false
+    nostore(await GET(new NextRequest("http://localhost/x")))
+    nostore(await POST(post({ enabled: true, newDeviceCode: true })))
+  })
+})
+
 describe("POST /api/admin/phone-login", () => {
   it("rejects non-admins and writes nothing", async () => {
     h.admin = false

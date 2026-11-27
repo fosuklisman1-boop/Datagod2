@@ -7,10 +7,16 @@ export const maxDuration = 60
 
 const DAY_MS = 86_400_000
 
+const json = (body: unknown, status = 200) =>
+  NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } })
+
 /** Daily sweep of phone-login bookkeeping. Returns counts only. */
 export async function GET(request: NextRequest) {
   const { authorized, errorResponse } = verifyCronAuth(request)
-  if (!authorized) return errorResponse!
+  if (!authorized) {
+    errorResponse!.headers.set("Cache-Control", "no-store")
+    return errorResponse!
+  }
   try {
     const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
     const now = Date.now()
@@ -29,9 +35,9 @@ export async function GET(request: NextRequest) {
 
     const data = { challenges: ch.count ?? 0, trustedDevices: td.count ?? 0, events: ev.count ?? 0 }
     console.log("[PHONE-LOGIN-RETENTION] done", data)
-    return NextResponse.json({ success: true, data })
+    return json({ success: true, data })
   } catch {
     console.error("[PHONE-LOGIN-RETENTION] failed")
-    return NextResponse.json({ success: false, error: "Internal server error" }, { status: 500 })
+    return json({ success: false, error: "Internal server error" }, 500)
   }
 }
