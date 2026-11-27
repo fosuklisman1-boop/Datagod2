@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { ADMIT_HOLD_MS, QUEUE_STALE_MS, etaSeconds, freeSlotCount } from "./queue"
+import { ADMIT_HOLD_MS, QUEUE_STALE_MS, etaSeconds, freeSlotCount, ownsTicket, waitingPosition } from "./queue"
 import { readOpenByKey } from "./slots"
 
 describe("queue constants", () => {
@@ -22,6 +22,26 @@ describe("etaSeconds", () => {
   })
   it("treats zero slots as one", () => {
     expect(etaSeconds(2, 0, 300)).toBe(360)
+  })
+})
+
+describe("ticket helpers", () => {
+  const t = (id: string, status: "waiting" | "admitted", extra: Record<string, unknown> = {}) =>
+    ({ id, status, user_id: null, device_hash: null, created_at: "2026-01-01T00:00:00Z", ...extra }) as any
+  it("ownsTicket matches a signed-in caller by user id and a visitor by device hash, never across", () => {
+    expect(ownsTicket(t("a", "waiting", { user_id: "u1" }), { userId: "u1", deviceHash: "d1" })).toBe(true)
+    expect(ownsTicket(t("a", "waiting", { user_id: "u2" }), { userId: "u1", deviceHash: "d1" })).toBe(false)
+    expect(ownsTicket(t("a", "waiting", { device_hash: "d1" }), { userId: "u1", deviceHash: "d1" })).toBe(false)
+    expect(ownsTicket(t("a", "waiting", { device_hash: "d1" }), { deviceHash: "d1" })).toBe(true)
+    expect(ownsTicket(t("a", "waiting", { device_hash: "d2" }), { deviceHash: "d1" })).toBe(false)
+    expect(ownsTicket(t("a", "waiting", { device_hash: "d1" }), { deviceHash: null })).toBe(false)
+  })
+  it("waitingPosition is 1-based among waiting tickets in order, admitted ones are not in the line", () => {
+    const list = [t("x", "admitted"), t("a", "waiting"), t("b", "waiting"), t("c", "waiting")]
+    expect(waitingPosition(list, "a")).toBe(1)
+    expect(waitingPosition(list, "c")).toBe(3)
+    expect(waitingPosition(list, "x")).toBe(0)
+    expect(waitingPosition(list, "nope")).toBe(0)
   })
 })
 

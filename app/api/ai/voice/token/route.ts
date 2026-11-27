@@ -12,6 +12,9 @@ import { checkCallCaps, endUserIdFor } from "@/lib/ai-voice/gate"
 import { buildPersonaPrompt } from "@/lib/ai-voice/prompt"
 import { mintNuanceToken, type FallbackReason } from "@/lib/ai-voice/nuance"
 import { candidateKeys, nuanceKeys } from "@/lib/ai-voice/keys"
+import { etaSeconds, freeSlotCount, ownsTicket, waitingPosition } from "@/lib/ai-voice/queue"
+import { expireStaleTickets, readLiveTickets, setTicketStatus } from "@/lib/ai-voice/queue-db"
+import { readOpenByKey } from "@/lib/ai-voice/slots"
 import { deviceHashFor, newDeviceId, readDeviceId, setDeviceCookie, voiceSalt } from "@/lib/ai-voice/device-cookie"
 
 export const dynamic = "force-dynamic"
@@ -24,9 +27,10 @@ const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, proces
 
 type Context = "home" | "storefront" | "dashboard" | "admin"
 const CONTEXTS: readonly string[] = ["home", "storefront", "dashboard", "admin"]
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export async function POST(req: NextRequest) {
-  let body: { context?: unknown; mode?: unknown; shopSlug?: unknown; turnstileToken?: unknown }
+  let body: { context?: unknown; mode?: unknown; shopSlug?: unknown; turnstileToken?: unknown; ticketId?: unknown }
   try {
     body = await req.json()
   } catch {
@@ -39,6 +43,8 @@ export async function POST(req: NextRequest) {
   const ctx = context as Context
   const shopSlug = typeof body.shopSlug === "string" ? body.shopSlug : undefined
   const turnstileToken = typeof body.turnstileToken === "string" ? body.turnstileToken : undefined
+  // The waiting-line ticket a caller was admitted on. Anything that is not a uuid is simply no ticket.
+  const ticketId = typeof body.ticketId === "string" && UUID_RE.test(body.ticketId) ? body.ticketId : undefined
   const isVisitorContext = ctx === "home" || ctx === "storefront"
 
   // Device id: always exists for home/storefront before anything is hashed. The cookie is set on every response.
@@ -134,17 +140,59 @@ export async function POST(req: NextRequest) {
   if ((open.count ?? 0) > 0) return fallback("busy")
 
   // 6d. Which Nuance account(s) may take this call. Every account full -> busy, before any row exists.
-  const openByKey: Record<number, number> = {}
-  if (voice.multiAccount) {
-    const { data: openRows, error: openErr } = await supabaseAdmin.from("ai_voice_calls").select("nuance_key")
-      .is("ended_at", null).gt("created_at", openCutoff)
-    if (openErr) return fallback("unavailable")
-    for (const r of (openRows ?? []) as { nuance_key?: number | null }[]) {
-      if (typeof r.nuance_key === "number") openByKey[r.nuance_key] = (openByKey[r.nuance_key] ?? 0) + 1
+  // The waiting line also needs the open count with multiple accounts off (account 1 against callsPerKey).
+  const keys = nuanceKeys()
+  let openByKey: Record<number, number> = {}
+  if (voice.multiAccount || voice.queueEnabled) {
+    const read = await readOpenByKey(supabaseAdmin, openCutoff)
+    if (!read) return fallback("unavailable")
+    openByKey = read
+  }
+
+  // 6e. Waiting line. Runs after every gate above and BEFORE any call row exists: a queued caller costs no credits.
+  if (voice.queueEnabled) {
+    // A line that cannot move (no usable Nuance key) is never offered.
+    if ((voice.multiAccount ? keys : keys.filter((k) => k.index === 1)).length === 0) return fallback("unavailable")
+    if (!(await expireStaleTickets(supabaseAdmin))) return fallback("unavailable")
+    const live = await readLiveTickets(supabaseAdmin)
+    if (!live) return fallback("unavailable")
+    const who = { userId, deviceHash }
+    const admitted = ticketId ? live.find((t) => t.id === ticketId && t.status === "admitted" && ownsTicket(t, who)) : undefined
+    if (admitted) {
+      // This caller's turn: the ticket is spent, then the normal flow (row, caps, claim, mint) runs.
+      if (!(await setTicketStatus(supabaseAdmin, admitted.id, "used", "admitted"))) return fallback("unavailable")
+    } else {
+      const ownWaiting = live.find((t) => t.status === "waiting" && ownsTicket(t, who))
+      const someoneElseLive = live.some((t) => !ownsTicket(t, who))
+      const free = freeSlotCount(keys, voice.callsPerKey, openByKey, voice.multiAccount)
+      if (ownWaiting || someoneElseLive || free === 0) {
+        let id = ownWaiting?.id
+        let position = ownWaiting ? waitingPosition(live, ownWaiting.id) : 0
+        if (!id) {
+          const waitingNow = live.filter((t) => t.status === "waiting").length
+          if (waitingNow >= voice.queueMax) return fallback("queue_full")
+          const { data: made, error: madeErr } = await supabaseAdmin.from("ai_voice_queue")
+            .insert({ context: ctx, mode, ...(userId ? { user_id: userId } : { device_hash: deviceHash }) }).select("id").single()
+          id = (made as { id?: string } | null)?.id
+          if (madeErr || !id) {
+            console.error("[voice] queue ticket insert failed")
+            return fallback("unavailable")
+          }
+          position = waitingNow + 1
+        }
+        const totalSlots = (voice.multiAccount ? keys.length : 1) * voice.callsPerKey
+        const eta = etaSeconds(position, totalSlots, voice.maxCallSeconds)
+        if (eta > voice.queueMaxWaitMinutes * 60) {
+          await setTicketStatus(supabaseAdmin, id, "left")
+          return fallback("busy")
+        }
+        return respond({ queued: true, ticketId: id, position, etaSeconds: eta })
+      }
     }
   }
-  const accounts = candidateKeys(nuanceKeys(), { multiAccount: voice.multiAccount, callsPerKey: voice.callsPerKey, openByKey })
-  if (accounts.length === 0) return fallback(voice.multiAccount && nuanceKeys().length > 0 ? "busy" : "unavailable")
+
+  const accounts = candidateKeys(keys, { multiAccount: voice.multiAccount, callsPerKey: voice.callsPerKey, openByKey })
+  if (accounts.length === 0) return fallback(voice.multiAccount && keys.length > 0 ? "busy" : "unavailable")
 
   // 7. Record the call FIRST, then count including it: parallel requests cannot all pass a stale count.
   // A refused mint keeps its row (it counts toward the caps); a cap_exceeded row does not.

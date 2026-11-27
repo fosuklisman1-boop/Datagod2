@@ -29,6 +29,9 @@ const h = vi.hoisted(() => ({
   mintByKey: {} as Record<string, Record<string, unknown>>,
   keyCount: {} as Record<number, number>,
   claimError: false,
+  queue: [] as Record<string, any>[],
+  queueError: false,
+  openKeyError: false,
 }))
 
 vi.mock("@supabase/supabase-js", () => ({
@@ -38,19 +41,45 @@ vi.mock("@supabase/supabase-js", () => ({
       const ops: Op[] = []
       const b: any = {}
       let idx = -1
-      for (const m of ["select", "eq", "in", "gt", "gte", "or", "is", "update", "insert"]) {
+      for (const m of ["select", "eq", "in", "gt", "gte", "lt", "order", "or", "is", "update", "insert"]) {
         b[m] = (...args: unknown[]) => {
           ops.push({ method: m, args })
+          if (table === "ai_voice_queue") {
+            if (m === "insert") {
+              idx = h.queue.length
+              h.queue.push({ id: `ticket-${idx}`, status: "waiting", user_id: null, device_hash: null, created_at: new Date(Date.now() + idx).toISOString(), last_seen_at: new Date().toISOString(), admitted_at: null, ...(args[0] as Record<string, unknown>) })
+            }
+            return b
+          }
           if (m === "insert") { idx = h.inserted.length; h.inserted.push({ ...(args[0] as Record<string, unknown>) }) }
           if (m === "update") h.updates.push(args[0] as Record<string, unknown>)
           return b
         }
       }
       const result = () => {
+        if (table === "ai_voice_queue") {
+          if (h.queueError) return { data: null, error: { message: "x" } }
+          const eqs = ops.filter((o) => o.method === "eq")
+          const lts = ops.filter((o) => o.method === "lt")
+          const ins = ops.filter((o) => o.method === "in")
+          const match = (r: Record<string, any>) =>
+            eqs.every((o) => r[String(o.args[0])] === o.args[1]) &&
+            lts.every((o) => r[String(o.args[0])] != null && Date.parse(r[String(o.args[0])]) < Date.parse(String(o.args[1]))) &&
+            ins.every((o) => (o.args[1] as unknown[]).includes(r[String(o.args[0])]))
+          const upd = ops.find((o) => o.method === "update")
+          if (upd) {
+            for (const r of h.queue) if (match(r)) Object.assign(r, upd.args[0])
+            return { data: null, error: null }
+          }
+          if (ops.some((o) => o.method === "select")) {
+            return { data: h.queue.filter(match).sort((a, c) => a.created_at.localeCompare(c.created_at)).map((r) => ({ ...r })), error: null }
+          }
+          return { data: null, error: null }
+        }
         if (table === "ai_voice_calls") {
           const sel = ops.find((o) => o.method === "select")
           // Multiple accounts: open calls per Nuance account (all identities).
-          if (sel && sel.args[0] === "nuance_key") return { data: h.openKeyRows, error: null }
+          if (sel && sel.args[0] === "nuance_key") return h.openKeyError ? { data: null, error: { message: "x" } } : { data: h.openKeyRows, error: null }
           if (sel && (sel.args[1] as any)?.head) {
             // Recount of open calls on one account after claiming it (includes this call's own row).
             const keyEq = ops.find((o) => o.method === "eq" && o.args[0] === "nuance_key")
@@ -76,7 +105,7 @@ vi.mock("@supabase/supabase-js", () => ({
         }
         return { data: null, error: null }
       }
-      b.single = async () => (table === "ai_voice_calls" ? (h.insertError ? { data: null, error: { message: "x" } } : { data: { id: `call-${idx}` }, error: null }) : { data: null, error: null })
+      b.single = async () => table === "ai_voice_queue" ? (h.queueError ? { data: null, error: { message: "x" } } : { data: { id: `ticket-${idx}` }, error: null }) : (table === "ai_voice_calls" ? (h.insertError ? { data: null, error: { message: "x" } } : { data: { id: `call-${idx}` }, error: null }) : { data: null, error: null })
       b.maybeSingle = async () => {
         if (table === "users") {
           const sel = ops.find((o) => o.method === "select")
@@ -119,6 +148,7 @@ beforeEach(() => {
     inserted: [], updates: [], insertError: false, turnstileEnabled: false, turnstileValid: true, rateAllowed: true, rateDegraded: false, rateCalls: [], countOps: [], updateError: false,
     policyRows: 0, openRows: 0, policyOps: [], openOps: [],
     mint: { ok: true, token: "tok_abc", warnings: [] }, mintCalls: [], openKeyRows: [], mintByKey: {}, keyCount: {}, claimError: false,
+    queue: [], queueError: false, openKeyError: false,
   })
   for (let i = 4; i <= 9; i++) delete process.env[`NUANCE_API_KEY_${i}`]
   process.env.NUANCE_DEVICE_SALT = "salt"
@@ -460,5 +490,195 @@ describe("final review: gates the text assistant already has", () => {
   it("with no policy or open rows the call goes through", async () => {
     h.user = { id: "u1" }
     expect((await (await POST(req({ context: "dashboard", mode: "voice" }, authed))).json()).token).toBe("tok_abc")
+  })
+})
+
+describe("waiting line", () => {
+  const CREDITS = { ok: false, reason: "credits", status: 429, code: "credits_spent" }
+  const FULL = [{ nuance_key: 1 }, { nuance_key: 2 }, { nuance_key: 3 }]
+  const LINE = (extra: Record<string, unknown> = {}) => ON({ multiAccount: true, queueEnabled: true, ...extra })
+  const UUID = "11111111-1111-4111-8111-111111111111"
+  const ago = (ms: number) => new Date(Date.now() - ms).toISOString()
+  const ticket = (over: Record<string, unknown>) => ({
+    id: UUID, status: "waiting", user_id: null, device_hash: null, created_at: ago(5_000), last_seen_at: ago(1_000), admitted_at: null, ...over,
+  })
+  const dash = (body: Record<string, unknown> = {}) => { h.user = { id: "u1" }; return POST(req({ context: "dashboard", mode: "voice", ...body }, authed)) }
+
+  it("queue off: a full house is still busy, no ticket, and a ticketId changes nothing", async () => {
+    h.config = ON({ multiAccount: true })
+    h.openKeyRows = FULL
+    const res = await dash({ ticketId: UUID })
+    expect(await res.json()).toEqual({ fallback: "text", reason: "busy" })
+    expect(h.queue).toHaveLength(0)
+  })
+
+  it("queue on with a free slot and nobody waiting: a normal call, no ticket", async () => {
+    h.config = LINE()
+    const body = await (await dash()).json()
+    expect(body.token).toBe("tok_abc")
+    expect(h.queue).toHaveLength(0)
+  })
+
+  it("every slot taken: joins the line (200 queued), no call row, no mint", async () => {
+    h.config = LINE()
+    h.openKeyRows = FULL
+    const res = await dash()
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ queued: true, ticketId: "ticket-0", position: 1, etaSeconds: 180 })
+    expect(h.inserted).toHaveLength(0)
+    expect(h.mintCalls).toHaveLength(0)
+    expect(h.queue[0]).toMatchObject({ user_id: "u1", context: "dashboard", mode: "voice" })
+    expect(h.queue[0].device_hash).toBeNull() // the fake's column default: the route sent no device hash
+  })
+
+  it("a visitor's ticket carries the device hash", async () => {
+    h.config = LINE()
+    h.openKeyRows = FULL
+    await POST(req({ context: "home", mode: "video" }))
+    expect(String(h.queue[0].device_hash)).toMatch(/^[a-f0-9]{32}$/)
+    expect(h.queue[0].user_id).toBeNull()
+    expect(h.queue[0]).toMatchObject({ context: "home", mode: "video" })
+  })
+
+  it("queue on, switch off for accounts: only account 1 counts for a free slot", async () => {
+    h.config = ON({ queueEnabled: true })
+    h.openKeyRows = [{ nuance_key: 1 }]
+    expect((await (await dash()).json()).queued).toBe(true)
+  })
+
+  it("position counts the waiting tickets ahead; eta follows the slots", async () => {
+    h.config = LINE()
+    h.openKeyRows = FULL
+    h.queue = [ticket({ id: "a", user_id: "x1", created_at: ago(4_000) }), ticket({ id: "b", user_id: "x2", created_at: ago(3_000) })]
+    const body = await (await dash()).json()
+    // 3 accounts x 1 call: position 3 -> 1 round of 180 s
+    expect(body).toMatchObject({ queued: true, position: 3, etaSeconds: 180 })
+  })
+
+  it("a free slot with someone else already in line: no jumping the queue", async () => {
+    h.config = LINE()
+    h.queue = [ticket({ id: "a", user_id: "x1" })]
+    const body = await (await dash()).json()
+    expect(body).toMatchObject({ queued: true, position: 2 })
+    expect(h.mintCalls).toHaveLength(0)
+  })
+
+  it("another caller's admitted ticket holds the slot too", async () => {
+    h.config = LINE()
+    h.queue = [ticket({ id: "a", user_id: "x1", status: "admitted", admitted_at: ago(2_000) })]
+    expect((await (await dash()).json()).queued).toBe(true)
+  })
+
+  it("reuses this caller's own waiting ticket instead of adding another", async () => {
+    h.config = LINE()
+    h.openKeyRows = FULL
+    h.queue = [ticket({ id: "a", user_id: "x1", created_at: ago(4_000) }), ticket({ id: "mine", user_id: "u1", created_at: ago(3_000) })]
+    const body = await (await dash()).json()
+    expect(body).toMatchObject({ queued: true, ticketId: "mine", position: 2 })
+    expect(h.queue).toHaveLength(2)
+  })
+
+  it("this caller's admitted ticket: marked used, then a normal call", async () => {
+    h.config = LINE()
+    h.queue = [ticket({ id: UUID, user_id: "u1", status: "admitted", admitted_at: ago(3_000) })]
+    const body = await (await dash({ ticketId: UUID })).json()
+    expect(body.token).toBe("tok_abc")
+    expect(h.queue[0].status).toBe("used")
+    expect(h.inserted).toHaveLength(1)
+  })
+
+  it("an admitted ticket is never sent back into the line, even if the slots look full again", async () => {
+    h.config = LINE()
+    h.openKeyRows = FULL
+    h.queue = [ticket({ id: UUID, user_id: "u1", status: "admitted", admitted_at: ago(3_000) })]
+    const res = await dash({ ticketId: UUID })
+    expect(h.queue[0].status).toBe("used")
+    expect(await res.json()).toEqual({ fallback: "text", reason: "busy" })
+  })
+
+  it("somebody else's admitted ticket is not honoured (same ticketId, other identity)", async () => {
+    h.config = LINE()
+    h.openKeyRows = FULL
+    h.queue = [ticket({ id: UUID, user_id: "x1", status: "admitted", admitted_at: ago(3_000) })]
+    const body = await (await dash({ ticketId: UUID })).json()
+    expect(body.queued).toBe(true)
+    expect(h.queue.find((t) => t.id === UUID)!.status).toBe("admitted")
+    expect(h.mintCalls).toHaveLength(0)
+  })
+
+  it("a still-waiting ticket id does not skip the line", async () => {
+    h.config = LINE()
+    h.openKeyRows = FULL
+    h.queue = [ticket({ id: UUID, user_id: "u1" })]
+    const body = await (await dash({ ticketId: UUID })).json()
+    expect(body.queued).toBe(true)
+    expect(h.mintCalls).toHaveLength(0)
+  })
+
+  it("expires stale tickets first: waiting with no check-in for 20 s, admitted and unused for 30 s", async () => {
+    h.config = LINE()
+    h.queue = [
+      ticket({ id: "w", user_id: "x1", last_seen_at: ago(21_000) }),
+      ticket({ id: "a", user_id: "x2", status: "admitted", admitted_at: ago(31_000) }),
+    ]
+    const body = await (await dash()).json()
+    expect(body.token).toBe("tok_abc")
+    expect(h.queue.map((t) => t.status)).toEqual(["expired", "expired"])
+  })
+
+  it("the line is full -> queue_full, nothing inserted", async () => {
+    h.config = LINE({ queueMax: 2 })
+    h.openKeyRows = FULL
+    h.queue = [ticket({ id: "a", user_id: "x1", created_at: ago(4_000) }), ticket({ id: "b", user_id: "x2", created_at: ago(3_000) })]
+    expect(await (await dash()).json()).toEqual({ fallback: "text", reason: "queue_full" })
+    expect(h.queue).toHaveLength(2)
+  })
+
+  it("an estimated wait over the limit -> busy and the new ticket is marked left", async () => {
+    h.config = LINE({ queueMaxWaitMinutes: 1 })
+    h.openKeyRows = FULL
+    expect(await (await dash()).json()).toEqual({ fallback: "text", reason: "busy" })
+    expect(h.queue).toHaveLength(1)
+    expect(h.queue[0].status).toBe("left")
+  })
+
+  it("credits gone is never queued: a free slot goes to the mint and says credits", async () => {
+    h.config = LINE()
+    h.mint = CREDITS
+    expect(await (await dash()).json()).toEqual({ fallback: "text", reason: "credits" })
+    expect(h.queue).toHaveLength(0)
+  })
+
+  it("no Nuance key at all -> unavailable, not a line that never moves", async () => {
+    h.config = LINE()
+    delete process.env.NUANCE_API_KEY
+    delete process.env.NUANCE_API_KEY_2
+    delete process.env.NUANCE_API_KEY_3
+    expect(await (await dash()).json()).toEqual({ fallback: "text", reason: "unavailable" })
+    expect(h.queue).toHaveLength(0)
+  })
+
+  it("an unreadable slot count or line fails closed (unavailable)", async () => {
+    h.config = LINE()
+    h.openKeyError = true
+    expect(await (await dash()).json()).toEqual({ fallback: "text", reason: "unavailable" })
+    h.openKeyError = false
+    h.queueError = true
+    expect(await (await dash()).json()).toEqual({ fallback: "text", reason: "unavailable" })
+    expect(h.mintCalls).toHaveLength(0)
+  })
+
+  it("an invalid ticketId is ignored", async () => {
+    h.config = LINE()
+    h.openKeyRows = FULL
+    expect((await (await dash({ ticketId: "nope" })).json()).queued).toBe(true)
+  })
+
+  it("the line comes after the earlier gates: a policy-blocked caller is refused, not queued", async () => {
+    h.config = LINE()
+    h.openKeyRows = FULL
+    h.policyRows = 1
+    expect(await (await dash()).json()).toEqual({ fallback: "text", reason: "policy" })
+    expect(h.queue).toHaveLength(0)
   })
 })

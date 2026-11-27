@@ -3,7 +3,7 @@
 
 export type FallbackReason =
   | "disabled" | "daily_cap" | "visitor_cap" | "bot" | "suspended" | "shop_unavailable"
-  | "credits" | "busy" | "policy" | "review_pending" | "unavailable"
+  | "credits" | "busy" | "queue_full" | "policy" | "review_pending" | "unavailable"
 
 const FETCH_TIMEOUT_MS = 8000
 const baseUrl = () => process.env.NUANCE_API_URL ?? "https://api.nuancelabs.ai"

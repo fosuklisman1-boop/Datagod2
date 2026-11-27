@@ -14,6 +14,28 @@ export function etaSeconds(position: number, totalSlots: number, maxCallSeconds:
   return Math.ceil(position / Math.max(1, totalSlots)) * Math.min(maxCallSeconds, ETA_CALL_CAP_SECONDS)
 }
 
+/** A live (waiting or admitted) ticket as the routes read it, oldest first. */
+export interface LiveTicket {
+  id: string
+  user_id: string | null
+  device_hash: string | null
+  status: "waiting" | "admitted"
+  created_at: string
+}
+
+/** A signed-in caller owns tickets by user id; a visitor by device hash. The two never cross. */
+export function ownsTicket(t: Pick<LiveTicket, "user_id" | "device_hash">, who: { userId?: string; deviceHash: string | null }): boolean {
+  if (who.userId) return t.user_id === who.userId
+  return !!who.deviceHash && t.user_id === null && t.device_hash === who.deviceHash
+}
+
+/** 1-based place in the line among waiting tickets (oldest first list); 0 when not waiting. */
+export function waitingPosition(live: LiveTicket[], id: string): number {
+  const waiting = live.filter((t) => t.status === "waiting")
+  const at = waiting.findIndex((t) => t.id === id)
+  return at < 0 ? 0 : at + 1
+}
+
 /** Free call slots now: over every account (account 1 only when multiple accounts are off), callsPerKey minus its open calls. */
 export function freeSlotCount(
   accounts: NuanceKey[],
