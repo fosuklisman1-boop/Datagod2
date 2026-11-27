@@ -1,15 +1,15 @@
-// migrations/0201_phone_login.sql and its self-test, run in PGlite (WASM Postgres). Nothing here touches a real database.
+// migrations/0202_phone_login.sql and its self-test, run in PGlite (WASM Postgres). Nothing here touches a real database.
 import { describe, it, expect } from "vitest"
 import { readFileSync } from "fs"
 import { join } from "path"
-import { buildRunString, code } from "./migration-0201-run"
+import { buildRunString, code } from "./migration-0202-run"
 
 const read = (f: string) => readFileSync(join(process.cwd(), "migrations", f), "utf8").replace(/\r\n/g, "\n")
-const FILE = "0201_phone_login.sql"
-const SELFTEST_FILE = "0201_phone_login.selftest.sql"
+const FILE = "0202_phone_login.sql"
+const SELFTEST_FILE = "0202_phone_login.selftest.sql"
 const migration = () => read(FILE)
 
-describe("0201 migration text", () => {
+describe("0202 migration text", () => {
   it("is one transaction with timeouts and exactly one COMMIT", () => {
     const c = code(migration())
     expect(c).toMatch(/^BEGIN;\s*$/m)
@@ -22,7 +22,7 @@ describe("0201 migration text", () => {
     const run = buildRunString(migration(), read(SELFTEST_FILE))
     const s = code(run)
     expect(s).not.toMatch(/\bCOMMIT\b/i)
-    expect(s.trimEnd()).toMatch(/RAISE EXCEPTION 'SELFTEST_OK 0201[^']*';\s*END\s*\$selftest\$;$/)
+    expect(s.trimEnd()).toMatch(/RAISE EXCEPTION 'SELFTEST_OK 0202[^']*';\s*END\s*\$selftest\$;$/)
     const doBlock = s.slice(s.lastIndexOf("DO $selftest$"))
     expect(doBlock).not.toMatch(/^\s*END\s*;/im)
   })
@@ -93,10 +93,10 @@ async function fresh(): Promise<any> {
   return db
 }
 
-describe.skipIf(!PGliteCtor)("0201 in PGlite", () => {
-  it("0201 self-test passes: the rolling-back run string reports SELFTEST_OK and leaves nothing behind", async () => {
+describe.skipIf(!PGliteCtor)("0202 in PGlite", () => {
+  it("0202 self-test passes: the rolling-back run string reports SELFTEST_OK and leaves nothing behind", async () => {
     const db = await fresh()
-    await expect(db.exec(buildRunString(migration(), read(SELFTEST_FILE)))).rejects.toThrow(/^SELFTEST_OK 0201/)
+    await expect(db.exec(buildRunString(migration(), read(SELFTEST_FILE)))).rejects.toThrow(/^SELFTEST_OK 0202/)
     await db.exec("ROLLBACK")
     const r = await db.query("SELECT to_regclass('public.trusted_devices') AS t, to_regprocedure('public.ghana_phone_sig(text)') AS f")
     expect(r.rows[0]).toEqual({ t: null, f: null })

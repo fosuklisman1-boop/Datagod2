@@ -1,4 +1,6 @@
--- 0201_phone_login.sql
+-- 0202_phone_login.sql
+--
+-- Note: migration renumbered 0201 → 0202 on 2026-11-27 (clash with 0201_ai_voice_calls); already applied to prod.
 --
 -- Phone + password login with a new-device SMS code, Task 1: schema, lookup RPC, lockout RPCs, revoke-all triggers, settings.
 -- NOT applied by the implementing agent. One transaction. Idempotent (IF NOT EXISTS / CREATE OR REPLACE / DROP TRIGGER IF EXISTS).
@@ -26,7 +28,7 @@
 --   SELECT key, value FROM public.admin_settings WHERE key LIKE 'phone_login_%';                           -- 2 rows
 --
 -- Undo: DROP the three triggers (trg_phone_login_*), the functions, the three tables and users_phone_sig_idx; DELETE the two settings rows.
--- Dry run: migrations/0201_phone_login.selftest.sql (build the run string by code, lib/phone-login/migration-0201-run.ts).
+-- Dry run: migrations/0202_phone_login.selftest.sql (build the run string by code, lib/phone-login/migration-0202-run.ts).
 
 BEGIN;
 SET LOCAL lock_timeout = '5s';

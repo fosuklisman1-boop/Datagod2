@@ -1,8 +1,8 @@
--- 0201_phone_login.selftest.sql
+-- 0202_phone_login.selftest.sql
 --
--- NOT A MIGRATION. Self-rolling-back dry run for 0201_phone_login.sql.
+-- NOT A MIGRATION. Self-rolling-back dry run for 0202_phone_login.sql.
 --
--- IMPORTANT: the run string must be built by CODE (lib/phone-login/migration-0201-run.ts), never by hand: it keeps BEGIN and
+-- IMPORTANT: the run string must be built by CODE (lib/phone-login/migration-0202-run.ts), never by hand: it keeps BEGIN and
 -- both SET LOCALs, removes ONLY the final COMMIT line, then appends this file from the line that STARTS (column 0) with
 -- the DO keyword onward; the code asserts no COMMIT and no bare END; and that it ends by raising. (The 0130 lesson.)
 -- The DO body has no bare end statement: nested blocks are labelled and the block closes with the labelled dollar tag.
@@ -191,5 +191,5 @@ BEGIN
     END IF;
   END LOOP;
 
-  RAISE EXCEPTION 'SELFTEST_OK 0201 (rolled back)';
+  RAISE EXCEPTION 'SELFTEST_OK 0202 (rolled back)';
 END $selftest$;

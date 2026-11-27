@@ -1,5 +1,7 @@
 # Phone-number login: design
 
+Note: migration renumbered 0201 → 0202 on 2026-11-27 (clash with 0201_ai_voice_calls); already applied to prod.
+
 **Date:** 2026-11-27
 **Status:** draft for owner approval
 **Chosen approach:** C: phone + password, plus a one-time SMS code on a new device
