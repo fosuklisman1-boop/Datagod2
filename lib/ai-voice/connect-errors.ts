@@ -6,11 +6,14 @@ const BUSY = "Calls are busy right now — you can keep chatting here."
 
 export function connectErrorMessage(err: unknown, reason?: FallbackReason): string {
   switch (reason) {
-    case "credits":
     case "busy":
     case "unavailable":
     case "review_pending":
       return BUSY
+    case "credits":
+      return "Calls are closed for today. You can keep chatting here."
+    case "queue_full":
+      return "The line is full right now. Please try again in a few minutes."
     case "daily_cap":
       return "You've used today's calls. You can keep chatting here."
     case "visitor_cap":

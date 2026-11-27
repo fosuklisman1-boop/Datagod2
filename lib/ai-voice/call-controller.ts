@@ -10,12 +10,17 @@ import { connectErrorMessage } from "./connect-errors"
 import { toClientEndReason } from "./end-reasons"
 import type { FallbackReason } from "./nuance"
 
-export type CallState = "idle" | "starting" | "live" | "ended"
+export type CallState = "idle" | "queued" | "starting" | "live" | "ended"
 export type CallMode = "voice" | "video"
+
+/** How often a waiting caller checks in with the line. */
+export const QUEUE_POLL_MS = 5000
 
 export interface CallSnapshot {
   state: CallState
   mode: CallMode
+  /** Only while state is "queued": place in the line (1 = next) and the rough wait. */
+  queue?: { position: number; etaSeconds: number }
   captions: Turn[]
   cards: RelayCard[]
   secondsLeft: number | null
@@ -70,11 +75,15 @@ export function resetBlockedForTests() {
   blockedForPageSession = false
 }
 
+const LINE_EXPIRED = "Your place in line expired. Tap to try again."
+const positive = (v: unknown, floor: number) => (typeof v === "number" && Number.isFinite(v) ? Math.max(floor, Math.round(v)) : floor)
+
 type Ev = { type: string } & Record<string, unknown>
 
 const INITIAL: CallSnapshot = {
   state: "idle",
   mode: "voice",
+  queue: undefined,
   captions: [],
   cards: [],
   secondsLeft: null,
@@ -112,6 +121,40 @@ export function createCallController(deps: CallControllerDeps) {
   let video: HTMLVideoElement | null = null
   let audio: HTMLAudioElement | null = null
   const ended = new Set<string>()
+  // Waiting line: the ticket held while state is "queued", its poll timer, and the tickets already left (leave posts once).
+  let ticketId: string | null = null
+  let queueTimer: unknown = null
+  let polling = false
+  const leftTickets = new Set<string>()
+
+  async function postLeave(id: string) {
+    if (leftTickets.has(id)) return
+    leftTickets.add(id)
+    try {
+      // Same as postEnd: while the page is hiding no await comes before the request, so it goes out synchronously.
+      const auth = hiding ? cachedAuth : await deps.authHeader?.()
+      await doFetch("/api/ai/voice/queue", {
+        method: "POST",
+        keepalive: true,
+        headers: { "Content-Type": "application/json", ...(auth ? { Authorization: auth } : {}) },
+        body: JSON.stringify({ ticketId: id, action: "leave" }),
+      })
+    } catch {
+      // Best effort. A ticket nobody checks in on expires on the server after about 20 s.
+    }
+  }
+
+  /** Stops polling and forgets the ticket; returns it so the caller can post the leave. */
+  function dropQueue(): string | null {
+    if (queueTimer !== null) {
+      clearIv(queueTimer)
+      queueTimer = null
+    }
+    const id = ticketId
+    ticketId = null
+    polling = false
+    return id
+  }
 
   async function postEnd(id: string, reason: string, wasStarted: boolean, conversationId?: string, presentedAt?: string | null) {
     if (ended.has(id)) return
@@ -189,20 +232,89 @@ export function createCallController(deps: CallControllerDeps) {
   function failStart(message: string, reason: string) {
     const { id } = teardown()
     if (id) void postEnd(id, reason, false)
-    patch({ slow: false, secondsLeft: null, endMessage: message, state: "idle" })
+    patch({ slow: false, secondsLeft: null, endMessage: message, state: "idle", queue: undefined })
+  }
+
+  /** The line is where this caller waits: no conversation, no call row, just a ticket checked in on every few seconds. */
+  function enterQueue(my: number, mode: CallMode, id: string, position?: number, eta?: number) {
+    dropQueue() // a caller put back in line after an admission lapsed replaces the old poll
+    ticketId = id
+    patch({ state: "queued", mode, endMessage: undefined, queue: { position: positive(position, 1), etaSeconds: positive(eta, 0) } })
+    queueTimer = setIv(() => { void pollQueue(my) }, QUEUE_POLL_MS)
+  }
+
+  /** The wait is over without a call (expired, left elsewhere, or the server no longer knows the ticket). */
+  function endWait(message: string) {
+    dropQueue()
+    finished = true
+    patch({ state: "idle", queue: undefined, endMessage: message })
+  }
+
+  async function pollQueue(my: number) {
+    const id = ticketId
+    if (my !== gen || !id || polling) return
+    polling = true
+    const live = () => my === gen && ticketId === id
+    try {
+      const auth = await deps.authHeader?.()
+      if (!live()) return
+      cachedAuth = auth
+      const res = await doFetch("/api/ai/voice/queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(auth ? { Authorization: auth } : {}) },
+        body: JSON.stringify({ ticketId: id }),
+      })
+      if (!live()) return
+      if (res.status === 404) return endWait(LINE_EXPIRED)
+      if (!res.ok) return // a hiccup: the next check-in tries again; the server drops the ticket if they all fail
+      const body = (await res.json().catch(() => null)) as { status?: string; position?: number; etaSeconds?: number } | null
+      if (!live() || !body) return
+      if (body.status === "waiting") {
+        patch({ queue: { position: positive(body.position, 1), etaSeconds: positive(body.etaSeconds, 0) } })
+      } else if (body.status === "admitted") {
+        // Their turn: stop polling and start the call the normal way, presenting the ticket.
+        const mode = snap.mode
+        dropQueue()
+        patch({ state: "starting", queue: undefined })
+        await proceed(my, mode, id)
+      } else if (body.status === "expired" || body.status === "left" || body.status === "used") {
+        endWait(LINE_EXPIRED)
+      }
+    } catch {
+      // Network blip: try again on the next check-in.
+    } finally {
+      polling = false
+    }
+  }
+
+  /** Hang up / close / page hide while waiting: give the place back and return to idle. */
+  function leaveQueue() {
+    gen++ // a poll or token answer still in flight is now stale
+    const id = dropQueue()
+    finished = true
+    patch({ state: "idle", queue: undefined })
+    if (id) void postLeave(id)
   }
 
   async function start(mode: CallMode): Promise<void> {
     if (blockedForPageSession) return
-    if (snap.state === "starting" || snap.state === "live") return
+    if (snap.state === "starting" || snap.state === "live" || snap.state === "queued") return
     const my = ++gen
-    const stale = () => my !== gen
     transcript = new CallTranscript()
     cards = []
     started = false
     startedAt = null
     finished = false
     patch({ ...INITIAL, state: "starting", mode, endMessage: undefined })
+    return proceed(my, mode, undefined)
+  }
+
+  /**
+   * Asks the token route for a call. First time: no ticket. After the line admitted this caller: the same generation
+   * asks again with the ticket and carries on as a normal start. A queued answer parks the caller in the line instead.
+   */
+  async function proceed(my: number, mode: CallMode, admittedTicket: string | undefined): Promise<void> {
+    const stale = () => my !== gen
 
     // What THIS start created; a stale start cleans these up and never touches the current call.
     let myCallId: string | null = null
@@ -227,6 +339,7 @@ export function createCallController(deps: CallControllerDeps) {
           mode,
           ...(deps.shopSlug ? { shopSlug: deps.shopSlug } : {}),
           ...(turnstileToken ? { turnstileToken } : {}),
+          ...(admittedTicket ? { ticketId: admittedTicket } : {}),
         }),
       })
       const body = (await res.json().catch(() => null)) as {
@@ -235,10 +348,19 @@ export function createCallController(deps: CallControllerDeps) {
         maxSeconds?: number
         fallback?: string
         reason?: FallbackReason
+        queued?: boolean
+        ticketId?: string
+        position?: number
+        etaSeconds?: number
       } | null
       myCallId = body?.callId ?? null
-      if (stale()) return dropStale()
+      if (stale()) {
+        // A ticket handed out to a start that is already gone must not sit in the line.
+        if (body?.queued && typeof body.ticketId === "string") void postLeave(body.ticketId)
+        return dropStale()
+      }
       if (!res.ok || !body) return failStart(connectErrorMessage(null), "token_failed")
+      if (body.queued && typeof body.ticketId === "string") return enterQueue(my, mode, body.ticketId, body.position, body.etaSeconds)
       if (body.fallback === "text" || !body.token || !body.callId) return failStart(connectErrorMessage(null, body.reason), "fallback")
       const token = body.token
       callId = body.callId
@@ -357,6 +479,7 @@ export function createCallController(deps: CallControllerDeps) {
   }
 
   function hangUp() {
+    if (snap.state === "queued") return leaveQueue()
     if (snap.state === "starting" || snap.state === "live") finish("user")
   }
 
@@ -404,6 +527,18 @@ export function createCallController(deps: CallControllerDeps) {
     },
     /** Component unmounted: end the call without publishing state. */
     dispose() {
+      if (snap.state === "queued") {
+        hiding = true // unmount: same synchronous send as a page hide
+        gen++
+        const id = dropQueue()
+        finished = true
+        try {
+          if (id) void postLeave(id)
+        } finally {
+          hiding = false
+        }
+        return
+      }
       if (finished) return
       gen++
       const { id, conversationId } = teardown()
@@ -416,6 +551,15 @@ export function createCallController(deps: CallControllerDeps) {
     },
     /** The page is being hidden or closed: hang up now (the request goes out synchronously, keepalive). */
     pageHide() {
+      if (snap.state === "queued") {
+        hiding = true
+        try {
+          leaveQueue()
+        } finally {
+          hiding = false
+        }
+        return
+      }
       if (snap.state !== "starting" && snap.state !== "live") return
       hiding = true
       try {

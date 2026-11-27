@@ -4,8 +4,14 @@ import { connectErrorMessage } from "./connect-errors"
 const named = (name: string) => Object.assign(new Error("x"), { name })
 
 describe("connectErrorMessage", () => {
-  it.each(["credits", "busy", "unavailable", "review_pending"] as const)("maps %s to busy copy", (r) => {
+  it.each(["busy", "unavailable", "review_pending"] as const)("maps %s to busy copy", (r) => {
     expect(connectErrorMessage(undefined, r)).toBe("Calls are busy right now — you can keep chatting here.")
+  })
+  it("maps credits to closed for today", () => {
+    expect(connectErrorMessage(undefined, "credits")).toBe("Calls are closed for today. You can keep chatting here.")
+  })
+  it("maps queue_full", () => {
+    expect(connectErrorMessage(undefined, "queue_full")).toBe("The line is full right now. Please try again in a few minutes.")
   })
   it("maps daily_cap", () => {
     expect(connectErrorMessage(undefined, "daily_cap")).toBe("You've used today's calls. You can keep chatting here.")

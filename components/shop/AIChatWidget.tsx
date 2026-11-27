@@ -5,7 +5,7 @@ import { Sparkles, X, ChevronDown, RefreshCw, EyeOff } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import { useDraggableFloatingPosition } from "@/hooks/use-draggable-floating-position"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
-import { ChatWelcome, ChatInput, HandoffButton, MessageText, CopyAnnounceProvider, SuggestionChips, TypingIndicator, useAssistantProfile, VoiceCallButtons, CallPanel, useVoiceCall } from "@/components/ai/chat"
+import { ChatWelcome, ChatInput, HandoffButton, MessageText, CopyAnnounceProvider, SuggestionChips, TypingIndicator, useAssistantProfile, VoiceCallButtons, CallPanel, QueueWaitPanel, useVoiceCall } from "@/components/ai/chat"
 import { callToMessages } from "@/lib/ai-voice/call-messages"
 import { closeWidgetDuringCall, type CloseSource } from "@/lib/ai-voice/close-widget"
 import { whatsappHref } from "@/lib/ai-chat-ui/handoff"
@@ -375,7 +375,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }
               <p className="text-primary-foreground opacity-90 text-xs">AI Assistant</p>
             </div>
             <div className="flex items-center gap-2">
-              {voice.storefront && !call.blocked && <VoiceCallButtons onStart={call.start} disabled={isStreaming || callOpen} />}
+              {voice.storefront && !call.blocked && <VoiceCallButtons onStart={call.start} disabled={isStreaming || callOpen || call.state === "queued"} />}
               <HandoffButton mode="whatsapp" messages={messages} conversationKey={conversationKeyRef.current} whatsappNumber={whatsapp} className="text-xs font-medium text-primary-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground" />
               {messages.length > 0 && (
                 <button onClick={newChat} disabled={isStreaming} className="text-xs font-medium text-primary-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground disabled:opacity-50">New chat</button>
@@ -467,6 +467,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }
             )}
           </div>
 
+          {call.state === "queued" && <QueueWaitPanel call={call} name={assistantName} />}
           {call.endMessage && <p role="status" className="border-t border-border bg-muted/40 px-4 py-2 text-xs text-muted-foreground">{call.endMessage}</p>}
           <ChatInput autoFocus name={shop.shop_name} onSend={(t) => sendMessage(t)} disabled={isStreaming} />
           </>)}

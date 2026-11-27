@@ -7,7 +7,7 @@ import { useDraggableFloatingPosition } from "@/hooks/use-draggable-floating-pos
 import { DraftCard } from "@/components/ai/DraftCard"
 import { usePathname, useRouter } from "next/navigation"
 import { parseReapproveParams } from "@/lib/ai-drafts/deep-link"
-import { ChatWelcome, ChatInput, HandoffButton, SuggestionChips, TypingIndicator, useAssistantProfile, VoiceCallButtons, CallPanel, useVoiceCall } from "@/components/ai/chat"
+import { ChatWelcome, ChatInput, HandoffButton, SuggestionChips, TypingIndicator, useAssistantProfile, VoiceCallButtons, CallPanel, QueueWaitPanel, useVoiceCall } from "@/components/ai/chat"
 import { callToMessages } from "@/lib/ai-voice/call-messages"
 import { closeWidgetDuringCall, type CloseSource } from "@/lib/ai-voice/close-widget"
 import { AssistantMarkdown } from "@/components/ai/chat/AssistantMarkdown"
@@ -379,7 +379,7 @@ export function DashboardAIChatWidget() {
               {balance && <p className="text-primary-foreground opacity-90 text-xs">Wallet: {balance}</p>}
             </div>
             <div className="flex items-center gap-3">
-              {voice.dashboard && !call.blocked && <VoiceCallButtons onStart={call.start} disabled={isStreaming || callOpen} />}
+              {voice.dashboard && !call.blocked && <VoiceCallButtons onStart={call.start} disabled={isStreaming || callOpen || call.state === "queued"} />}
               <HandoffButton mode="thread" messages={messages} conversationKey={conversationKeyRef.current} getToken={getAccessToken} phone={phone} whatsappNumber={whatsapp} noticeClassName="max-w-[9rem] text-[11px] leading-tight text-primary-foreground" className="text-xs font-medium text-primary-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground" />
               {messages.length > 0 && (
                 <button onClick={newChat} disabled={isStreaming} className="text-xs font-medium text-primary-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground disabled:opacity-50">New chat</button>
@@ -476,6 +476,7 @@ export function DashboardAIChatWidget() {
             )}
           </div>
 
+          {call.state === "queued" && <QueueWaitPanel call={call} name={assistantName} />}
           {call.endMessage && <p role="status" className="border-t border-border bg-muted/40 px-4 py-2 text-xs text-muted-foreground">{call.endMessage}</p>}
           <ChatInput autoFocus name={assistantName} onSend={(t) => sendMessage(t)} disabled={isStreaming} prefill={prefill} />
           </>)}

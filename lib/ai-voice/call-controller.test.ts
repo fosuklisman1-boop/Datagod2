@@ -227,3 +227,178 @@ describe("call controller", () => {
     await p
   })
 })
+
+describe("waiting line", () => {
+  type Reply = Record<string, unknown>
+  function setupQ(opts: { tokens: Reply[]; polls?: Reply[]; pollStatus?: number; pollGate?: ReturnType<typeof deferred<void>> }) {
+    const convs: any[] = []
+    const tokenBodies: any[] = []
+    const queueCalls: Array<{ body: any; headers: any; keepalive?: boolean }> = []
+    const timers: Array<{ fn: () => void; ms: number; cleared: boolean }> = []
+    let tokenN = 0
+    let pollN = 0
+    const fetchImpl = vi.fn(async (url: string, init: any) => {
+      if (url === "/api/ai/voice/token") {
+        tokenBodies.push(JSON.parse(init.body))
+        return new Response(JSON.stringify(opts.tokens[Math.min(tokenN++, opts.tokens.length - 1)]), { status: 200 })
+      }
+      if (url === "/api/ai/voice/queue") {
+        const body = JSON.parse(init.body)
+        queueCalls.push({ body, headers: init.headers, keepalive: init.keepalive })
+        if (body.action === "leave") return new Response(null, { status: 204 })
+        if (opts.pollGate) await opts.pollGate.promise
+        if (opts.pollStatus && opts.pollStatus !== 200) return new Response(JSON.stringify({ error: "x" }), { status: opts.pollStatus })
+        const reply = (opts.polls ?? [])[Math.min(pollN++, (opts.polls ?? []).length - 1)] ?? { status: "waiting", position: 1, etaSeconds: 180 }
+        return new Response(JSON.stringify(reply), { status: 200 })
+      }
+      if (url === "/api/ai/voice/end") return new Response(null, { status: 204 })
+      throw new Error("unexpected " + url)
+    })
+    const ctrl = createCallController({
+      context: "dashboard",
+      assistantName: () => "Clings",
+      authHeader: async () => "Bearer jwt",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      loadSdk: async () => ({ createNuanceConversation: () => { const c = fakeConv(`c${convs.length + 1}`); convs.push(c); return c } }) as any,
+      setInterval: (fn: () => void, ms: number) => { timers.push({ fn, ms, cleared: false }); return timers.length - 1 },
+      clearInterval: (h: unknown) => { timers[h as number].cleared = true },
+    })
+    const poll = async () => {
+      timers.filter((t) => t.ms === 5000 && !t.cleared).forEach((t) => t.fn())
+      await flush()
+    }
+    const pollTimers = () => timers.filter((t) => t.ms === 5000 && !t.cleared)
+    return { ctrl, convs, tokenBodies, queueCalls, poll, pollTimers, fetchImpl }
+  }
+  const QUEUED = { queued: true, ticketId: "t-1", position: 2, etaSeconds: 360 }
+  const GRANTED = { token: "tok", callId: "call-9", maxSeconds: 300 }
+
+  it("a queued reply puts the call in the queued state with its place, and creates no conversation", async () => {
+    const { ctrl, convs, pollTimers } = setupQ({ tokens: [QUEUED] })
+    await ctrl.start("voice")
+    expect(ctrl.getSnapshot()).toMatchObject({ state: "queued", mode: "voice", queue: { position: 2, etaSeconds: 360 } })
+    expect(convs).toHaveLength(0)
+    expect(pollTimers()).toHaveLength(1)
+  })
+
+  it("polls every 5 s with the ticket and shows the new place", async () => {
+    const { ctrl, poll, queueCalls } = setupQ({ tokens: [QUEUED], polls: [{ status: "waiting", position: 1, etaSeconds: 180 }] })
+    await ctrl.start("voice")
+    await poll()
+    expect(queueCalls[0].body).toEqual({ ticketId: "t-1" })
+    expect(queueCalls[0].headers.Authorization).toBe("Bearer jwt")
+    expect(ctrl.getSnapshot()).toMatchObject({ state: "queued", queue: { position: 1, etaSeconds: 180 } })
+  })
+
+  it("admitted: asks for the token again with the same mode and the ticket, then connects like a normal call", async () => {
+    const { ctrl, convs, tokenBodies, poll, pollTimers } = setupQ({ tokens: [QUEUED, GRANTED], polls: [{ status: "admitted", position: 0, etaSeconds: 0 }] })
+    await ctrl.start("video")
+    await poll()
+    expect(tokenBodies).toHaveLength(2)
+    expect(tokenBodies[1]).toMatchObject({ context: "dashboard", mode: "video", ticketId: "t-1" })
+    expect(tokenBodies[0].ticketId).toBeUndefined()
+    expect(pollTimers()).toHaveLength(0) // polling stopped
+    expect(convs).toHaveLength(1)
+    expect(ctrl.getSnapshot()).toMatchObject({ state: "starting", mode: "video" })
+    expect(ctrl.getSnapshot().queue).toBeUndefined()
+    convs[0].emit({ type: "avatar-presented" })
+    expect(ctrl.getSnapshot().state).toBe("live")
+    convs[0].resolveConnect()
+    await flush()
+  })
+
+  it("admitted but the token then says credits gone: back to idle with the closed-for-today line", async () => {
+    const { ctrl, poll } = setupQ({ tokens: [QUEUED, { fallback: "text", reason: "credits" }], polls: [{ status: "admitted" }] })
+    await ctrl.start("voice")
+    await poll()
+    expect(ctrl.getSnapshot()).toMatchObject({ state: "idle", endMessage: "Calls are closed for today. You can keep chatting here." })
+  })
+
+  it("expired: back to idle with the place-in-line-expired line and no more polling", async () => {
+    const { ctrl, poll, pollTimers } = setupQ({ tokens: [QUEUED], polls: [{ status: "expired" }] })
+    await ctrl.start("voice")
+    await poll()
+    expect(ctrl.getSnapshot()).toMatchObject({ state: "idle", endMessage: "Your place in line expired. Tap to try again." })
+    expect(pollTimers()).toHaveLength(0)
+  })
+
+  it("a ticket the server no longer knows (404) ends the wait the same way", async () => {
+    const { ctrl, poll } = setupQ({ tokens: [QUEUED], pollStatus: 404 })
+    await ctrl.start("voice")
+    await poll()
+    expect(ctrl.getSnapshot()).toMatchObject({ state: "idle", endMessage: "Your place in line expired. Tap to try again." })
+  })
+
+  it("a failed poll (server error) keeps waiting and tries again next time", async () => {
+    const { ctrl, poll } = setupQ({ tokens: [QUEUED], pollStatus: 503 })
+    await ctrl.start("voice")
+    await poll()
+    expect(ctrl.getSnapshot().state).toBe("queued")
+  })
+
+  it("hang up while queued posts leave exactly once (keepalive), stops polling and goes idle", async () => {
+    const { ctrl, queueCalls, poll, pollTimers } = setupQ({ tokens: [QUEUED] })
+    await ctrl.start("voice")
+    ctrl.hangUp()
+    ctrl.hangUp()
+    await flush()
+    expect(queueCalls.filter((c) => c.body.action === "leave")).toHaveLength(1)
+    expect(queueCalls[0]).toMatchObject({ body: { ticketId: "t-1", action: "leave" }, keepalive: true })
+    expect(ctrl.getSnapshot().state).toBe("idle")
+    expect(pollTimers()).toHaveLength(0)
+    await poll()
+    expect(queueCalls).toHaveLength(1)
+  })
+
+  it("stale generation: a poll answer that arrives after hang up does nothing (no token, no conversation)", async () => {
+    const gate = deferred<void>()
+    const { ctrl, convs, tokenBodies, poll } = setupQ({ tokens: [QUEUED, GRANTED], polls: [{ status: "admitted" }], pollGate: gate })
+    await ctrl.start("voice")
+    await poll() // the poll is now waiting on its answer
+    ctrl.hangUp()
+    gate.resolve()
+    await flush()
+    await flush()
+    expect(tokenBodies).toHaveLength(1)
+    expect(convs).toHaveLength(0)
+    expect(ctrl.getSnapshot().state).toBe("idle")
+  })
+
+  it("page hide while queued leaves the line at once with the cached auth header", async () => {
+    const { ctrl, queueCalls } = setupQ({ tokens: [QUEUED] })
+    await ctrl.start("voice")
+    ctrl.pageHide()
+    // synchronous: no await needed for the leave request to have been issued
+    expect(queueCalls).toHaveLength(1)
+    expect(queueCalls[0]).toMatchObject({ body: { ticketId: "t-1", action: "leave" }, keepalive: true })
+    expect(queueCalls[0].headers.Authorization).toBe("Bearer jwt")
+    expect(ctrl.getSnapshot().state).toBe("idle")
+  })
+
+  it("unmount (dispose) while queued also leaves the line", async () => {
+    const { ctrl, queueCalls, pollTimers } = setupQ({ tokens: [QUEUED] })
+    await ctrl.start("voice")
+    ctrl.dispose()
+    expect(queueCalls.filter((c) => c.body.action === "leave")).toHaveLength(1)
+    expect(pollTimers()).toHaveLength(0)
+  })
+
+  it("a second start while queued does nothing", async () => {
+    const { ctrl, tokenBodies } = setupQ({ tokens: [QUEUED] })
+    await ctrl.start("voice")
+    await ctrl.start("video")
+    expect(tokenBodies).toHaveLength(1)
+    expect(ctrl.getSnapshot().mode).toBe("voice")
+  })
+
+  it("after leaving, the caller can start again", async () => {
+    const { ctrl, tokenBodies } = setupQ({ tokens: [QUEUED, GRANTED] })
+    await ctrl.start("voice")
+    ctrl.hangUp()
+    await flush()
+    void ctrl.start("voice")
+    await flush()
+    expect(tokenBodies).toHaveLength(2)
+    expect(tokenBodies[1].ticketId).toBeUndefined()
+  })
+})

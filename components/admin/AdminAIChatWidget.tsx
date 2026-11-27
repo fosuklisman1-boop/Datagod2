@@ -7,7 +7,7 @@ import { useDraggableFloatingPosition } from "@/hooks/use-draggable-floating-pos
 import { usePathname, useRouter } from "next/navigation"
 import { DraftCard } from "@/components/ai/DraftCard"
 import { parseDraftParam } from "@/lib/ai-drafts/deep-link"
-import { ChatWelcome, ChatInput, SuggestionChips, TypingIndicator, useAssistantProfile, VoiceCallButtons, CallPanel, useVoiceCall } from "@/components/ai/chat"
+import { ChatWelcome, ChatInput, SuggestionChips, TypingIndicator, useAssistantProfile, VoiceCallButtons, CallPanel, QueueWaitPanel, useVoiceCall } from "@/components/ai/chat"
 import { callToMessages } from "@/lib/ai-voice/call-messages"
 import { closeWidgetDuringCall, type CloseSource } from "@/lib/ai-voice/close-widget"
 import { AssistantMarkdown } from "@/components/ai/chat/AssistantMarkdown"
@@ -337,7 +337,7 @@ export function AdminAIChatWidget() {
               <p className="text-primary-foreground opacity-90 text-xs">Full platform access</p>
             </div>
             <div className="flex items-center gap-3">
-              {voice.admin && !call.blocked && <VoiceCallButtons onStart={call.start} disabled={isStreaming || callOpen} />}
+              {voice.admin && !call.blocked && <VoiceCallButtons onStart={call.start} disabled={isStreaming || callOpen || call.state === "queued"} />}
               {messages.length > 0 && (
                 <button onClick={newChat} disabled={isStreaming} className="text-xs font-medium text-primary-foreground underline-offset-2 hover:text-primary-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground disabled:opacity-50">New chat</button>
               )}
@@ -448,6 +448,7 @@ export function AdminAIChatWidget() {
             )}
           </div>
 
+          {call.state === "queued" && <QueueWaitPanel call={call} name={assistantName} />}
           {call.endMessage && <p role="status" className="border-t border-border bg-muted/40 px-4 py-2 text-xs text-muted-foreground">{call.endMessage}</p>}
           <ChatInput autoFocus name={assistantName} onSend={(t) => sendMessage(t)} disabled={isStreaming} />
           </>)}

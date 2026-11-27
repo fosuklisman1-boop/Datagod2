@@ -78,7 +78,7 @@ export function useVoiceCall(opts: UseVoiceCallOptions) {
   /** Reads the live controller (not a render snapshot), so close handlers never see a stale answer. */
   const isActive = useCallback(() => {
     const s = controller.getSnapshot().state
-    return s === "starting" || s === "live"
+    return s === "starting" || s === "live" || s === "queued"
   }, [controller])
   const toggleMute = useCallback(() => void controller.toggleMute(), [controller])
   const cardOutcome = useCallback(
