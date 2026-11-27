@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { getNuanceUsage } from "@/lib/ai-voice/nuance"
+import { nuanceKeys } from "@/lib/ai-voice/keys"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -47,5 +48,6 @@ export async function GET(request: NextRequest) {
     callsToday,
     creditsLeft: usage?.creditsLeft ?? null,
     renewsAt: usage?.renewsAt ?? null,
+    accounts: nuanceKeys().length,
   })
 }

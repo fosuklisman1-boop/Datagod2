@@ -15,7 +15,20 @@ const DEFAULTS = {
   maxCallSeconds: 300,
   dailyCalls: { dashboard: 5, public: 1, storefront: 1 },
   visitorDailyTotal: 30,
+  multiAccount: false,
+  callsPerKey: 1,
 }
+
+describe("multiple Nuance accounts settings", () => {
+  it("keeps valid values and falls back on bad ones", () => {
+    expect(resolveVoiceSettings({ voice: { multiAccount: true, callsPerKey: 3 } })).toMatchObject({ multiAccount: true, callsPerKey: 3 })
+    expect(resolveVoiceSettings({ voice: { multiAccount: "yes", callsPerKey: 0 } })).toMatchObject({ multiAccount: false, callsPerKey: 1 })
+  })
+  it("admin writes accept multiAccount + callsPerKey 1..20 and reject out-of-range", () => {
+    expect(voiceSettingsInputSchema.safeParse({ multiAccount: true, callsPerKey: 20 }).success).toBe(true)
+    expect(voiceSettingsInputSchema.safeParse({ callsPerKey: 21 }).success).toBe(false)
+  })
+})
 
 describe("resolveVoiceSettings", () => {
   it("returns defaults for null / missing voice block", () => {

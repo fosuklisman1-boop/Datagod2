@@ -24,10 +24,10 @@ export function mapNuanceError(status: number, code?: string, errorCode?: string
 }
 
 export async function mintNuanceToken(
-  input: { systemPrompt: string; personaId: string; expressiveness: number; endUserId: string; camera: boolean },
+  input: { systemPrompt: string; personaId: string; expressiveness: number; endUserId: string; camera: boolean; apiKey?: string },
   fetchImpl: typeof fetch = fetch,
 ): Promise<{ ok: true; token: string; warnings: string[] } | { ok: false; reason: FallbackReason; status: number; code?: string }> {
-  const apiKey = process.env.NUANCE_API_KEY
+  const apiKey = input.apiKey ?? process.env.NUANCE_API_KEY
   if (!apiKey) {
     console.error("[voice] mint failed no_key")
     return { ok: false, reason: "unavailable", status: 0 }

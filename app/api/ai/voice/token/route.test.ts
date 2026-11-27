@@ -25,6 +25,8 @@ const h = vi.hoisted(() => ({
   policyOps: [] as unknown[][],
   openOps: [] as unknown[][],
   updateError: false,
+  openKeyRows: [] as { nuance_key: number }[],
+  mintByKey: {} as Record<string, Record<string, unknown>>,
 }))
 
 vi.mock("@supabase/supabase-js", () => ({
@@ -45,6 +47,8 @@ vi.mock("@supabase/supabase-js", () => ({
       const result = () => {
         if (table === "ai_voice_calls") {
           const sel = ops.find((o) => o.method === "select")
+          // Multiple accounts: open calls per Nuance account (all identities).
+          if (sel && sel.args[0] === "nuance_key") return { data: h.openKeyRows, error: null }
           if (sel && (sel.args[1] as any)?.head) {
             // I3: today's policy-ended rows for this identity. I4: this identity's still-open rows.
             if (ops.some((o) => o.method === "in" && o.args[0] === "end_reason")) { h.policyOps.push(ops.map((o) => [o.method, ...o.args])); return { count: h.policyRows, error: null } }
@@ -89,7 +93,7 @@ vi.mock("@/lib/turnstile", () => ({
 }))
 vi.mock("@/lib/rate-limiter", () => ({ applyRateLimit: async (...a: unknown[]) => { h.rateCalls.push(a.slice(1)); return { allowed: h.rateAllowed, remaining: 1, resetAt: 0, degraded: h.rateDegraded } } }))
 vi.mock("@/lib/ai-voice/nuance", () => ({
-  mintNuanceToken: async (i: Record<string, unknown>) => { h.mintCalls.push(i); return h.mint },
+  mintNuanceToken: async (i: Record<string, unknown>) => { h.mintCalls.push(i); return h.mintByKey[String(i.apiKey)] ?? h.mint },
 }))
 
 import { POST } from "./route"
@@ -108,9 +112,67 @@ beforeEach(() => {
     config: ON(), user: null, role: "user", suspension: "active", shop: null, counts: { mine: 0, visitors: 0 },
     inserted: [], updates: [], insertError: false, turnstileEnabled: false, turnstileValid: true, rateAllowed: true, rateDegraded: false, rateCalls: [], countOps: [], updateError: false,
     policyRows: 0, openRows: 0, policyOps: [], openOps: [],
-    mint: { ok: true, token: "tok_abc", warnings: [] }, mintCalls: [],
+    mint: { ok: true, token: "tok_abc", warnings: [] }, mintCalls: [], openKeyRows: [], mintByKey: {},
   })
   process.env.NUANCE_DEVICE_SALT = "salt"
+  process.env.NUANCE_API_KEY = "nk_one"
+  process.env.NUANCE_API_KEY_2 = "nk_two"
+  process.env.NUANCE_API_KEY_3 = "nk_three"
+})
+
+describe("multiple Nuance accounts", () => {
+  const CREDITS = { ok: false, reason: "credits", status: 429, code: "credits_spent" }
+  const dash = () => { h.user = { id: "u1" }; return POST(req({ context: "dashboard", mode: "voice" }, authed)) }
+
+  it("switched off: uses account 1 only and records it on the call", async () => {
+    h.mintByKey = { nk_one: CREDITS }
+    const res = await dash()
+    expect(await res.json()).toEqual({ fallback: "text", reason: "credits" })
+    expect(h.mintCalls.map((c) => c.apiKey)).toEqual(["nk_one"])
+    expect(h.inserted[0]).toMatchObject({ end_reason: "mint_credits", nuance_key: 1 })
+  })
+
+  it("switched on: an account out of credits moves on to the next and records the one that worked", async () => {
+    h.config = ON({ multiAccount: true })
+    h.mintByKey = { nk_one: CREDITS }
+    const res = await dash()
+    expect((await res.json()).token).toBe("tok_abc")
+    expect(h.mintCalls.map((c) => c.apiKey)).toEqual(["nk_one", "nk_two"])
+    expect(h.inserted[0]).toMatchObject({ nuance_key: 2 })
+    expect(h.inserted[0].end_reason).toBeUndefined()
+  })
+
+  it("switched on: skips an account whose call slot is taken", async () => {
+    h.config = ON({ multiAccount: true })
+    h.openKeyRows = [{ nuance_key: 1 }]
+    await dash()
+    expect(h.mintCalls.map((c) => c.apiKey)).toEqual(["nk_two"])
+  })
+
+  it("switched on: every account busy -> busy, no mint, no call row", async () => {
+    h.config = ON({ multiAccount: true })
+    h.openKeyRows = [{ nuance_key: 1 }, { nuance_key: 2 }, { nuance_key: 3 }]
+    const res = await dash()
+    expect(await res.json()).toEqual({ fallback: "text", reason: "busy" })
+    expect(h.mintCalls).toHaveLength(0)
+    expect(h.inserted).toHaveLength(0)
+  })
+
+  it("switched on: every account out of credits -> credits, all three tried once", async () => {
+    h.config = ON({ multiAccount: true })
+    h.mintByKey = { nk_one: CREDITS, nk_two: CREDITS, nk_three: CREDITS }
+    const res = await dash()
+    expect(await res.json()).toEqual({ fallback: "text", reason: "credits" })
+    expect(h.mintCalls.map((c) => c.apiKey)).toEqual(["nk_one", "nk_two", "nk_three"])
+  })
+
+  it("a refusal that isn't credits/busy stops at once (no other account tried)", async () => {
+    h.config = ON({ multiAccount: true })
+    h.mintByKey = { nk_one: { ok: false, reason: "policy", status: 403, code: "policy_curfew" } }
+    const res = await dash()
+    expect(await res.json()).toEqual({ fallback: "text", reason: "policy" })
+    expect(h.mintCalls).toHaveLength(1)
+  })
 })
 
 describe("POST /api/ai/voice/token", () => {

@@ -11,6 +11,7 @@ import { resolveVoiceSettings, voiceAudienceForContext, voiceAvailable } from "@
 import { checkCallCaps, endUserIdFor } from "@/lib/ai-voice/gate"
 import { buildPersonaPrompt } from "@/lib/ai-voice/prompt"
 import { mintNuanceToken, type FallbackReason } from "@/lib/ai-voice/nuance"
+import { candidateKeys, nuanceKeys } from "@/lib/ai-voice/keys"
 import { deviceHashFor, newDeviceId, readDeviceId, setDeviceCookie, voiceSalt } from "@/lib/ai-voice/device-cookie"
 
 export const dynamic = "force-dynamic"
@@ -128,6 +129,19 @@ export async function POST(req: NextRequest) {
   if ((pol.count ?? 0) > 0) return fallback("policy")
   if ((open.count ?? 0) > 0) return fallback("busy")
 
+  // 6d. Which Nuance account(s) may take this call. Every account full -> busy, before any row exists.
+  const openByKey: Record<number, number> = {}
+  if (voice.multiAccount) {
+    const { data: openRows, error: openErr } = await supabaseAdmin.from("ai_voice_calls").select("nuance_key")
+      .is("ended_at", null).gt("created_at", openCutoff)
+    if (openErr) return fallback("unavailable")
+    for (const r of (openRows ?? []) as { nuance_key?: number | null }[]) {
+      if (typeof r.nuance_key === "number") openByKey[r.nuance_key] = (openByKey[r.nuance_key] ?? 0) + 1
+    }
+  }
+  const accounts = candidateKeys(nuanceKeys(), { multiAccount: voice.multiAccount, callsPerKey: voice.callsPerKey, openByKey })
+  if (accounts.length === 0) return fallback(voice.multiAccount && nuanceKeys().length > 0 ? "busy" : "unavailable")
+
   // 7. Record the call FIRST, then count including it: parallel requests cannot all pass a stale count.
   // A refused mint keeps its row (it counts toward the caps); a cap_exceeded row does not.
   const row: Record<string, unknown> = {
@@ -172,17 +186,27 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // 9. Mint
-  const minted = await mintNuanceToken({
+  // 9. Mint: try the accounts in order; out of credits or at its start limit -> next account. Any other refusal stops.
+  const mintInput = {
     systemPrompt: buildPersonaPrompt({ assistantName: assistant.name, context: ctx, tone: assistant.tone }),
     personaId: voice.personaId,
     expressiveness: voice.expressiveness,
     endUserId: endUserIdFor(userId ?? null, deviceId, voiceSalt()),
     camera: mode === "video",
-  })
-  if (!minted.ok) {
-    await endRow(`mint_${minted.reason}`)
-    return fallback(minted.reason)
   }
-  return respond({ token: minted.token, callId, maxSeconds: voice.maxCallSeconds })
+  let last: { reason: FallbackReason; key: number } | null = null
+  for (const account of accounts) {
+    const minted = await mintNuanceToken({ ...mintInput, apiKey: account.key })
+    if (minted.ok) {
+      const { error: keyErr } = await supabaseAdmin.from("ai_voice_calls").update({ nuance_key: account.index }).eq("id", callId)
+      if (keyErr) console.error("[voice] call row update failed")
+      return respond({ token: minted.token, callId, maxSeconds: voice.maxCallSeconds })
+    }
+    last = { reason: minted.reason, key: account.index }
+    if (!voice.multiAccount || (minted.reason !== "credits" && minted.reason !== "busy")) break
+  }
+  await supabaseAdmin.from("ai_voice_calls")
+    .update({ ended_at: new Date().toISOString(), end_reason: `mint_${last!.reason}`, nuance_key: last!.key }).eq("id", callId)
+    .then((r: { error?: unknown }) => { if (r?.error) console.error("[voice] call row update failed") })
+  return fallback(last!.reason)
 }
