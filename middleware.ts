@@ -11,6 +11,7 @@ import { apiHostRewrite } from "@/lib/api-v2/host"
 import { REQUEST_PATH_HEADER, SHOP_ROBOTS_TAG, SITE_KIND_HEADER, classifySiteKind, shouldNoindexRequest } from "@/lib/seo/site-kind"
 import { legacyHostRedirect } from "@/lib/seo/host-redirect"
 import { subagentsHostRedirect, SUBAGENTS_SUBDOMAIN } from "@/lib/sub-agents/join-host"
+import { PERMISSIONS_POLICY, VOICE_CONNECT_SRC } from "@/lib/security-headers"
 
 // Per-IP cookie-issuance rate limit. Real customers refresh a handful of cookies
 // per browsing session (visit, navigate to checkout, etc.). Attackers harvesting
@@ -370,7 +371,7 @@ export async function middleware(request: NextRequest) {
     // frame-ancestors replaces X-Frame-Options; keep both for broad compatibility.
     "frame-ancestors 'self' https://js.paystack.co",
     "worker-src 'self' blob:",
-    "connect-src 'self' https://js.paystack.co https://api.paystack.co https://paystack.com https://checkout.paystack.com https://supabase.co https://*.supabase.co wss://*.supabase.co https://storage.googleapis.com https://eu.i.posthog.com https://eu-assets.i.posthog.com https://*.google-analytics.com https://analytics.google.com https://*.analytics.google.com https://www.google.com https://www.google.com.gh https://*.g.doubleclick.net https://pagead2.googlesyndication.com https://*.googletagmanager.com https://challenges.cloudflare.com",
+    "connect-src 'self' https://js.paystack.co https://api.paystack.co https://paystack.com https://checkout.paystack.com https://supabase.co https://*.supabase.co wss://*.supabase.co https://storage.googleapis.com https://eu.i.posthog.com https://eu-assets.i.posthog.com https://*.google-analytics.com https://analytics.google.com https://*.analytics.google.com https://www.google.com https://www.google.com.gh https://*.g.doubleclick.net https://pagead2.googlesyndication.com https://*.googletagmanager.com https://challenges.cloudflare.com " + VOICE_CONNECT_SRC.join(" "),
     // Harden against injection via object/data URIs and base-tag hijacking.
     "object-src 'none'",
     "base-uri 'self'",
@@ -382,8 +383,8 @@ export async function middleware(request: NextRequest) {
   // Isolates the top-level window from cross-origin pop-ups (e.g. XS-Leaks).
   // 'same-origin-allow-popups' keeps Paystack's checkout pop-up working.
   response.headers.set("Cross-Origin-Opener-Policy", "same-origin-allow-popups")
-  // Deny access to sensitive browser APIs from this origin.
-  response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+  // Mic + camera for this origin only (Clings voice/video calls); geolocation stays off.
+  response.headers.set("Permissions-Policy", PERMISSIONS_POLICY)
 
   // ── Shop session cookie ─────────────────────────────────────────────────────
   // Set __shop_sess on any /shop/<slug>* page load, bound to that specific slug.
