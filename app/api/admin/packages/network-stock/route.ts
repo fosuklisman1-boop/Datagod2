@@ -6,8 +6,9 @@ import {
   getNetworkStockMap,
   setNetworkOutOfStock,
   restockNetwork,
-  STOCK_TRACKED_NETWORKS,
 } from "@/lib/network-stock-service"
+import { parseNetworkStockBody } from "@/lib/network-stock-request"
+import { normalizeStockReason } from "@/lib/network-stock-notice"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -40,18 +41,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
   }
 
-  const { network, outOfStock } = body ?? {}
-
-  if (!STOCK_TRACKED_NETWORKS.includes(network)) {
-    return NextResponse.json(
-      { error: `network must be one of: ${STOCK_TRACKED_NETWORKS.join(", ")}` },
-      { status: 400 }
-    )
-  }
-
-  if (typeof outOfStock !== "boolean") {
-    return NextResponse.json({ error: "outOfStock must be a boolean" }, { status: 400 })
-  }
+  const parsed = parseNetworkStockBody(body)
+  if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
+  const { network, outOfStock, reason } = parsed
 
   const adminClient = createClient(supabaseUrl, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
@@ -59,8 +51,8 @@ export async function POST(request: NextRequest) {
 
   try {
     const result = outOfStock
-      ? await setNetworkOutOfStock(adminClient, network)
-      : await restockNetwork(adminClient, network)
+      ? await setNetworkOutOfStock(adminClient, network, reason)
+      : { ...(await restockNetwork(adminClient, network)), reasonUpdated: false }
 
     // Stock flips change which packages the public price pages list.
     if (result.affected > 0) revalidateTag("seo-live-facts")
@@ -75,7 +67,7 @@ export async function POST(request: NextRequest) {
           action: "network_stock_toggle",
           target_user_id: null,
           old_value: { network },
-          new_value: { outOfStock, ...result },
+          new_value: { outOfStock, ...result, ...(outOfStock ? { reason: normalizeStockReason(reason) } : {}) },
           created_at: new Date().toISOString(),
         },
       ])
@@ -83,7 +75,7 @@ export async function POST(request: NextRequest) {
         if (error) console.warn("[ADMIN-AUDIT] network_stock_toggle log insert failed:", error.message)
       })
 
-    return NextResponse.json({ success: true, network, outOfStock, affected: result.affected })
+    return NextResponse.json({ success: true, network, outOfStock, affected: result.affected, reasonUpdated: result.reasonUpdated })
   } catch (error) {
     console.error("[NETWORK-STOCK] POST error:", error)
     return NextResponse.json({ error: "Failed to update network stock status" }, { status: 500 })

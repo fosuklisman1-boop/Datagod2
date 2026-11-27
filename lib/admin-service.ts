@@ -207,7 +207,9 @@ export const adminPackageService = {
   // Mark a network out of stock (disables all its currently-available
   // packages) or restock it (re-enables exactly the packages that were
   // disabled by the last out-of-stock toggle)
-  async setNetworkStock(network: string, outOfStock: boolean): Promise<{ success: boolean; affected: number }> {
+  // reason: text customers see while out of stock; sent only when defined
+  // (undefined while already out of stock = leave the reason as it is).
+  async setNetworkStock(network: string, outOfStock: boolean, reason?: string | null): Promise<{ success: boolean; affected: number; reasonUpdated?: boolean }> {
     try {
       const { data: { session } } = await supabase.auth.getSession()
 
@@ -221,7 +223,7 @@ export const adminPackageService = {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ network, outOfStock }),
+        body: JSON.stringify(reason === undefined ? { network, outOfStock } : { network, outOfStock, reason }),
       })
 
       const data = await response.json()
